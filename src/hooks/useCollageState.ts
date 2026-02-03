@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { PhotoItem, CollageSettings, CollageLayout, CollageState } from '@/types/collage';
 
 const STORAGE_KEY = 'smart-collage-state';
@@ -44,30 +44,37 @@ function saveToStorage(state: CollageState) {
   }
 }
 
+// Helper to update state and persist in one operation
+function updateAndPersist(
+  setState: React.Dispatch<React.SetStateAction<CollageState>>,
+  updater: (prev: CollageState) => CollageState
+) {
+  setState((prev) => {
+    const next = updater(prev);
+    saveToStorage(next);
+    return next;
+  });
+}
+
 export function useCollageState() {
   const [state, setState] = useState<CollageState>(loadFromStorage);
 
-  // Persist to localStorage on every change
-  useEffect(() => {
-    saveToStorage(state);
-  }, [state]);
-
   const addPhotos = useCallback((newPhotos: PhotoItem[]) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       photos: [...prev.photos, ...newPhotos],
     }));
   }, []);
 
   const removePhoto = useCallback((photoId: string) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       photos: prev.photos.filter((p) => p.id !== photoId),
     }));
   }, []);
 
   const updatePhoto = useCallback((photoId: string, updates: Partial<PhotoItem>) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       photos: prev.photos.map((p) =>
         p.id === photoId ? { ...p, ...updates } : p
@@ -76,28 +83,28 @@ export function useCollageState() {
   }, []);
 
   const updateSettings = useCallback((updates: Partial<CollageSettings>) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       settings: { ...prev.settings, ...updates },
     }));
   }, []);
 
   const setLayout = useCallback((layout: CollageLayout | null) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       layout,
     }));
   }, []);
 
   const setStep = useCallback((step: CollageState['step']) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       step,
     }));
   }, []);
 
   const updateLayoutCells = useCallback((cells: CollageLayout['cells']) => {
-    setState((prev) => ({
+    updateAndPersist(setState, (prev) => ({
       ...prev,
       layout: prev.layout ? { ...prev.layout, cells } : null,
     }));

@@ -1,5 +1,7 @@
 import { X, Loader2, AlertCircle, Check } from 'lucide-react';
 import { PhotoItem, CropRegion } from '@/types/collage';
+import { CroppedImage } from '@/components/common/CroppedImage';
+import { ImageContainer } from '@/components/common/ImageContainer';
 import { cn } from '@/lib/utils';
 
 interface PhotoThumbnailProps {
@@ -23,60 +25,21 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
   return (
     <div
       className={cn(
-        "relative group rounded-lg overflow-hidden bg-surface-elevated aspect-square",
+        "relative group rounded-lg overflow-hidden bg-surface-elevated",
         onClick && "cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
         className
       )}
       onClick={onClick}
     >
-      {/* Image container - centered with object-contain for letterbox/pillarbox effect */}
-      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-        {activeCrop ? (
-          // Cropped preview: use transform-based approach for reliable rendering
-          (() => {
-            const cropAspect = activeCrop.width / activeCrop.height;
-            // Determine container dimensions based on crop aspect ratio
-            // The container should fit within the square while maintaining crop's aspect ratio
-            const containerStyle: React.CSSProperties = cropAspect >= 1
-              ? { width: '100%', height: `${100 / cropAspect}%` }
-              : { width: `${100 * cropAspect}%`, height: '100%' };
-            
-            // Scale factor: how much to scale the full image so the crop region fills the container
-            const scaleX = 100 / (activeCrop.width / photo.originalWidth * 100);
-            const scaleY = 100 / (activeCrop.height / photo.originalHeight * 100);
-            const scale = Math.min(scaleX, scaleY);
-            
-            // Translate to position the crop region at the origin
-            const translateX = -(activeCrop.x / photo.originalWidth) * 100 * scale;
-            const translateY = -(activeCrop.y / photo.originalHeight) * 100 * scale;
-            
-            return (
-              <div 
-                className="relative overflow-hidden flex items-center justify-center"
-                style={containerStyle}
-              >
-                <img
-                  src={photo.originalDataUrl}
-                  alt=""
-                  className="absolute top-0 left-0"
-                  style={{
-                    width: `${scale * 100}%`,
-                    height: `${scale * 100}%`,
-                    transform: `translate(${translateX}%, ${translateY}%)`,
-                    transformOrigin: 'top left',
-                  }}
-                />
-              </div>
-            );
-          })()
-        ) : (
-          <img
-            src={photo.originalDataUrl}
-            alt=""
-            className="max-w-full max-h-full object-contain"
-          />
-        )}
-      </div>
+      <ImageContainer aspectRatio="square">
+        <CroppedImage
+          src={photo.originalDataUrl}
+          crop={showCropped ? activeCrop : null}
+          originalWidth={photo.originalWidth}
+          originalHeight={photo.originalHeight}
+          fit="contain"
+        />
+      </ImageContainer>
 
       {/* Processing overlay */}
       {photo.isProcessing && (

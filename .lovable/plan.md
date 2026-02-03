@@ -1,75 +1,78 @@
 
 
-# Remove Unnecessary useEffect from NotFound
+# Remove Toast Notifications
 
-The `useEffect` in `NotFound.tsx` is used solely for console logging, which violates our architectural principles - side effects like logging don't need to be deferred to after render.
-
----
-
-## Current Code
-
-```typescript
-useEffect(() => {
-  console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-}, [location.pathname]);
-```
-
-**Problem:** This is unnecessary complexity. Console logging doesn't need to wait for the component to mount - it can happen during render, or we can remove it entirely since:
-1. 404s are typically logged server-side in production
-2. The browser's network tab already shows failed navigations
-3. This adds React overhead for no user benefit
+Toast notifications are being removed in favor of inline feedback. The UI should make state changes clear through direct visual updates.
 
 ---
 
-## Solution
+## Current Toast Usages
 
-Remove the `useEffect` and its import entirely. If logging is truly needed, it could happen inline during render, but in this case it's just noise.
+| Location | Type | Message | Replacement Strategy |
+|----------|------|---------|---------------------|
+| Smart crop failure | error | "Smart crop failed for one photo" | Already handled - error overlay on thumbnail |
+| Export success | success | "Collage downloaded!" | Remove - browser download dialog is feedback |
+| Export failure | error | "Failed to export collage" | Add inline error state in collage step |
+| Regenerate success | success | "Layout regenerated" | Remove - layout visually updates |
+| Clear all success | success | "All photos cleared" | Remove - photos disappear from screen |
 
 ---
 
-## File Changes
+## Files to Modify
 
-### `src/pages/NotFound.tsx`
+### 1. `src/pages/Index.tsx`
 
 **Remove:**
-- `useEffect` import
-- The entire `useEffect` block
+- Import of `toast` from `sonner`
+- All 5 toast calls
 
-**Result:** A simpler, purely presentational component with no side effects.
+**Add:**
+- `exportError` state for showing export failures inline
+- Inline error message in the collage step UI when export fails
 
-```typescript
-import { useLocation } from "react-router-dom";
+**Changes to handlers:**
+- `processSmartCrops`: Remove toast.error (thumbnail already shows error overlay)
+- `handleExport`: Remove toast.success, add setExportError for failures
+- `handleRegenerateLayout`: Remove toast.success
+- `clearAll` onClick: Remove toast.success
 
-const NotFound = () => {
-  const location = useLocation();
+### 2. `src/App.tsx`
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
-      </div>
-    </div>
-  );
-};
+**Remove:**
+- Import of `Toaster` from `@/components/ui/toaster`
+- Import of `Toaster as Sonner` from `@/components/ui/sonner`
+- Both `<Toaster />` and `<Sonner />` components from JSX
 
-export default NotFound;
-```
+### 3. Delete Toast Infrastructure Files
+
+- `src/components/ui/sonner.tsx`
+- `src/components/ui/toaster.tsx`
+- `src/components/ui/toast.tsx`
+- `src/components/ui/use-toast.ts`
+- `src/hooks/use-toast.ts`
 
 ---
 
-## Summary of All useEffect Cleanups
+## Inline Error UI for Export Failures
 
-| File | Status | Action Taken |
-|------|--------|--------------|
-| `CropEditor.tsx` | Fixed | Removed dimension state + useEffect, use CSS sizing |
-| `CollagePreview.tsx` | Fixed | Removed scale state + useEffect, use CSS aspect-ratio |
-| `NotFound.tsx` | This PR | Remove logging useEffect entirely |
-| `use-mobile.tsx` | Valid | Media query subscription (external API) |
-| `use-toast.ts` | Valid | Pub/sub listener (external state) |
-| `carousel.tsx` | Valid | Embla library integration |
-| `sidebar.tsx` | Valid | Keyboard shortcut listener |
+In the collage step, add an inline error message below the action buttons:
+
+```text
+┌─────────────────────────────────────────┐
+│  [Regenerate]  [Download PNG]           │
+│                                         │
+│  ⚠ Failed to export collage. Try again. │  ← Only shown when exportError is set
+└─────────────────────────────────────────┘
+```
+
+The error clears when the user clicks Download again or navigates away.
+
+---
+
+## Why This Is Better
+
+- **Success feedback**: The UI itself changes (photos disappear, layout updates, download starts)
+- **Error feedback**: Inline text stays visible until addressed, unlike toasts that auto-dismiss
+- **Simpler architecture**: Removes ~300 lines of toast infrastructure code
+- **More accessible**: Inline errors are easier for screen readers to associate with context
 

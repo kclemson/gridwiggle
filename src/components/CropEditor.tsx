@@ -38,6 +38,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [cropStart, setCropStart] = useState<CropRegion | null>(null);
   
   // Trigger re-render when image loads so scale can be computed
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -76,46 +77,48 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     setIsDragging(true);
     setDragType(type);
     setDragStart(pos);
-  }, [getEventPosition]);
+    setCropStart({ ...crop }); // Snapshot crop at drag start
+  }, [getEventPosition, crop]);
 
   const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDragging || !dragType) return;
+    if (!isDragging || !dragType || !cropStart) return;
 
     const pos = getEventPosition(e);
+    // Use absolute delta from original position, not incremental
     const dx = pos.x - dragStart.x;
     const dy = pos.y - dragStart.y;
 
-    let newCrop = { ...crop };
+    let newCrop = { ...cropStart }; // Start from original crop snapshot
 
     if (dragType === 'move') {
-      newCrop.x = Math.max(0, Math.min(crop.x + dx, photo.originalWidth - crop.width));
-      newCrop.y = Math.max(0, Math.min(crop.y + dy, photo.originalHeight - crop.height));
+      newCrop.x = Math.max(0, Math.min(cropStart.x + dx, photo.originalWidth - cropStart.width));
+      newCrop.y = Math.max(0, Math.min(cropStart.y + dy, photo.originalHeight - cropStart.height));
     } else {
       const minSize = 50;
       
       if (dragType.includes('nw') || dragType.includes('sw')) {
-        const newX = Math.max(0, Math.min(crop.x + dx, crop.x + crop.width - minSize));
-        const widthChange = crop.x - newX;
+        const newX = Math.max(0, Math.min(cropStart.x + dx, cropStart.x + cropStart.width - minSize));
+        const widthChange = cropStart.x - newX;
         newCrop.x = newX;
-        newCrop.width = crop.width + widthChange;
+        newCrop.width = cropStart.width + widthChange;
       }
       if (dragType.includes('ne') || dragType.includes('se')) {
-        newCrop.width = Math.max(minSize, Math.min(crop.width + dx, photo.originalWidth - crop.x));
+        newCrop.width = Math.max(minSize, Math.min(cropStart.width + dx, photo.originalWidth - cropStart.x));
       }
       if (dragType.includes('nw') || dragType.includes('ne')) {
-        const newY = Math.max(0, Math.min(crop.y + dy, crop.y + crop.height - minSize));
-        const heightChange = crop.y - newY;
+        const newY = Math.max(0, Math.min(cropStart.y + dy, cropStart.y + cropStart.height - minSize));
+        const heightChange = cropStart.y - newY;
         newCrop.y = newY;
-        newCrop.height = crop.height + heightChange;
+        newCrop.height = cropStart.height + heightChange;
       }
       if (dragType.includes('sw') || dragType.includes('se')) {
-        newCrop.height = Math.max(minSize, Math.min(crop.height + dy, photo.originalHeight - crop.y));
+        newCrop.height = Math.max(minSize, Math.min(cropStart.height + dy, photo.originalHeight - cropStart.y));
       }
     }
 
     setCrop(newCrop);
-    setDragStart(pos);
-  }, [isDragging, dragType, crop, photo.originalWidth, photo.originalHeight, getEventPosition, dragStart]);
+    // Don't update dragStart - keep original reference point
+  }, [isDragging, dragType, cropStart, photo.originalWidth, photo.originalHeight, getEventPosition, dragStart]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
@@ -160,10 +163,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
             {/* Only render overlay once image has loaded and we can compute scale */}
             {imageLoaded && (
               <>
-                {/* Darkened overlay */}
-                <div className="absolute inset-0 bg-black/60 pointer-events-none" />
-                
-                {/* Clear crop area */}
+                {/* Crop area with box-shadow to darken outside */}
                 <div
                   className="absolute border-2 border-white cursor-move"
                   style={{

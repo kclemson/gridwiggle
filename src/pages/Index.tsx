@@ -18,9 +18,9 @@ import {
   ArrowLeft, 
   Loader2,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
-import { toast } from 'sonner';
 
 export default function Index() {
   const {
@@ -37,6 +37,7 @@ export default function Index() {
 
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
@@ -70,7 +71,6 @@ export default function Index() {
           isProcessing: false,
           error: error instanceof Error ? error.message : 'Failed to process',
         });
-        toast.error('Smart crop failed for one photo');
       }
       
       completed++;
@@ -119,6 +119,7 @@ export default function Index() {
     if (!state.layout) return;
 
     setIsExporting(true);
+    setExportError(null);
     try {
       const blob = await exportCollageAsPng(
         state.photos,
@@ -129,10 +130,9 @@ export default function Index() {
       
       const timestamp = new Date().toISOString().split('T')[0];
       downloadBlob(blob, `collage-${timestamp}.png`);
-      toast.success('Collage downloaded!');
     } catch (error) {
       console.error('Export failed:', error);
-      toast.error('Failed to export collage');
+      setExportError('Failed to export collage. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -141,7 +141,7 @@ export default function Index() {
   const handleRegenerateLayout = useCallback(() => {
     const layout = generateCollageLayout(state.photos, state.settings);
     setLayout(layout);
-    toast.success('Layout regenerated');
+    setExportError(null);
   }, [state.photos, state.settings, setLayout]);
 
   const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
@@ -178,10 +178,7 @@ export default function Index() {
               variant="ghost"
               size="sm"
               className="text-destructive hover:text-destructive"
-              onClick={() => {
-                clearAll();
-                toast.success('All photos cleared');
-              }}
+              onClick={clearAll}
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Clear All
@@ -303,6 +300,12 @@ export default function Index() {
                   Download PNG
                 </Button>
               </div>
+              {exportError && (
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {exportError}
+                </p>
+              )}
             </div>
 
             <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">

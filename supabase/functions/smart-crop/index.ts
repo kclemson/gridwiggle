@@ -145,7 +145,7 @@ You must respond with ONLY a JSON object in this exact format:
     }
 
     // Convert percentages to pixel coordinates
-    const cropRegion: CropRegion = {
+    let cropRegion: CropRegion = {
       x: Math.round((cropData.x / 100) * width),
       y: Math.round((cropData.y / 100) * height),
       width: Math.round((cropData.width / 100) * width),
@@ -157,6 +157,23 @@ You must respond with ONLY a JSON object in this exact format:
     cropRegion.y = Math.max(0, Math.min(cropRegion.y, height - 50));
     cropRegion.width = Math.max(50, Math.min(cropRegion.width, width - cropRegion.x));
     cropRegion.height = Math.max(50, Math.min(cropRegion.height, height - cropRegion.y));
+
+    // Validate aspect ratio and minimum dimensions
+    const aspectRatio = cropRegion.width / cropRegion.height;
+    const minDimension = Math.min(width, height) * 0.2;
+    
+    // Check if crop is too extreme (aspect ratio > 3:1 or < 1:3, or dimensions too small)
+    if (cropRegion.width < minDimension || cropRegion.height < minDimension || 
+        aspectRatio > 3 || aspectRatio < 0.33) {
+      console.log("Invalid crop detected, falling back to center crop. Original:", cropRegion, "Aspect ratio:", aspectRatio);
+      // Fall back to 80% center crop
+      cropRegion = {
+        x: Math.round(width * 0.1),
+        y: Math.round(height * 0.1),
+        width: Math.round(width * 0.8),
+        height: Math.round(height * 0.8),
+      };
+    }
 
     console.log("Smart crop result:", cropRegion, "Subjects:", cropData.subjects);
 

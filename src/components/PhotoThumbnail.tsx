@@ -10,23 +10,15 @@ interface PhotoThumbnailProps {
   className?: string;
 }
 
-function getCroppedStyle(crop: CropRegion, originalWidth: number, originalHeight: number): React.CSSProperties {
-  const scaleX = 100 / crop.width;
-  const scaleY = 100 / crop.height;
-  const scale = Math.min(scaleX, scaleY);
-  
-  return {
-    objectFit: 'none' as const,
-    objectPosition: `${-crop.x}px ${-crop.y}px`,
-    width: originalWidth,
-    height: originalHeight,
-    transform: `scale(${scale * crop.width / originalWidth})`,
-    transformOrigin: 'top left',
-  };
+// Check if crop dimensions are valid for display
+function isValidCrop(crop: CropRegion): boolean {
+  return crop.width >= 50 && crop.height >= 50;
 }
 
 export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, className }: PhotoThumbnailProps) {
-  const activeCrop = showCropped ? (photo.manualCrop || photo.smartCrop) : null;
+  const rawCrop = showCropped ? (photo.manualCrop || photo.smartCrop) : null;
+  // Only use crop if it's valid
+  const activeCrop = rawCrop && isValidCrop(rawCrop) ? rawCrop : null;
 
   return (
     <div
@@ -38,28 +30,45 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
       onClick={onClick}
     >
       {/* Image container - centered with object-contain for letterbox/pillarbox effect */}
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
         {activeCrop ? (
-          <div
-            className="relative overflow-hidden"
-            style={{
-              aspectRatio: activeCrop.width / activeCrop.height,
-              maxWidth: '100%',
-              maxHeight: '100%',
-            }}
-          >
-            <img
-              src={photo.originalDataUrl}
-              alt=""
-              className="absolute"
-              style={{
-                width: `${(photo.originalWidth / activeCrop.width) * 100}%`,
-                height: `${(photo.originalHeight / activeCrop.height) * 100}%`,
-                left: `${(-activeCrop.x / activeCrop.width) * 100}%`,
-                top: `${(-activeCrop.y / activeCrop.height) * 100}%`,
-              }}
-            />
-          </div>
+          // Cropped preview: use transform-based approach for reliable rendering
+          (() => {
+            const cropAspect = activeCrop.width / activeCrop.height;
+            // Determine container dimensions based on crop aspect ratio
+            // The container should fit within the square while maintaining crop's aspect ratio
+            const containerStyle: React.CSSProperties = cropAspect >= 1
+              ? { width: '100%', height: `${100 / cropAspect}%` }
+              : { width: `${100 * cropAspect}%`, height: '100%' };
+            
+            // Scale factor: how much to scale the full image so the crop region fills the container
+            const scaleX = 100 / (activeCrop.width / photo.originalWidth * 100);
+            const scaleY = 100 / (activeCrop.height / photo.originalHeight * 100);
+            const scale = Math.min(scaleX, scaleY);
+            
+            // Translate to position the crop region at the origin
+            const translateX = -(activeCrop.x / photo.originalWidth) * 100 * scale;
+            const translateY = -(activeCrop.y / photo.originalHeight) * 100 * scale;
+            
+            return (
+              <div 
+                className="relative overflow-hidden flex items-center justify-center"
+                style={containerStyle}
+              >
+                <img
+                  src={photo.originalDataUrl}
+                  alt=""
+                  className="absolute top-0 left-0"
+                  style={{
+                    width: `${scale * 100}%`,
+                    height: `${scale * 100}%`,
+                    transform: `translate(${translateX}%, ${translateY}%)`,
+                    transformOrigin: 'top left',
+                  }}
+                />
+              </div>
+            );
+          })()
         ) : (
           <img
             src={photo.originalDataUrl}

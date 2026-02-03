@@ -13,6 +13,47 @@ interface PhotoDimension {
   weight: number; // For future "hero" photos support
 }
 
+export interface RegionPackResult {
+  /** Cells positioned within the region */
+  cells: CollageCell[];
+  
+  /** The height the packing achieved */
+  achievedHeight: number;
+  
+  /** The row partition used */
+  partition: PhotoDimension[][];
+  
+  /** If targetHeight was provided: whether achieved is within tolerance */
+  valid: boolean;
+  
+  /** Absolute difference from target height (0 if no target) */
+  heightError: number;
+}
+
+export interface RegionPackOptions {
+  /** Region width (required) */
+  width: number;
+  
+  /** Gap between photos */
+  gap: number;
+  
+  /** Target height to validate against (optional) */
+  targetHeight?: number;
+  
+  /** Tolerance for height matching (default: 2px) */
+  tolerance?: number;
+  
+  /** Offset for cell positions (default: 0, 0) */
+  offsetX?: number;
+  offsetY?: number;
+  
+  /** Target aspect ratio for scoring (optional, inferred from width/targetHeight) */
+  targetAspect?: number;
+  
+  /** Whether this is a landscape-oriented region */
+  isLandscape?: boolean;
+}
+
 export interface LayoutOptions {
   /** Weight multiplier per photo ID (default: 1). Higher = larger in layout */
   photoWeights?: Record<string, number>;
@@ -290,30 +331,42 @@ function samplePartitions(
 }
 
 // ============================================================================
-// Layout Calculation
+// Layout Calculation Helpers
 // ============================================================================
 
-function calculateLayout(
+/** Calculate the total height a partition would achieve at a given width */
+function calculatePackedHeight(
+  partition: PhotoDimension[][],
+  width: number,
+  gap: number
+): number {
+  if (partition.length === 0) return 0;
+  
+  const heights = partition.map(row => {
+    const aspectSum = getRowAspectSum(row);
+    const availableWidth = width - gap * (row.length - 1);
+    return availableWidth / aspectSum;
+  });
+  return heights.reduce((sum, h) => sum + h, 0) + gap * (partition.length - 1);
+}
+
+/** Calculate layout cells with offset positioning for sub-regions */
+function calculateLayoutWithOffset(
   rows: PhotoDimension[][],
-  settings: CollageSettings,
-  baseWidth: number = 1200
-): CollageLayout {
-  const gap = settings.gapSize;
+  width: number,
+  gap: number,
+  offsetX: number,
+  offsetY: number
+): CollageCell[] {
   const cells: CollageCell[] = [];
   
-  // Calculate row heights based on weighted aspect ratios
-  const rowData = rows.map((row) => {
+  let y = offsetY;
+  for (const row of rows) {
     const aspectSum = getRowAspectSum(row);
-    const availableWidth = baseWidth - gap * (row.length - 1);
+    const availableWidth = width - gap * (row.length - 1);
     const height = availableWidth / aspectSum;
-    return { row, aspectSum, height, availableWidth };
-  });
-  
-  // Calculate positions
-  let y = 0;
-  for (const { row, aspectSum, height, availableWidth } of rowData) {
-    let x = 0;
     
+    let x = offsetX;
     for (const photo of row) {
       const photoWidth = (photo.aspectRatio * photo.weight / aspectSum) * availableWidth;
       
@@ -331,7 +384,83 @@ function calculateLayout(
     y += height + gap;
   }
   
-  const totalHeight = y - gap;
+  return cells;
+}
+
+// ============================================================================
+// Region Packing (Reusable Primitive)
+// ============================================================================
+
+/**
+ * Pack photos into a rectangular region using row-based layout.
+ * This is the core primitive for both standard layouts and future hero layouts.
+ */
+export function packPhotosIntoRegion(
+  dims: PhotoDimension[],
+  options: RegionPackOptions
+): RegionPackResult {
+  const { 
+    width, 
+    gap, 
+    targetHeight, 
+    tolerance = 2,
+    offsetX = 0,
+    offsetY = 0,
+    targetAspect,
+    isLandscape = true 
+  } = options;
+  
+  // Handle empty case
+  if (dims.length === 0) {
+    return { cells: [], achievedHeight: 0, partition: [], valid: true, heightError: 0 };
+  }
+  
+  // Handle single photo case
+  if (dims.length === 1) {
+    const d = dims[0];
+    const cellHeight = width / d.aspectRatio;
+    const cells: CollageCell[] = [{
+      photoId: d.id,
+      x: Math.round(offsetX),
+      y: Math.round(offsetY),
+      width: Math.round(width),
+      height: Math.round(cellHeight),
+    }];
+    const heightError = targetHeight ? Math.abs(cellHeight - targetHeight) : 0;
+    return { 
+      cells, 
+      achievedHeight: cellHeight, 
+      partition: [[d]], 
+      valid: !targetHeight || heightError <= tolerance,
+      heightError 
+    };
+  }
+  
+  // Use existing row-split logic
+  const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : (isLandscape ? 1.5 : 0.75));
+  const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape);
+  
+  // Calculate layout with offsets
+  const cells = calculateLayoutWithOffset(partition, width, gap, offsetX, offsetY);
+  const achievedHeight = calculatePackedHeight(partition, width, gap);
+  
+  const heightError = targetHeight ? Math.abs(achievedHeight - targetHeight) : 0;
+  const valid = !targetHeight || heightError <= tolerance;
+  
+  return { cells, achievedHeight, partition, valid, heightError };
+}
+
+// ============================================================================
+// Layout Calculation (Uses Shared Helpers)
+// ============================================================================
+
+function calculateLayout(
+  rows: PhotoDimension[][],
+  settings: CollageSettings,
+  baseWidth: number = 1200
+): CollageLayout {
+  const cells = calculateLayoutWithOffset(rows, baseWidth, settings.gapSize, 0, 0);
+  const totalHeight = calculatePackedHeight(rows, baseWidth, settings.gapSize);
   
   return {
     width: baseWidth,

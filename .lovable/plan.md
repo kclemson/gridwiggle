@@ -1,58 +1,84 @@
 
 
-## Improve Color Swatch Appearance
+## Add Photo Counts and Refined Hint Styling (with Italics)
 
-### Current Issue
-The color picker is `w-6 h-6` (24x24px) which appears small and slightly rectangular compared to the toggle buttons and slider controls.
+### Current State
+```
+ORIGINAL PHOTOS
+SMART CROPPED (TAP TO ADJUST)
+```
+
+### Proposed Layout
+```
+ORIGINAL PHOTOS (3)
+SMART CROPPED (2) — tap to adjust
+                    ↑ italic + normal case
+```
 
 ### Changes
 
-**File: `src/components/CollageSettings.tsx`**
+**File: `src/components/PhotoGrid.tsx`**
 
-1. **Increase swatch size** - Change from `w-6 h-6` to `w-8 h-8` (32x32px) to better match the visual weight of the toggle buttons
+1. **Add `hint` prop** (optional string)
+2. **Auto-include count** from `photos.length` in the header
+3. **Style hint** with `normal-case font-normal italic` for a softer, helpful appearance
 
-2. **Ensure square aspect ratio** - Add `aspect-square` class to guarantee it stays square
+```tsx
+interface PhotoGridProps {
+  photos: PhotoItem[];
+  onRemove: (photoId: string) => void;
+  onPhotoClick?: (photoId: string) => void;
+  showCropped?: boolean;
+  title: string;
+  hint?: string;  // NEW
+  emptyMessage?: string;
+}
 
-3. **Change label** - Update "Color:" to "Background:"
-
-4. **Update aria-label** - Change from "Gap color" to "Background color" for accessibility
-
-### Code Change
-
-Line 42:
-```diff
-- <span className="text-xs text-muted-foreground">Color:</span>
-+ <span className="text-xs text-muted-foreground">Background:</span>
+// In render:
+<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+  {title} ({photos.length})
+  {hint && (
+    <span className="normal-case font-normal italic ml-1">— {hint}</span>
+  )}
+</h3>
 ```
 
-Lines 43-49:
-```diff
-  <input
-    type="color"
-    value={settings.gapColor}
-    onChange={(e) => onUpdate({ gapColor: e.target.value })}
--   className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent"
--   aria-label="Gap color"
-+   className="w-8 h-8 aspect-square rounded border border-border cursor-pointer bg-transparent"
-+   aria-label="Background color"
-  />
+**File: `src/pages/Index.tsx`**
+
+Update PhotoGrid calls:
+
+```tsx
+{/* Original photos grid */}
+<PhotoGrid
+  photos={state.photos}
+  onRemove={handleRemovePhoto}
+  title="Original Photos"
+/>
+
+{/* Smart cropped photos grid */}
+<PhotoGrid
+  photos={photosWithSmartCrop}
+  onRemove={handleRemovePhoto}
+  onPhotoClick={setEditingPhotoId}
+  showCropped
+  title="Smart Cropped"
+  hint="tap to adjust"
+/>
 ```
 
 ### Visual Result
 
-Before:
 ```
-Color: [■]  (24x24px, slightly small)
+ORIGINAL PHOTOS (3)
+SMART CROPPED (2) — tap to adjust
 ```
 
-After:
-```
-Background: [██]  (32x32px, visually balanced with toggles)
-```
+The italic styling makes the hint feel like a gentle suggestion rather than part of the formal header.
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Resize color swatch to 32x32px, rename label to "Background:" |
+| `src/components/PhotoGrid.tsx` | Add `hint` prop, include count, style hint as italic + normal case |
+| `src/pages/Index.tsx` | Update PhotoGrid calls with new prop structure |
 

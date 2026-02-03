@@ -2,26 +2,12 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PhotoItem, CropRegion } from '@/types/collage';
+import { getEditorInitialCrop } from '@/lib/cropUtils';
 
 interface CropEditorProps {
   photo: PhotoItem;
   onClose: () => void;
   onSave: (photoId: string, crop: CropRegion) => void;
-}
-
-function getDefaultCrop(photo: PhotoItem): CropRegion {
-  const activeCrop = photo.manualCrop || photo.smartCrop;
-  if (activeCrop) {
-    return { ...activeCrop };
-  }
-  // Default to center crop with some margin
-  const size = Math.min(photo.originalWidth, photo.originalHeight) * 0.8;
-  return {
-    x: (photo.originalWidth - size) / 2,
-    y: (photo.originalHeight - size) / 2,
-    width: size,
-    height: size,
-  };
 }
 
 /**
@@ -32,8 +18,8 @@ function getDefaultCrop(photo: PhotoItem): CropRegion {
 export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   
-  // Initialize crop from photo props on mount
-  const [crop, setCrop] = useState<CropRegion>(() => getDefaultCrop(photo));
+  // Initialize crop from photo props on mount using centralized utility
+  const [crop, setCrop] = useState<CropRegion>(() => getEditorInitialCrop(photo));
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);

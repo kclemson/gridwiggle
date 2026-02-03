@@ -10,7 +10,8 @@ import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, swapPhotosInLayout } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
-import { PhotoItem, CropRegion } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType } from '@/types/collage';
+import { cn } from '@/lib/utils';
 import { 
   Wand2, 
   Grid3X3, 
@@ -39,6 +40,7 @@ export default function Index() {
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
+  const [layoutStale, setLayoutStale] = useState(false);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -83,21 +85,30 @@ export default function Index() {
     addPhotos(newPhotos);
     // Process smart crops in event handler, not useEffect
     processSmartCrops(newPhotos);
-  }, [addPhotos, processSmartCrops]);
+    if (state.layout) setLayoutStale(true);
+  }, [addPhotos, processSmartCrops, state.layout]);
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
-  }, [removePhoto]);
+    if (state.layout) setLayoutStale(true);
+  }, [removePhoto, state.layout]);
 
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion) => {
     updatePhoto(photoId, { manualCrop: crop });
     setEditingPhotoId(null);
-  }, [updatePhoto]);
+    if (state.layout) setLayoutStale(true);
+  }, [updatePhoto, state.layout]);
 
   const handleCreateCollage = useCallback(() => {
     const layout = generateCollageLayout(state.photos, state.settings);
     setLayout(layout);
+    setLayoutStale(false);
   }, [state.photos, state.settings, setLayout]);
+
+  const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
+    updateSettings(updates);
+    if (state.layout) setLayoutStale(true);
+  }, [updateSettings, state.layout]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {
@@ -129,11 +140,6 @@ export default function Index() {
     }
   }, [state.photos, state.layout, state.settings.gapColor]);
 
-  const handleRegenerateLayout = useCallback(() => {
-    const layout = generateCollageLayout(state.photos, state.settings);
-    setLayout(layout);
-    setExportError(null);
-  }, [state.photos, state.settings, setLayout]);
 
   const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
@@ -221,19 +227,19 @@ export default function Index() {
             {/* Settings */}
             <CollageSettings
               settings={state.settings}
-              onUpdate={updateSettings}
+              onUpdate={handleUpdateSettings}
             />
 
-            {/* Create collage button */}
+            {/* Create/Regenerate collage button */}
             <div className="flex justify-center">
               <Button
                 size="default"
-                className="gap-2"
+                className={cn("gap-2", layoutStale && "ring-2 ring-primary ring-offset-2 ring-offset-background")}
                 disabled={!canCreateCollage}
                 onClick={handleCreateCollage}
               >
-                <Wand2 className="h-5 w-5" />
-                Create Collage
+                {state.layout ? <RefreshCw className="h-5 w-5" /> : <Wand2 className="h-5 w-5" />}
+                {state.layout ? "Regenerate Collage" : "Create Collage"}
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
               </Button>
             </div>
@@ -250,34 +256,23 @@ export default function Index() {
             {/* Collage preview - appears below when layout exists */}
             {state.layout && (
               <div className="space-y-4 pt-4 border-t border-border">
-                <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center justify-between flex-wrap gap-4">
                   <p className="text-sm text-muted-foreground">
                     Drag photos to rearrange • Tap to adjust crop
                   </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRegenerateLayout}
-                      className="gap-2"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Regenerate
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleExport}
-                      disabled={isExporting}
-                      className="gap-2"
-                    >
-                      {isExporting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4" />
-                      )}
-                      Download PNG
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleExport}
+                    disabled={isExporting}
+                    className="gap-2"
+                  >
+                    {isExporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    Download PNG
+                  </Button>
                 </div>
                 {exportError && (
                   <p className="text-sm text-destructive flex items-center gap-1">

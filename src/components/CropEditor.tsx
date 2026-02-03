@@ -194,8 +194,14 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
                         top: corner.includes('s') ? '100%' : 0,
                         cursor: `${corner}-resize`,
                       }}
-                      onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}
-                      onTouchStart={(e) => handlePointerDown(e, `resize-${corner}`)}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        handlePointerDown(e, `resize-${corner}`);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        handlePointerDown(e, `resize-${corner}`);
+                      }}
                     />
                   ))}
                 </div>

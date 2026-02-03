@@ -27,11 +27,11 @@ export function PhotoGrid({
   }
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide px-1">
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
         {title}
       </h3>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
         {photos.map((photo) => (
           <PhotoThumbnail
             key={photo.id}

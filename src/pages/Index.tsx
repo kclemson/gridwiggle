@@ -187,7 +187,7 @@ export default function Index() {
         </div>
       </header>
 
-      <main className="container py-6 space-y-6">
+      <main className="container py-3 space-y-4">
         {/* Progress bar for smart cropping */}
         {isProcessing && smartCropProgress > 0 && (
           <div className="space-y-2">
@@ -209,7 +209,7 @@ export default function Index() {
 
         {/* Review step */}
         {state.step === 'review' && state.photos.length > 0 && (
-          <div className="space-y-8">
+          <div className="space-y-4">
             {/* Add more photos button */}
             <div className="flex justify-center">
               <PhotoUploader 
@@ -243,10 +243,10 @@ export default function Index() {
             />
 
             {/* Create collage button */}
-            <div className="flex justify-center pt-4">
+            <div className="flex justify-center">
               <Button
-                size="lg"
-                className="touch-target gap-2 text-lg px-8"
+                size="default"
+                className="gap-2"
                 disabled={!canCreateCollage}
                 onClick={handleCreateCollage}
               >

@@ -245,7 +245,8 @@ export default function Index() {
                 onRemove={handleRemovePhoto}
                 onPhotoClick={setEditingPhotoId}
                 showCropped
-                title="Smart Cropped (tap to adjust)"
+                title="Smart Cropped"
+                hint="tap to adjust"
               />
             )}
 

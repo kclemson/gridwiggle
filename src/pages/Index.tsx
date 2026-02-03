@@ -122,8 +122,16 @@ export default function Index() {
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
-    if (state.layout) setLayoutStale(true);
-  }, [updateSettings, state.layout]);
+    
+    // Auto-regenerate collage for layout-affecting settings
+    if (state.layout && ('gapSize' in updates || 'orientation' in updates)) {
+      const newSettings = { ...state.settings, ...updates };
+      const newLayout = generateCollageLayout(state.photos, newSettings);
+      setLayout(newLayout);
+      setLayoutStale(false);
+    }
+    // gapColor updates don't need regeneration - CollagePreview uses it directly as CSS
+  }, [updateSettings, state.layout, state.settings, state.photos, setLayout]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {

@@ -1,80 +1,86 @@
 
-# Constrain Entire App to 512px Width
+# Fix: Smart Cropped Thumbnail Grid Not Updating After Crop Save
 
-## Overview
+## Root Cause Analysis
 
-Cap the entire app UI to a maximum width of 512px, creating a mobile-app-like experience that looks clean on all screen sizes. This is a simple change to the container configuration in Tailwind.
+After tracing through the code path when the user saves a crop:
 
----
+1. `CropEditor.handleSave()` calls `onSave(photo.id, crop)`
+2. `Index.handleSaveCrop()` calls `updatePhoto(photoId, { manualCrop: crop })`
+3. `useCollageState.updatePhoto()` updates state with new photos array
+4. React should re-render `PhotoGrid` with new photos
+5. `PhotoThumbnail` should receive updated `photo` prop
+6. `CroppedImage` should render with new `crop` values
 
-## Current Behavior
+**The Problem**: While React does re-render the components, `CroppedImage` doesn't receive a `key` prop at the component level. The `key` is only used internally on the `<img>` element. React may be reusing the `CroppedImage` component instance and only updating props, but the browser isn't visually reflecting the style changes correctly.
 
-The Tailwind container is configured to expand to 1400px on large screens:
-
-```typescript
-container: {
-  center: true,
-  padding: "1rem",
-  screens: {
-    "2xl": "1400px",  // This is why everything is huge
-  },
-},
-```
-
-The `container` class is applied to:
-- Header content (`<div className="container ...">`)
-- Main content (`<main className="container ...">`)
-
----
+Additionally, `CollagePreview` has the same issue - it renders `CroppedImage` without a key that changes when crops change.
 
 ## Solution
 
-Update the Tailwind container config to cap at 512px for all screen sizes:
-
-```typescript
-container: {
-  center: true,
-  padding: "1rem",
-  screens: {
-    sm: "512px",
-    md: "512px",
-    lg: "512px",
-    xl: "512px",
-    "2xl": "512px",
-  },
-},
-```
-
-This ensures the entire app (header, photo grids, settings, collage preview, buttons) stays within 512px and is centered on larger screens.
+Add a `key` prop to the `CroppedImage` component calls in both `PhotoThumbnail` and `CollagePreview` that changes when the crop changes. This forces React to treat it as a completely new component, ensuring the DOM is fully recreated.
 
 ---
+
+## Technical Details
+
+### File 1: `src/components/PhotoThumbnail.tsx`
+
+Generate a crop-based key and pass it to `CroppedImage`:
+
+```typescript
+// Generate a key that changes when crop changes
+const cropKey = activeCrop 
+  ? `${activeCrop.x}-${activeCrop.y}-${activeCrop.width}-${activeCrop.height}`
+  : 'no-crop';
+
+// In JSX:
+<CroppedImage
+  key={cropKey}  // Forces remount when crop changes
+  src={photo.objectUrl}
+  crop={showCropped ? activeCrop : null}
+  originalWidth={photo.originalWidth}
+  originalHeight={photo.originalHeight}
+  fit={fitMode}
+/>
+```
+
+### File 2: `src/components/CollagePreview.tsx`
+
+Same pattern - generate a key from the active crop for each cell:
+
+```typescript
+// Inside the layout.cells.map:
+const crop = getActiveCrop(photo);
+const cropKey = crop 
+  ? `${crop.x}-${crop.y}-${crop.width}-${crop.height}`
+  : 'no-crop';
+
+// In JSX:
+<CroppedImage
+  key={cropKey}
+  src={photo.objectUrl}
+  crop={crop}
+  originalWidth={photo.originalWidth}
+  originalHeight={photo.originalHeight}
+  fit="cover"
+/>
+```
+
+---
+
+## Why This Works
+
+React uses `key` props to determine component identity. When a key changes:
+1. React unmounts the old component instance
+2. React mounts a new component instance with fresh state and DOM elements
+3. The browser creates a completely new `<img>` element with the new styles
+
+Without a key at the component level, React tries to update the existing component by passing new props. While this should work in theory, browsers can sometimes cache layout calculations or exhibit quirks with absolutely positioned elements and transforms. The key-based approach is more robust.
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `tailwind.config.ts` | Update container screens to cap at 512px |
-
----
-
-## Visual Result
-
-**Before (large screen)**:
-- App spans up to 1400px
-- Thumbnails are ~180-280px each
-- Settings slider stretches across the full width
-
-**After (large screen)**:
-- App capped at 512px, centered on screen
-- Thumbnails are ~80-100px each (5 columns in 512px)
-- Compact, mobile-like experience on all devices
-- Dark background visible on sides, app content centered
-
----
-
-## Technical Notes
-
-- On mobile (< 512px), the app will still use full width minus 1rem padding on each side
-- On larger screens, the app will be 512px wide and centered
-- No changes needed to individual components since they all use the `container` class
-- The collage preview will also be constrained, which keeps it proportional to the thumbnails
+| `src/components/PhotoThumbnail.tsx` | Add crop-based `key` to `CroppedImage` |
+| `src/components/CollagePreview.tsx` | Add crop-based `key` to `CroppedImage` |

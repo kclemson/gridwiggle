@@ -27,35 +27,42 @@ export async function exportCollageAsPng(
     const photo = photos.find((p) => p.id === cell.photoId);
     if (!photo) continue;
 
-    const img = await loadImage(photo.originalDataUrl);
-    const crop = getActiveCrop(photo);
+    // Create Object URL from blob for image loading
+    const imgUrl = URL.createObjectURL(photo.blob);
+    try {
+      const img = await loadImage(imgUrl);
+      const crop = getActiveCrop(photo);
 
-    if (crop) {
-      // Draw cropped image
-      ctx.drawImage(
-        img,
-        crop.x,
-        crop.y,
-        crop.width,
-        crop.height,
-        cell.x * scale,
-        cell.y * scale,
-        cell.width * scale,
-        cell.height * scale
-      );
-    } else {
-      // Draw full image scaled to fit
-      ctx.drawImage(
-        img,
-        0,
-        0,
-        photo.originalWidth,
-        photo.originalHeight,
-        cell.x * scale,
-        cell.y * scale,
-        cell.width * scale,
-        cell.height * scale
-      );
+      if (crop) {
+        // Draw cropped image
+        ctx.drawImage(
+          img,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          cell.x * scale,
+          cell.y * scale,
+          cell.width * scale,
+          cell.height * scale
+        );
+      } else {
+        // Draw full image scaled to fit
+        ctx.drawImage(
+          img,
+          0,
+          0,
+          photo.originalWidth,
+          photo.originalHeight,
+          cell.x * scale,
+          cell.y * scale,
+          cell.width * scale,
+          cell.height * scale
+        );
+      }
+    } finally {
+      // Clean up the temporary Object URL
+      URL.revokeObjectURL(imgUrl);
     }
   }
 

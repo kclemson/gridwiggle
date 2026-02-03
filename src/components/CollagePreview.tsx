@@ -146,7 +146,7 @@ export function CollagePreview({
               onClick={() => onCellClick?.(photo.id)}
             >
               <CroppedImage
-                src={photo.originalDataUrl}
+                src={photo.objectUrl}
                 crop={crop}
                 originalWidth={photo.originalWidth}
                 originalHeight={photo.originalHeight}
@@ -170,7 +170,7 @@ export function CollagePreview({
         >
           {photos.find((p) => p.id === touchDragId) && (
             <img
-              src={photos.find((p) => p.id === touchDragId)!.originalDataUrl}
+              src={photos.find((p) => p.id === touchDragId)!.objectUrl}
               alt=""
               className="w-full h-full object-cover"
             />

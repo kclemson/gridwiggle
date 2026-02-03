@@ -25,6 +25,7 @@ import {
 export default function Index() {
   const {
     state,
+    isLoading,
     addPhotos,
     removePhoto,
     updatePhoto,
@@ -55,7 +56,8 @@ export default function Index() {
     for (const photo of photos) {
       try {
         const result = await getSmartCrop(
-          photo.originalDataUrl,
+          photo.objectUrl,
+          photo.blob,
           photo.originalWidth,
           photo.originalHeight,
           (status) => setProcessingStatus(status)
@@ -140,6 +142,14 @@ export default function Index() {
     }
   }, [state.photos, state.layout, state.settings.gapColor]);
 
+  // Show loading state while initializing from IndexedDB
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);

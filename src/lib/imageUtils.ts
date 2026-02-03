@@ -4,15 +4,6 @@ export function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
-export function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -22,18 +13,18 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-export async function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
-  const img = await loadImage(dataUrl);
+export async function getImageDimensions(src: string): Promise<{ width: number; height: number }> {
+  const img = await loadImage(src);
   return { width: img.width, height: img.height };
 }
 
 export function getCroppedImageDataUrl(
-  originalDataUrl: string,
+  originalSrc: string,
   crop: CropRegion
 ): Promise<string> {
   return new Promise(async (resolve, reject) => {
     try {
-      const img = await loadImage(originalDataUrl);
+      const img = await loadImage(originalSrc);
       const canvas = document.createElement('canvas');
       canvas.width = crop.width;
       canvas.height = crop.height;
@@ -64,8 +55,23 @@ export function getActiveCrop(photo: { smartCrop: CropRegion | null; manualCrop:
   return photo.manualCrop || photo.smartCrop;
 }
 
+/**
+ * Convert a Blob to a base64 data URL.
+ * Used when we need base64 for APIs (e.g., smart crop edge function).
+ */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Extract base64 string from a data URL.
+ */
 export function dataUrlToBase64(dataUrl: string): string {
-  // Remove the data:image/...;base64, prefix
   const base64Index = dataUrl.indexOf('base64,');
   if (base64Index !== -1) {
     return dataUrl.substring(base64Index + 7);

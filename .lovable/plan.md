@@ -1,123 +1,212 @@
 
 
-# Fix Three Collage Issues (Preserving Drag-to-Swap)
+# Make "Create Collage" Button Contextual
 
-Keep the interactive `CollagePreview` component for drag-to-swap and tap-to-crop functionality, while fixing the visual and mobile export issues.
-
----
-
-## Issue #1: Preview Gaps Don't Match Export
-
-**Problem:** CSS percentage positioning creates floating-point rounding differences at different viewport sizes.
-
-**Fix:** Round all cell coordinates and dimensions in `collageLayout.ts` to whole pixels before they're converted to percentages.
-
-### File: `src/lib/collageLayout.ts`
-
-**Lines 163-169** - Round values when creating cells:
-
-```typescript
-cells.push({
-  photoId: photo.id,
-  x: Math.round(x),
-  y: Math.round(y),
-  width: Math.round(photoWidth),
-  height: Math.round(height),
-});
-```
+Transform the button to show "Create Collage" vs "Regenerate Collage" based on whether changes have been made since the last collage was generated.
 
 ---
 
-## Issue #2: Background Too Dark
+## Current State
 
-**Problem:** App background is near-black (`3.9%` lightness), same as default gap color.
+Two separate buttons exist:
+1. **"Create Collage"** button - always shows this text, visible before layout exists
+2. **"Regenerate"** button - separate button inside the collage preview section
 
-**Fix:** Change to dark charcoal (`10%` lightness).
-
-### File: `src/index.css`
-
-**Line 9** (light mode) and **Line 56** (dark mode):
-
-```css
-/* Change from */
---background: 240 10% 3.9%;
-
-/* Change to */
---background: 240 10% 10%;
-```
+The user wants a single contextual button that changes its label based on state.
 
 ---
 
-## Issue #3: Mobile Download Experience
+## Detection Logic
 
-**Problem:** File download is awkward on mobile - users want to save directly to Photos.
+The button should show "Regenerate Collage" when a layout exists AND any of these have changed:
 
-**Fix:** Use Web Share API on mobile devices, which opens the native share sheet with "Save Image" option.
-
-### File: `src/lib/exportCollage.ts`
-
-Add new function after `downloadBlob`:
-
-```typescript
-export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
-  const file = new File([blob], filename, { type: 'image/png' });
-  const shareData = { files: [file] };
-  
-  // Check if Web Share API with file support is available (mobile browsers)
-  if (navigator.canShare && navigator.canShare(shareData)) {
-    try {
-      await navigator.share(shareData);
-      return;
-    } catch (err) {
-      // User cancelled - that's fine
-      if ((err as Error).name === 'AbortError') return;
-      // Other error - fall through to download
-    }
-  }
-  
-  // Fallback to traditional download (desktop)
-  downloadBlob(blob, filename);
-}
-```
-
-### File: `src/pages/Index.tsx`
-
-**Update import** (line 5):
-
-```typescript
-import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
-```
-
-**Update handleExport** (around line 87):
-
-```typescript
-// Change from:
-downloadBlob(blob, `collage-${timestamp}.png`);
-
-// Change to:
-await shareOrDownload(blob, `collage-${timestamp}.png`);
-```
+| Change Type | How to Detect |
+|-------------|---------------|
+| Photo crop edited | `manualCrop` changed after layout was created |
+| Photo added | Photo count increased |
+| Photo removed | Photo count decreased |
+| Settings changed | `orientation`, `gapColor`, or `gapSize` changed |
 
 ---
 
-## How Mobile Share Works
+## Approach: Track "Layout Stale" State
 
-| Platform | Behavior |
-|----------|----------|
-| iOS Safari | Opens share sheet → "Save Image" saves to Photos |
-| Android Chrome | Opens share sheet → "Save to device" or share to apps |
-| Desktop | Falls back to file download (current behavior) |
+Rather than complex change detection, we can derive "needs regeneration" by checking if the layout exists. When it does, any edit should signal regeneration is needed.
+
+**Simpler approach:** Track a `layoutVersion` counter in state. When layout is created, snapshot the current state's "version". Any subsequent change (photo edit, settings change, photo add/remove) bumps a version counter. If versions don't match, layout is stale.
+
+**Even simpler:** Just check if `state.layout` exists. If yes, button says "Regenerate". If no, button says "Create". This works because:
+- Before first collage: no layout → "Create Collage"
+- After creating: layout exists → "Regenerate Collage" (user may want to try different layout)
+- After clearing: no layout → back to "Create Collage"
+
+However, the user specifically wants the button to change **when a crop is edited**, implying "I made changes, now regenerate". So we need to track "dirty" state.
+
+---
+
+## Solution: Invalidate Layout on Edit
+
+When photos or settings change, automatically set `layout` to `null`. This way:
+- No layout → "Create Collage"  
+- Has layout → "Regenerate Collage" (only possible right after generating, before any edits)
+
+**Wait** - this doesn't quite work because we want to keep showing the preview while indicating it's stale.
+
+**Better approach:** Add a `layoutStale` boolean to the component state (not persisted). Set it to `true` when photos/settings change while a layout exists.
+
+---
+
+## Final Design
+
+### State Changes
+
+Add local state in `Index.tsx`:
+```typescript
+const [layoutStale, setLayoutStale] = useState(false);
+```
+
+### Mark Layout as Stale
+
+Update these handlers to set stale when layout exists:
+
+1. **`handleSaveCrop`** - when user edits a crop
+2. **`handlePhotosAdded`** - when new photos are added  
+3. **`handleRemovePhoto`** - when a photo is removed
+4. **`updateSettings`** - when settings change (already wrapped)
+
+### Clear Stale Flag
+
+When `handleCreateCollage` runs, set `layoutStale` to `false`.
+
+### Button Logic
+
+```typescript
+const hasLayout = state.layout !== null;
+const needsRegenerate = hasLayout && layoutStale;
+
+// Button shows:
+// - "Create Collage" when no layout exists
+// - "Regenerate Collage" when layout exists AND is stale
+// - Keep existing "Regenerate Collage" state when layout exists but not stale (optional)
+```
+
+Actually, reconsidering: if a layout exists but isn't stale, do we still show "Create" or "Regenerate"? 
+
+The cleanest UX:
+- **No layout**: "Create Collage" (primary action)
+- **Has layout, not stale**: Button still says "Regenerate Collage" but maybe dimmed or secondary
+- **Has layout, IS stale**: "Regenerate Collage" with emphasis/highlight
+
+Let me simplify further based on the user's request:
+
+---
+
+## Simplified Implementation
+
+### Logic
+
+```typescript
+const hasLayout = state.layout !== null;
+const buttonLabel = hasLayout ? "Regenerate Collage" : "Create Collage";
+const buttonIcon = hasLayout ? RefreshCw : Wand2;
+```
+
+This already gets us most of the way - once a collage exists, button changes to "Regenerate". 
+
+To add **emphasis when stale**, we can:
+1. Track `layoutStale` boolean
+2. Add a visual indicator (different color, animation, or badge)
+
+---
+
+## File Changes
+
+### `src/pages/Index.tsx`
+
+1. **Add state** to track if layout is stale:
+   ```typescript
+   const [layoutStale, setLayoutStale] = useState(false);
+   ```
+
+2. **Update `handleSaveCrop`** to mark stale:
+   ```typescript
+   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion) => {
+     updatePhoto(photoId, { manualCrop: crop });
+     setEditingPhotoId(null);
+     if (state.layout) setLayoutStale(true);
+   }, [updatePhoto, state.layout]);
+   ```
+
+3. **Update `handlePhotosAdded`** to mark stale:
+   ```typescript
+   const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
+     addPhotos(newPhotos);
+     processSmartCrops(newPhotos);
+     if (state.layout) setLayoutStale(true);
+   }, [addPhotos, processSmartCrops, state.layout]);
+   ```
+
+4. **Update `handleRemovePhoto`** to mark stale:
+   ```typescript
+   const handleRemovePhoto = useCallback((photoId: string) => {
+     removePhoto(photoId);
+     if (state.layout) setLayoutStale(true);
+   }, [removePhoto, state.layout]);
+   ```
+
+5. **Wrap settings update** to mark stale:
+   ```typescript
+   const handleUpdateSettings = useCallback((updates: Partial<CollageSettings>) => {
+     updateSettings(updates);
+     if (state.layout) setLayoutStale(true);
+   }, [updateSettings, state.layout]);
+   ```
+   And pass `handleUpdateSettings` instead of `updateSettings` to `CollageSettings`.
+
+6. **Update `handleCreateCollage`** to clear stale:
+   ```typescript
+   const handleCreateCollage = useCallback(() => {
+     const layout = generateCollageLayout(state.photos, state.settings);
+     setLayout(layout);
+     setLayoutStale(false);
+   }, [state.photos, state.settings, setLayout]);
+   ```
+
+7. **Update button rendering**:
+   ```typescript
+   const hasLayout = state.layout !== null;
+   
+   <Button
+     size="default"
+     className={cn("gap-2", layoutStale && "ring-2 ring-primary animate-pulse")}
+     disabled={!canCreateCollage}
+     onClick={handleCreateCollage}
+   >
+     {hasLayout ? <RefreshCw className="h-5 w-5" /> : <Wand2 className="h-5 w-5" />}
+     {hasLayout ? "Regenerate Collage" : "Create Collage"}
+     {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+   </Button>
+   ```
+
+8. **Remove separate "Regenerate" button** from the collage preview section (lines 258-266).
+
+---
+
+## Visual Indicator When Stale
+
+When `layoutStale` is true, the button could have:
+- A subtle ring/glow effect
+- Or simply rely on the label change being obvious enough
+
+I'll add a subtle ring highlight to draw attention.
 
 ---
 
 ## Summary
 
-| Change | File | Purpose |
-|--------|------|---------|
-| Round cell positions | `collageLayout.ts` | Fix gap inconsistencies |
-| Dark charcoal background | `index.css` | Make collage boundaries visible |
-| Web Share API | `exportCollage.ts` | Native mobile saving |
-| Use shareOrDownload | `Index.tsx` | Call new function |
-
-The drag-to-swap and tap-to-crop features in `CollagePreview` remain unchanged.
+| State | Button Text | Visual |
+|-------|-------------|--------|
+| No layout | "Create Collage" | Normal primary button |
+| Has layout, not stale | "Regenerate Collage" | Normal primary button |
+| Has layout, IS stale | "Regenerate Collage" | Ring highlight |
 

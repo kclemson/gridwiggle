@@ -46,12 +46,12 @@ function calculateOptimalCrop(
   const subjects = detections.filter(d => d.score > 0.4);
   
   if (subjects.length === 0) {
-    // No subjects detected - crop 10% from each edge
+    // No subjects detected - use full image (no cropping)
     return {
-      x: Math.round(originalWidth * 0.1),
-      y: Math.round(originalHeight * 0.1),
-      width: Math.round(originalWidth * 0.8),
-      height: Math.round(originalHeight * 0.8)
+      x: 0,
+      y: 0,
+      width: originalWidth,
+      height: originalHeight
     };
   }
   

@@ -147,7 +147,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle>Adjust Crop</DialogTitle>
           <DialogDescription className="sr-only">
@@ -155,12 +155,13 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 min-h-0 overflow-hidden bg-black/50 flex items-center justify-center p-4">
+        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
-            className="max-w-full max-h-full block touch-none select-none"
+            className="max-w-full block touch-none select-none"
+            style={{ maxHeight: 'calc(90vh - 120px)' }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}

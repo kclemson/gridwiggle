@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PhotoItem, CropRegion } from '@/types/collage';
 
@@ -25,12 +25,12 @@ function getDefaultCrop(photo: PhotoItem): CropRegion {
 }
 
 /**
- * CropEditor - Renders conditionally (when photo is provided).
- * Uses CSS-based image sizing - no useEffect needed for dimensions.
- * Scale is computed on-demand from the actual rendered image size.
+ * CropEditor - SVG-based crop editor using viewBox coordinates.
+ * Uses the same coordinate system as CroppedImage for pixel-perfect alignment.
+ * All crop coordinates are in original image pixels.
  */
 export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
-  const imageRef = useRef<HTMLImageElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   
   // Initialize crop from photo props on mount
   const [crop, setCrop] = useState<CropRegion>(() => getDefaultCrop(photo));
@@ -40,72 +40,66 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropStart, setCropStart] = useState<CropRegion | null>(null);
   
-  // Trigger re-render when image loads so scale can be computed
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Store scale in state so ResizeObserver can trigger re-renders
-  const [scale, setScale] = useState(1);
+  // Track viewScale for sizing handles in screen pixels
+  const [viewScale, setViewScale] = useState(1);
 
-  // Update scale from actual rendered image dimensions
-  const updateScale = useCallback(() => {
-    if (imageRef.current && photo.originalWidth > 0) {
-      setScale(imageRef.current.width / photo.originalWidth);
-    }
-  }, [photo.originalWidth]);
-
-  // Track image size changes via ResizeObserver
+  // Update viewScale from actual rendered SVG dimensions
   useEffect(() => {
-    const img = imageRef.current;
-    if (!img) return;
+    const svg = svgRef.current;
+    if (!svg) return;
     
-    const resizeObserver = new ResizeObserver(() => {
-      updateScale();
-    });
-    
-    resizeObserver.observe(img);
-    return () => resizeObserver.disconnect();
-  }, [updateScale]);
-
-  const getEventPosition = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    const img = imageRef.current;
-    if (!img) return { x: 0, y: 0 };
-
-    const rect = img.getBoundingClientRect();
-    const currentScale = img.width / photo.originalWidth;
-
-    let clientX: number, clientY: number;
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
-    return {
-      x: (clientX - rect.left) / currentScale,
-      y: (clientY - rect.top) / currentScale,
+    const updateViewScale = () => {
+      const rect = svg.getBoundingClientRect();
+      if (photo.originalWidth > 0) {
+        setViewScale(rect.width / photo.originalWidth);
+      }
     };
+    
+    const observer = new ResizeObserver(updateViewScale);
+    observer.observe(svg);
+    updateViewScale();
+    
+    return () => observer.disconnect();
   }, [photo.originalWidth]);
 
-  const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent, type: typeof dragType) => {
+  // Convert screen coordinates to SVG viewBox coordinates using getScreenCTM
+  const getEventPosition = useCallback((e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    
+    const cursor = pt.matrixTransform(ctm.inverse());
+    return { x: cursor.x, y: cursor.y };
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, type: typeof dragType) => {
     e.preventDefault();
+    e.stopPropagation();
+    
+    // Capture pointer for smooth dragging even outside element
+    (e.target as Element).setPointerCapture(e.pointerId);
+    
     const pos = getEventPosition(e);
     setIsDragging(true);
     setDragType(type);
     setDragStart(pos);
-    setCropStart({ ...crop }); // Snapshot crop at drag start
+    setCropStart({ ...crop });
   }, [getEventPosition, crop]);
 
-  const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDragging || !dragType || !cropStart) return;
 
     const pos = getEventPosition(e);
-    // Use absolute delta from original position, not incremental
     const dx = pos.x - dragStart.x;
     const dy = pos.y - dragStart.y;
 
-    let newCrop = { ...cropStart }; // Start from original crop snapshot
+    let newCrop = { ...cropStart };
 
     if (dragType === 'move') {
       newCrop.x = Math.max(0, Math.min(cropStart.x + dx, photo.originalWidth - cropStart.width));
@@ -134,10 +128,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     }
 
     setCrop(newCrop);
-    // Don't update dragStart - keep original reference point
   }, [isDragging, dragType, cropStart, photo.originalWidth, photo.originalHeight, getEventPosition, dragStart]);
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    (e.target as Element).releasePointerCapture(e.pointerId);
     setIsDragging(false);
     setDragType(null);
   }, []);
@@ -147,84 +141,136 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     onClose();
   };
 
+  // Handle size in viewBox units so it appears as ~20px on screen
+  const handleSize = viewScale > 0 ? 20 / viewScale : 20;
+  const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
+
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
         <DialogHeader>
           <DialogTitle>Adjust Crop</DialogTitle>
+          <DialogDescription className="sr-only">
+            Drag the crop area to reposition, or drag corners to resize
+          </DialogDescription>
         </DialogHeader>
         
-        <div 
-          className="flex-1 relative overflow-hidden bg-black/50 rounded-lg touch-none select-none flex items-center justify-center"
-          onMouseMove={handlePointerMove}
-          onMouseUp={handlePointerUp}
-          onMouseLeave={handlePointerUp}
-          onTouchMove={handlePointerMove}
-          onTouchEnd={handlePointerUp}
-        >
-          {/* Image wrapper - browser handles sizing via CSS */}
-          <div className="relative max-w-full max-h-full">
-            <img
-              ref={imageRef}
-              src={photo.objectUrl}
-              alt=""
-              className="max-w-full max-h-full object-contain block"
-              style={{ maxHeight: 'calc(90vh - 140px)' }} // Account for header/footer
-              draggable={false}
-              onLoad={() => {
-                setImageLoaded(true);
-                updateScale();
-              }}
+        <div className="flex-1 relative overflow-hidden bg-black/50 rounded-lg flex items-center justify-center">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
+            preserveAspectRatio="xMidYMid meet"
+            className="w-full h-full block touch-none select-none"
+            style={{ maxHeight: 'calc(90vh - 140px)' }}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+          >
+            {/* Full image */}
+            <image
+              href={photo.objectUrl}
+              x="0"
+              y="0"
+              width={photo.originalWidth}
+              height={photo.originalHeight}
+              preserveAspectRatio="none"
             />
             
-            {/* Only render overlay once image has loaded and we can compute scale */}
-            {imageLoaded && (
-              <>
-                {/* Crop area with box-shadow to darken outside */}
-                <div
-                  className="absolute border-2 border-white cursor-move"
-                  style={{
-                    left: crop.x * scale,
-                    top: crop.y * scale,
-                    width: crop.width * scale,
-                    height: crop.height * scale,
-                    boxShadow: `0 0 0 9999px rgba(0, 0, 0, 0.6)`,
-                    background: 'transparent',
-                  }}
-                  onMouseDown={(e) => handlePointerDown(e, 'move')}
-                  onTouchStart={(e) => handlePointerDown(e, 'move')}
-                >
-                  {/* Grid lines */}
-                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
-                    {Array.from({ length: 9 }).map((_, i) => (
-                      <div key={i} className="border border-white/30" />
-                    ))}
-                  </div>
-
-                  {/* Corner handles */}
-                  {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
-                    <div
-                      key={corner}
-                      className="absolute w-5 h-5 bg-white rounded-full border-2 border-primary -translate-x-1/2 -translate-y-1/2"
-                      style={{
-                        left: corner.includes('e') ? '100%' : 0,
-                        top: corner.includes('s') ? '100%' : 0,
-                        cursor: `${corner}-resize`,
-                      }}
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        handlePointerDown(e, `resize-${corner}`);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        handlePointerDown(e, `resize-${corner}`);
-                      }}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+            {/* Darkening overlay - 4 rects outside crop region */}
+            {/* Top */}
+            <rect
+              x="0"
+              y="0"
+              width={photo.originalWidth}
+              height={crop.y}
+              fill="rgba(0, 0, 0, 0.6)"
+            />
+            {/* Bottom */}
+            <rect
+              x="0"
+              y={crop.y + crop.height}
+              width={photo.originalWidth}
+              height={photo.originalHeight - (crop.y + crop.height)}
+              fill="rgba(0, 0, 0, 0.6)"
+            />
+            {/* Left */}
+            <rect
+              x="0"
+              y={crop.y}
+              width={crop.x}
+              height={crop.height}
+              fill="rgba(0, 0, 0, 0.6)"
+            />
+            {/* Right */}
+            <rect
+              x={crop.x + crop.width}
+              y={crop.y}
+              width={photo.originalWidth - (crop.x + crop.width)}
+              height={crop.height}
+              fill="rgba(0, 0, 0, 0.6)"
+            />
+            
+            {/* Crop area - draggable */}
+            <rect
+              x={crop.x}
+              y={crop.y}
+              width={crop.width}
+              height={crop.height}
+              fill="transparent"
+              stroke="white"
+              strokeWidth={strokeWidth}
+              className="cursor-move"
+              onPointerDown={(e) => handlePointerDown(e, 'move')}
+            />
+            
+            {/* Grid lines (rule of thirds) */}
+            {[1, 2].map((i) => (
+              <g key={i}>
+                <line
+                  x1={crop.x + (crop.width * i) / 3}
+                  y1={crop.y}
+                  x2={crop.x + (crop.width * i) / 3}
+                  y2={crop.y + crop.height}
+                  stroke="rgba(255, 255, 255, 0.3)"
+                  strokeWidth={strokeWidth / 2}
+                />
+                <line
+                  x1={crop.x}
+                  y1={crop.y + (crop.height * i) / 3}
+                  x2={crop.x + crop.width}
+                  y2={crop.y + (crop.height * i) / 3}
+                  stroke="rgba(255, 255, 255, 0.3)"
+                  strokeWidth={strokeWidth / 2}
+                />
+              </g>
+            ))}
+            
+            {/* Corner handles */}
+            {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => {
+              const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+              const cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+              const cursorMap = {
+                nw: 'nwse-resize',
+                ne: 'nesw-resize',
+                sw: 'nesw-resize',
+                se: 'nwse-resize',
+              };
+              
+              return (
+                <circle
+                  key={corner}
+                  cx={cx}
+                  cy={cy}
+                  r={handleSize / 2}
+                  fill="white"
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={strokeWidth}
+                  style={{ cursor: cursorMap[corner] }}
+                  onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
+                />
+              );
+            })}
+          </svg>
         </div>
 
         <DialogFooter className="flex gap-2">

@@ -21,6 +21,10 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
   const rawCrop = showCropped ? (photo.manualCrop || photo.smartCrop) : null;
   // Only use crop if it's valid
   const activeCrop = rawCrop && isValidCrop(rawCrop) ? rawCrop : null;
+  
+  // Use "cover" when displaying a crop so the cropped region fills the thumbnail
+  // Use "contain" for original photos to show the full image
+  const fitMode = showCropped && activeCrop ? 'cover' : 'contain';
 
   return (
     <div
@@ -37,7 +41,7 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
           crop={showCropped ? activeCrop : null}
           originalWidth={photo.originalWidth}
           originalHeight={photo.originalHeight}
-          fit="contain"
+          fit={fitMode}
         />
       </ImageContainer>
 

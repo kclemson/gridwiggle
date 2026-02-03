@@ -99,6 +99,7 @@ function calculateRowHeights(partition: PhotoDimension[][], baseWidth: number): 
 function scorePartition(
   partition: PhotoDimension[][],
   targetAspect: number,
+  isLandscape: boolean,
   baseWidth: number = 1200
 ): PartitionScore {
   if (partition.length === 0) {
@@ -115,6 +116,12 @@ function scorePartition(
   const heightCV = coefficientOfVariation(heights);
   const aspectDiff = Math.abs(resultAspect - targetAspect) / targetAspect;
   
+  // Hard penalty: wrong orientation direction
+  const wrongDirection = isLandscape 
+    ? resultAspect < 1.0   // Landscape should be > 1 (wider than tall)
+    : resultAspect > 1.0;  // Portrait should be < 1 (taller than wide)
+  const directionPenalty = wrongDirection ? 10.0 : 0;
+  
   // Penalize rows with very few or very many photos
   const rowSizes = partition.map(r => r.length);
   const minRowSize = Math.min(...rowSizes);
@@ -124,11 +131,12 @@ function scorePartition(
     (maxRowSize > 6 ? 0.1 * (maxRowSize - 6) : 0);         // Penalize very long rows
   
   // Combined score (lower = better)
-  // Area uniformity is primary concern
+  // Orientation is primary constraint, then uniformity
   const totalScore = 
-    areaCV * 1.0 +           // Primary: uniform cell sizes
-    heightCV * 0.3 +         // Secondary: uniform row heights
-    aspectDiff * 0.2 +       // Light: target aspect ratio
+    aspectDiff * 2.0 +       // PRIMARY: match target aspect
+    directionPenalty +       // HARD: correct orientation direction
+    areaCV * 0.5 +           // Secondary: uniform cell sizes
+    heightCV * 0.2 +         // Light: uniform row heights
     rowBalancePenalty;       // Penalties for extreme rows
   
   return { partition, areaCV, heightCV, aspectDiff, totalScore };
@@ -190,12 +198,17 @@ function findBestRowSplit(
   if (n <= 1) return [dims];
   
   // Determine ideal photos-per-row based on orientation
-  const idealPhotosPerRow = isLandscape ? 4 : 3;
+  // More per row for landscape = wider layout
+  const idealPhotosPerRow = isLandscape ? 5 : 3;
   const idealRows = Math.ceil(n / idealPhotosPerRow);
   
-  // Explore row counts in a neighborhood around ideal
-  const minRows = Math.max(1, idealRows - 1);
-  const maxRows = Math.min(n, idealRows + 2, isLandscape ? 6 : 8);
+  // For landscape, explore toward fewer rows; for portrait, toward more rows
+  const minRows = isLandscape 
+    ? Math.max(1, idealRows - 2) 
+    : Math.max(1, idealRows - 1);
+  const maxRows = isLandscape 
+    ? Math.min(n, idealRows + 1, 6) 
+    : Math.min(n, idealRows + 3, 10);
   
   let bestScore: PartitionScore = {
     partition: [dims],
@@ -209,23 +222,23 @@ function findBestRowSplit(
     const partitionCount = countPartitions(n, numRows);
     
     // For small partition counts, enumerate all
-    if (partitionCount <= 500) {
-      for (const partition of generatePartitions(dims, numRows)) {
-        const score = scorePartition(partition, targetAspect);
-        if (score.totalScore < bestScore.totalScore) {
-          bestScore = score;
+      if (partitionCount <= 500) {
+        for (const partition of generatePartitions(dims, numRows)) {
+          const score = scorePartition(partition, targetAspect, isLandscape);
+          if (score.totalScore < bestScore.totalScore) {
+            bestScore = score;
+          }
+        }
+      } else {
+        // For large sets, use sampling + heuristic approach
+        const sampledPartitions = samplePartitions(dims, numRows, 100);
+        for (const partition of sampledPartitions) {
+          const score = scorePartition(partition, targetAspect, isLandscape);
+          if (score.totalScore < bestScore.totalScore) {
+            bestScore = score;
+          }
         }
       }
-    } else {
-      // For large sets, use sampling + heuristic approach
-      const sampledPartitions = samplePartitions(dims, numRows, 100);
-      for (const partition of sampledPartitions) {
-        const score = scorePartition(partition, targetAspect);
-        if (score.totalScore < bestScore.totalScore) {
-          bestScore = score;
-        }
-      }
-    }
   }
   
   return bestScore.partition;

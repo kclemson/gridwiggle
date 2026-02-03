@@ -11,55 +11,51 @@ interface CollageSettingsProps {
 
 export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
   return (
-    <div className="space-y-6 p-4 rounded-xl bg-surface border border-border">
-      <div className="space-y-3">
-        <Label className="text-sm font-medium">Orientation</Label>
+    <div className="space-y-3 p-3 rounded-xl bg-surface border border-border">
+      {/* Orientation */}
+      <div className="flex items-center gap-3">
+        <Label className="text-xs font-medium shrink-0">Orientation</Label>
         <RadioGroup
           value={settings.orientation}
           onValueChange={(value) => onUpdate({ orientation: value as 'portrait' | 'landscape' })}
-          className="flex gap-4"
+          className="flex gap-2"
         >
-          <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-elevated cursor-pointer hover:border-primary/50 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/10">
-            <RadioGroupItem value="landscape" id="landscape" />
-            <RectangleHorizontal className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm">Landscape</span>
+          <label className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-border bg-surface-elevated cursor-pointer hover:border-primary/50 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <RadioGroupItem value="landscape" id="landscape" className="sr-only" />
+            <RectangleHorizontal className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs">Landscape</span>
           </label>
-          <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-elevated cursor-pointer hover:border-primary/50 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/10">
-            <RadioGroupItem value="portrait" id="portrait" />
-            <RectangleVertical className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm">Portrait</span>
+          <label className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-border bg-surface-elevated cursor-pointer hover:border-primary/50 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <RadioGroupItem value="portrait" id="portrait" className="sr-only" />
+            <RectangleVertical className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs">Portrait</span>
           </label>
         </RadioGroup>
       </div>
 
-      <div className="space-y-3">
-        <Label className="text-sm font-medium">Gap Color</Label>
-        <div className="flex items-center gap-3">
+      {/* Gap Color & Spacing in one row */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs font-medium">Color</Label>
           <input
             type="color"
             value={settings.gapColor}
             onChange={(e) => onUpdate({ gapColor: e.target.value })}
-            className="w-12 h-10 rounded-lg border border-border cursor-pointer bg-transparent"
+            className="w-8 h-8 rounded border border-border cursor-pointer bg-transparent"
           />
-          <span className="text-sm text-muted-foreground font-mono">
-            {settings.gapColor.toUpperCase()}
-          </span>
         </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium">Spacing</Label>
-          <span className="text-sm text-muted-foreground">{settings.gapSize}px</span>
+        <div className="flex items-center gap-2 flex-1">
+          <Label className="text-xs font-medium shrink-0">Gap</Label>
+          <Slider
+            value={[settings.gapSize]}
+            onValueChange={([value]) => onUpdate({ gapSize: value })}
+            min={0}
+            max={32}
+            step={2}
+            className="flex-1"
+          />
+          <span className="text-xs text-muted-foreground w-8">{settings.gapSize}px</span>
         </div>
-        <Slider
-          value={[settings.gapSize]}
-          onValueChange={([value]) => onUpdate({ gapSize: value })}
-          min={0}
-          max={32}
-          step={2}
-          className="w-full"
-        />
       </div>
     </div>
   );

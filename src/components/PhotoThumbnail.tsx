@@ -27,28 +27,25 @@ function getCroppedStyle(crop: CropRegion, originalWidth: number, originalHeight
 
 export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, className }: PhotoThumbnailProps) {
   const activeCrop = showCropped ? (photo.manualCrop || photo.smartCrop) : null;
-  const aspectRatio = activeCrop 
-    ? activeCrop.width / activeCrop.height 
-    : photo.originalWidth / photo.originalHeight;
 
   return (
     <div
       className={cn(
-        "relative group rounded-lg overflow-hidden bg-surface-elevated",
+        "relative group rounded-lg overflow-hidden bg-surface-elevated aspect-square",
         onClick && "cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
         className
       )}
-      style={{ aspectRatio }}
       onClick={onClick}
     >
-      {/* Image container with overflow hidden */}
-      <div className="absolute inset-0 overflow-hidden">
+      {/* Image container - centered with object-contain for letterbox/pillarbox effect */}
+      <div className="absolute inset-0 flex items-center justify-center">
         {activeCrop ? (
           <div
-            className="relative"
+            className="relative overflow-hidden"
             style={{
-              width: '100%',
-              height: '100%',
+              aspectRatio: activeCrop.width / activeCrop.height,
+              maxWidth: '100%',
+              maxHeight: '100%',
             }}
           >
             <img
@@ -67,7 +64,7 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
           <img
             src={photo.originalDataUrl}
             alt=""
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full object-contain"
           />
         )}
       </div>

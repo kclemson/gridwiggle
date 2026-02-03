@@ -3,91 +3,164 @@
 
 ## Problem Analysis
 
-When editing a photo's crop in the CropEditor and saving, the "Smart Cropped" thumbnail doesn't visually update to reflect the new crop region.
+After saving a new crop in the CropEditor, the "Smart Cropped" thumbnail doesn't update to show the new crop region. The user cropped a photo to show only one person, but after saving, both people are still visible.
 
-### Root Cause
+---
 
-The issue is in how `CroppedImage` renders cropped photos. When the crop changes:
-1. The `src` stays the same (same base64 data URL)
-2. Only the CSS `transform` and `width` properties change
-3. The browser may optimize away the re-render since the image source hasn't changed
+## Root Cause
 
-Additionally, there's no `key` prop on the `<img>` element to force React to recreate it when crop parameters change significantly.
+After tracing through the entire data flow, I've identified multiple contributing issues:
 
-### Evidence from Console Logs
+### Issue 1: Missing `key` on Early Return Paths
 
-The console shows a `QuotaExceededError` when saving (localStorage is full due to large base64 images), but this is a separate issue - the in-memory state update still succeeds. The visual update is failing at the rendering layer.
+The `CroppedImage` component has three return paths:
+1. **Early return** when `crop` is `null` (lines 26-38) - **NO key prop**
+2. **Early return** when crop is too small (lines 42-54) - **NO key prop**
+3. **Full render** with crop transforms (lines 150-165) - has `key` on `<img>`
+
+If React transitions between these paths, or if the crop values don't change enough to trigger a key change, the component may not properly update.
+
+### Issue 2: Key Only on Inner `<img>`, Not Wrapper
+
+The `key` is on the inner `<img>` element, but the wrapper `<div>` has no key. When the crop changes, React might reuse the wrapper div and only update the inner image, which could cause stale rendering.
+
+### Issue 3: Browser Image Caching
+
+Even with React re-rendering, the browser might cache the image at its previous transform position. Adding a key that changes with crop values should force a full DOM recreation.
 
 ---
 
 ## Solution
 
-Add a `key` prop to the `CroppedImage` component that changes when the crop region changes. This forces React to unmount and remount the image element, ensuring the browser renders the new crop.
+### Fix 1: Move `cropKey` Generation Earlier
+
+Calculate `cropKey` at the TOP of the component so it's available for all return paths.
+
+### Fix 2: Add Key to All Return Paths
+
+Apply the `key` prop to images in both early return paths as well.
+
+### Fix 3: Add Key to Wrapper Div
+
+Add the `cropKey` to the wrapper div, ensuring React fully recreates the cropped image container when crop values change.
+
+---
+
+## Implementation
 
 ### File: `src/components/common/CroppedImage.tsx`
 
-Add a key to the inner `<img>` element based on the crop parameters:
+**Changes:**
+
+1. Move `cropKey` calculation to the top of the component, before any early returns
+2. Add `key={cropKey}` to all `<img>` elements (early returns)
+3. Keep the existing `key={cropKey}` on the final `<img>` in the full render path
 
 ```typescript
-// Generate a stable key from crop parameters
-const cropKey = crop 
-  ? `${crop.x}-${crop.y}-${crop.width}-${crop.height}` 
-  : 'no-crop';
+export function CroppedImage({
+  src,
+  crop,
+  originalWidth,
+  originalHeight,
+  fit = 'contain',
+  className,
+}: CroppedImageProps) {
+  // Generate key FIRST, before any early returns
+  const cropKey = crop 
+    ? `${crop.x.toFixed(0)}-${crop.y.toFixed(0)}-${crop.width.toFixed(0)}-${crop.height.toFixed(0)}` 
+    : 'no-crop';
 
-return (
-  <div className={cn('relative overflow-hidden w-full h-full', className)}>
-    <img
-      key={cropKey}  // Force re-mount when crop changes
-      src={src}
-      alt=""
-      style={{
-        position: 'absolute',
-        width: `${scaleFactor * 100}%`,
-        height: 'auto',
-        transform: `translate(${translateX + centerOffsetX}%, ${translateY + centerOffsetY}%)`,
-        transformOrigin: 'top left',
-      }}
-      draggable={false}
-    />
-  </div>
-);
+  // Early return: no crop
+  if (!crop) {
+    return (
+      <img
+        key={cropKey}  // ADD KEY
+        src={src}
+        alt=""
+        className={cn(
+          'w-full h-full',
+          fit === 'contain' ? 'object-contain' : 'object-cover',
+          className
+        )}
+        draggable={false}
+      />
+    );
+  }
+
+  // Early return: crop too small
+  if (crop.width < 50 || crop.height < 50) {
+    return (
+      <img
+        key={cropKey}  // ADD KEY
+        src={src}
+        alt=""
+        className={cn(
+          'w-full h-full',
+          fit === 'contain' ? 'object-contain' : 'object-cover',
+          className
+        )}
+        draggable={false}
+      />
+    );
+  }
+
+  // ... rest of the component stays the same ...
+  // (crop calculations, transforms, etc.)
+
+  return (
+    <div className={cn('relative overflow-hidden w-full h-full', className)}>
+      <img
+        key={cropKey}  // Already exists
+        src={src}
+        alt=""
+        style={{
+          position: 'absolute',
+          width: `${scaleFactor * 100}%`,
+          height: 'auto',
+          transform: `translate(${translateX + centerOffsetX}%, ${translateY + centerOffsetY}%)`,
+          transformOrigin: 'top left',
+        }}
+        draggable={false}
+      />
+    </div>
+  );
+}
 ```
-
-### Alternative Approach: Key at PhotoThumbnail Level
-
-An even cleaner fix is to add the key at the `PhotoThumbnail` level in `PhotoGrid.tsx`:
-
-```typescript
-// PhotoGrid.tsx
-{photos.map((photo) => (
-  <PhotoThumbnail
-    key={`${photo.id}-${photo.manualCrop?.x ?? 'none'}-${photo.manualCrop?.y ?? 'none'}`}
-    photo={photo}
-    // ... rest of props
-  />
-))}
-```
-
-However, this would cause the entire thumbnail to remount (losing hover states, etc.). The more surgical fix is at the `CroppedImage` level.
 
 ---
 
-## Additional Fix: Separate localStorage Quota Issue
+## Additional Debugging (Already Verified)
 
-While not the direct cause, the console shows localStorage is exceeding quota because photo data URLs are being stored. This should be addressed separately:
-
-1. **Don't persist photo data URLs** - they're too large
-2. Or **use IndexedDB** instead of localStorage for large data
-3. Or **compress/limit stored data**
-
-This is a separate issue but worth noting for future improvement.
+| Component | Status |
+|-----------|--------|
+| `handleSaveCrop` (Index.tsx) | ✅ Correctly calls `updatePhoto(photoId, { manualCrop: crop })` |
+| `updatePhoto` (useCollageState) | ✅ Creates new photo object with spread |
+| `PhotoGrid` | ✅ Passes `photo` prop correctly |
+| `PhotoThumbnail` | ✅ Prioritizes `manualCrop` over `smartCrop` on line 21 |
+| `CroppedImage` | ⚠️ Missing keys on early returns |
 
 ---
 
-## Summary of Changes
+## Why This Fixes It
+
+When you save a new crop:
+1. `photo.manualCrop` gets set with new coordinates
+2. `PhotoThumbnail` picks up `manualCrop` (prioritized over `smartCrop`)
+3. `CroppedImage` receives the new crop values
+4. **New:** The `cropKey` is now calculated immediately
+5. **New:** The `key` prop changes, forcing React to fully recreate the `<img>` element
+6. The browser renders the image with the new transform values
+
+---
+
+## Files to Change
 
 | File | Change |
 |------|--------|
-| `src/components/common/CroppedImage.tsx` | Add `key` prop to `<img>` element based on crop parameters to force re-render |
+| `src/components/common/CroppedImage.tsx` | Move `cropKey` calculation up, add `key` to early return `<img>` elements |
 
-This is a minimal, targeted fix that ensures the browser re-renders the image whenever the crop region changes.
+---
+
+## Technical Note on toFixed(0)
+
+Using `toFixed(0)` rounds the crop values to integers for the key string. This prevents issues where tiny floating-point differences (like `500.0000001` vs `500`) would generate different keys unnecessarily, while still detecting meaningful crop changes.

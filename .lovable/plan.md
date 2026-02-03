@@ -1,58 +1,134 @@
 
-## Fix: Remove lovable-tagger to Eliminate Console Ref Warnings
 
-### Problem
-The `lovable-tagger` plugin (line 4-15 in vite.config.ts) attempts to attach refs to various function components for Lovable's component selection feature. Multiple components don't forward refs, causing a cascade of console warnings:
+## Revised Fix: Sequential Photo Add → Process Flow
 
-- `CropEditor`
-- `DialogHeader` 
-- `DialogFooter`
-- `DialogPortal`
+### Architectural Change
 
-### Solution
-Remove the `componentTagger` plugin entirely from the Vite configuration. This eliminates all the ref-related console spam.
+Instead of firing `addPhotos` and `processSmartCrops` in parallel without waiting, we'll make them properly sequential with clear success/failure handling.
 
-### File to Modify
+### New Flow
 
-**`vite.config.ts`**
+```text
+User uploads photos
+       │
+       ▼
+┌─────────────────────┐
+│  addPhotos()        │ ← Returns which photos saved successfully
+│  (await IndexedDB)  │
+└─────────────────────┘
+       │
+       ▼ (only succeeded photos)
+┌─────────────────────┐
+│  processSmartCrops()│ ← AI processing on confirmed photos
+│  (with try/catch)   │
+└─────────────────────┘
+```
+
+### Implementation Details
+
+**File 1: `src/hooks/useCollageState.ts`**
+
+Modify `addPhotos` to return success/failure information:
 
 ```typescript
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
-// REMOVE: import { componentTagger } from "lovable-tagger";
+interface AddPhotosResult {
+  succeeded: PhotoItem[];
+  failed: PhotoItem[];
+}
 
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-    hmr: {
-      overlay: false,
-    },
-  },
-  plugins: [react()], // REMOVE: mode === "development" && componentTagger()
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-}));
+const addPhotos = useCallback(async (newPhotos: PhotoItem[]): Promise<AddPhotosResult> => {
+  const succeeded: PhotoItem[] = [];
+  const failed: PhotoItem[] = [];
+
+  for (const photo of newPhotos) {
+    try {
+      await savePhoto({
+        id: photo.id,
+        blob: photo.blob,
+        width: photo.originalWidth,
+        height: photo.originalHeight,
+      });
+      succeeded.push(photo);
+      objectUrlsRef.current.add(photo.objectUrl);
+    } catch (e) {
+      console.error('Failed to save photo to IndexedDB:', photo.id, e);
+      failed.push(photo);
+      // Revoke the object URL since we won't use this photo
+      URL.revokeObjectURL(photo.objectUrl);
+    }
+  }
+
+  if (failed.length > 0) {
+    toast.error(`Failed to save ${failed.length} photo(s). Storage may be full.`);
+  }
+
+  if (succeeded.length > 0) {
+    setState((prev) => {
+      const next = {
+        ...prev,
+        photos: [...prev.photos, ...succeeded],
+      };
+      saveMetadataToStorage(next);
+      return next;
+    });
+  }
+
+  return { succeeded, failed };
+}, []);
 ```
+
+**File 2: `src/pages/Index.tsx`**
+
+Make `handlePhotosAdded` properly async and sequential:
+
+```typescript
+const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+  // Step 1: Wait for photos to be saved to storage
+  const { succeeded } = await addPhotos(newPhotos);
+  
+  if (succeeded.length === 0) {
+    // All photos failed to save - nothing to process
+    return;
+  }
+
+  // Step 2: Only process photos that were successfully saved
+  try {
+    await processSmartCrops(succeeded);
+  } catch (error) {
+    console.error('Smart crop processing failed:', error);
+    toast.error('AI processing failed. Please try again.');
+  }
+
+  if (state.layout) setLayoutStale(true);
+}, [addPhotos, processSmartCrops, state.layout]);
+```
+
+**File 3: `src/components/PhotoUploader.tsx`**
+
+Update to handle async callback (no changes needed - React handles async event handlers fine).
 
 ### Changes Summary
 
-| Line | Before | After |
-|------|--------|-------|
-| 4 | `import { componentTagger } from "lovable-tagger";` | (removed) |
-| 15 | `plugins: [react(), mode === "development" && componentTagger()].filter(Boolean)` | `plugins: [react()]` |
+| File | Change |
+|------|--------|
+| `useCollageState.ts` | Return `{ succeeded, failed }` from `addPhotos`, only add succeeded photos to state |
+| `Index.tsx` | Make `handlePhotosAdded` async, await `addPhotos`, only call `processSmartCrops` on succeeded |
+| `Index.tsx` | Add try/catch around `processSmartCrops` with toast error |
 
 ### What This Fixes
-- All "Function components cannot be given refs" warnings will be eliminated
-- Console will be clean for debugging the actual crop mismatch issue
 
-### Trade-off
-You lose the ability to click on components in the preview to select them in the Lovable editor. This is a minor convenience feature and removing it has no impact on functionality.
+1. **No more crashes**: Errors are caught at each step
+2. **No orphaned photos**: Only successfully saved photos are processed
+3. **Clear feedback**: User knows immediately if storage failed
+4. **No recovery logic needed**: Sequential flow means no "detect and retry" complexity
+5. **Predictable behavior**: One step completes before the next starts
 
-### Next Steps (After This Fix)
-Once the console is clean, we can return to debugging the actual crop mismatch bug with a clear console.
+### Removed Complexity
+
+We do NOT need:
+- Recovery `useEffect` to detect unprocessed photos
+- Orphan detection logic
+- Complex error state management
+
+The sequential approach is simpler and more robust.
+

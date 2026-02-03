@@ -147,21 +147,20 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle>Adjust Crop</DialogTitle>
           <DialogDescription className="sr-only">
             Drag the crop area to reposition, or drag corners to resize
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 relative overflow-hidden bg-black/50 rounded-lg flex items-center justify-center">
+        <div className="flex-1 min-h-0 overflow-hidden bg-black/50 flex items-center justify-center p-4">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
-            className="w-full h-full block touch-none select-none"
-            style={{ maxHeight: 'calc(90vh - 140px)' }}
+            className="max-w-full max-h-full block touch-none select-none"
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
@@ -273,7 +272,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
           </svg>
         </div>
 
-        <DialogFooter className="flex gap-2">
+        <DialogFooter className="px-4 py-3 border-t border-border shrink-0">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>

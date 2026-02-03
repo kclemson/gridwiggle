@@ -1,49 +1,55 @@
 
 
-## Remove Success Checkmark from Smart Cropped Thumbnails
+## Change: Use Full Image When No Subjects Detected
 
 ### Current Behavior
-- When a photo is uploaded, it appears in "Original Photos" with a spinner overlay while processing
-- Once smart cropping completes, the photo appears in "Smart Cropped" grid with a green checkmark
-- The checkmark is meant to indicate "successfully cropped"
+When DETR doesn't detect any objects with confidence > 0.4, the worker returns a 10% edge crop:
+```typescript
+return {
+  x: Math.round(originalWidth * 0.1),
+  y: Math.round(originalHeight * 0.1),
+  width: Math.round(originalWidth * 0.8),
+  height: Math.round(originalHeight * 0.8)
+};
+```
 
-### Why the Checkmark is Unnecessary
-The fact that a photo appears in the "Smart Cropped" grid at all already indicates success - the grid only shows `photosWithSmartCrop` which filters for `smartCrop || manualCrop`. The checkmark is redundant visual noise.
-
-### Solution
-Simply remove the checkmark indicator from `PhotoThumbnail.tsx`. The existing flow already handles the processing state correctly:
-
-1. Photo uploads → shows in "Original Photos" with spinner overlay
-2. Smart crop completes → photo appears in "Smart Cropped" grid (no overlay needed)
-3. If processing fails → error overlay shows on the original photo
+### New Behavior
+Return the full image dimensions - no cropping applied:
+```typescript
+return {
+  x: 0,
+  y: 0,
+  width: originalWidth,
+  height: originalHeight
+};
+```
 
 ### Technical Change
 
-**File: `src/components/PhotoThumbnail.tsx`**
+**File: `src/workers/visionWorker.ts`**
 
-Remove lines 68-73 (the smart crop success indicator):
+Update the `calculateOptimalCrop` function's fallback case (around line 45):
 
 ```typescript
-// DELETE THIS BLOCK:
-{/* Smart crop success indicator */}
-{showCropped && activeCrop && !photo.isProcessing && (
-  <div className="absolute bottom-1 left-1 rounded-full bg-success p-1">
-    <Check className="h-3 w-3 text-success-foreground" />
-  </div>
-)}
+if (subjects.length === 0) {
+  // No subjects detected - use full image (no cropping)
+  return {
+    x: 0,
+    y: 0,
+    width: originalWidth,
+    height: originalHeight
+  };
+}
 ```
-
-Also remove the unused `Check` import from lucide-react (line 1).
 
 ### Changes Summary
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoThumbnail.tsx` | Remove `Check` from imports |
-| `src/components/PhotoThumbnail.tsx` | Delete the success indicator JSX block (lines 68-73) |
+| `src/workers/visionWorker.ts` | Change no-detection fallback from 10% edge crop to full image |
 
 ### Result
-- Cleaner thumbnail appearance - no green checkmark clutter
-- The appearance in the "Smart Cropped" grid is itself the success indicator
-- Processing state still shown correctly via spinner overlay on original photo
+- Cartoon images like Lisa Simpson will appear in Smart Cropped grid unchanged
+- Photos with detectable subjects still get intelligent cropping
+- User can manually adjust any crop via the editor if desired
 

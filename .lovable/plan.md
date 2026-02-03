@@ -1,82 +1,86 @@
 
 
-## Refine Settings Row Styling
+## Fix Settings Row Visibility & Color Swatch Styling
 
-### Issues to Fix
+### Issues Identified
 
-1. **Underline too wide** - Currently applied to ToggleGroupItem which has padding, making underline wider than text
-2. **Vertical gap too large** - Border-bottom has too much space from the text
-3. **Border cuts off content** - The outer border doesn't contain the "12px" label
-4. **Need subtle separators** - Simple vertical pipes between sections
+1. **Invisible separators** - The `bg-border` color (`hsl(240 5% 18%)`) is too close to `bg-surface` (`hsl(240 8% 8%)`) making the pipe dividers nearly invisible
+
+2. **Color swatch double-border** - The `<input type="color">` has browser default styling that creates a white/gray inner border, plus we're adding our own border - resulting in an awkward double-box effect
 
 ### Solution
 
-**1. Move underline to the text span** - Apply the border directly to the inner `<span>` instead of the ToggleGroupItem, so it matches text width exactly
+**1. Make separators visible**
+- Change from `bg-border` to `bg-muted-foreground/30` (white at 30% opacity)
+- This ensures visibility against any background while staying subtle
 
-**2. Reduce vertical gap** - Use `pb-0.5` (2px padding) on the span to bring underline closer to text
-
-**3. Remove outer border** - Remove `border border-border` from the container, keep just `bg-surface` for subtle distinction
-
-**4. Keep separators** - The existing `<div className="w-px h-6 bg-border" />` separators are already simple pipes - they'll remain
+**2. Fix color swatch styling**
+- Remove the outer border
+- Use `appearance-none` to remove browser default chrome
+- Apply `rounded-md` directly to a filled swatch
+- Use CSS to target the color-swatch pseudo-element to ensure the color fills edge-to-edge
 
 ### Technical Changes
 
 **File: `src/components/CollageSettings.tsx`**
 
-**Container (line 19):**
+**Separators (lines 50, 65):**
 ```tsx
 // Before
-<div className="flex items-center gap-3 p-2 rounded-lg bg-surface border border-border">
+<div className="w-px h-6 bg-border" />
 
-// After - remove border, keep subtle background
-<div className="flex items-center gap-3 p-2 rounded-lg bg-surface">
+// After - more visible
+<div className="w-px h-6 bg-muted-foreground/30" />
 ```
 
-**Toggle Items - move underline to inner span:**
+**Color input (lines 55-61):**
 ```tsx
 // Before
-<ToggleGroupItem 
-  value="landscape" 
-  size="sm"
-  className="data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:border-b-2 data-[state=on]:border-foreground data-[state=on]:rounded-b-none data-[state=off]:text-muted-foreground"
->
-  <span className="text-xs">Landscape</span>
-</ToggleGroupItem>
+<input
+  type="color"
+  value={settings.gapColor}
+  onChange={(e) => onUpdate({ gapColor: e.target.value })}
+  className="w-8 h-8 aspect-square rounded border border-border cursor-pointer bg-transparent"
+  aria-label="Background color"
+/>
 
-// After - underline on span, not toggle item
-<ToggleGroupItem 
-  value="landscape" 
-  size="sm"
-  className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
->
-  <span className={`text-xs pb-0.5 ${settings.orientation === 'landscape' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
-    Landscape
-  </span>
-</ToggleGroupItem>
+// After - rounded filled swatch, no double border
+<input
+  type="color"
+  value={settings.gapColor}
+  onChange={(e) => onUpdate({ gapColor: e.target.value })}
+  className="w-6 h-6 rounded-md cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-0"
+  aria-label="Background color"
+/>
 ```
 
-Using conditional class based on `settings.orientation` since we can't use `data-[state=on]` on the inner span.
+Key CSS applied:
+- `appearance-none` - removes browser default styling
+- `border-0` - no outer border
+- `[&::-webkit-color-swatch-wrapper]:p-0` - removes internal padding in Chrome/Safari
+- `[&::-webkit-color-swatch]:rounded-md` - rounds the actual color swatch
+- `[&::-webkit-color-swatch]:border-0` - removes inner border
+- Same for Firefox with `::-moz-color-swatch`
 
 ### Visual Result
 
 Before:
 ```
-┌─────────────────────────────────────────────────────────┐
-│ Orientation: [Landscape̲̲̲̲̲̲̲̲̲̲]  Portrait │ Background: [■] │ Gap: ──●── 12px
-└─────────────────────────────────────────────────────────┘
-                  ↑ wide underline                              ↑ cut off
+Orientation: Landscape  Portrait    Background: [┌──┐]    Gap: ──●── 12px
+                                                 │██│
+                        (invisible)              └──┘ (double border)
 ```
 
 After:
 ```
-  Orientation: Landscape  Portrait │ Background: [■] │ Gap: ──●── 12px
-                  ̲̲̲̲̲̲̲̲̲̲̲
-              ↑ tight underline    ↑ simple pipe separators, no outer border
+Orientation: Landscape  Portrait │ Background: ██ │ Gap: ──●── 12px
+                  ̲̲̲̲̲̲̲̲̲̲̲                          ↑                ↑
+                              visible pipe    rounded color only
 ```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Remove outer border, move underline to inner span with tighter spacing |
+| `src/components/CollageSettings.tsx` | Update separator color, fix color input to be a clean rounded swatch |
 

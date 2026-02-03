@@ -1,4 +1,4 @@
-import { X, Loader2, AlertCircle, Check } from 'lucide-react';
+import { X, Loader2, AlertCircle } from 'lucide-react';
 import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { getDisplayCrop } from '@/lib/cropUtils';
@@ -65,12 +65,6 @@ export function PhotoThumbnail({
         </div>
       )}
 
-      {/* Smart crop success indicator */}
-      {showCropped && activeCrop && !photo.isProcessing && (
-        <div className="absolute bottom-1 left-1 rounded-full bg-success p-1">
-          <Check className="h-3 w-3 text-success-foreground" />
-        </div>
-      )}
 
       {/* Remove button */}
       <button

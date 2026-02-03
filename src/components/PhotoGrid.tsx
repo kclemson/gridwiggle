@@ -7,6 +7,7 @@ interface PhotoGridProps {
   onPhotoClick?: (photoId: string) => void;
   showCropped?: boolean;
   title: string;
+  hint?: string;
   emptyMessage?: string;
 }
 
@@ -16,6 +17,7 @@ export function PhotoGrid({
   onPhotoClick, 
   showCropped, 
   title,
+  hint,
   emptyMessage 
 }: PhotoGridProps) {
   if (photos.length === 0 && emptyMessage) {
@@ -29,7 +31,10 @@ export function PhotoGrid({
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-        {title}
+        {title} ({photos.length})
+        {hint && (
+          <span className="normal-case font-normal italic ml-1">— {hint}</span>
+        )}
       </h3>
       <div className="flex flex-wrap gap-2">
         {photos.map((photo) => (

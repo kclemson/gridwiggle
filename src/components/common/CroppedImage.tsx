@@ -142,9 +142,15 @@ export function CroppedImage({
   const centerOffsetX = (100 - scaledCropWidth) / (2 * scaleFactor);
   const centerOffsetY = (100 - scaledCropHeight) / (2 * scaleFactor);
   
+  // Generate a stable key from crop parameters to force re-mount when crop changes
+  const cropKey = crop 
+    ? `${crop.x}-${crop.y}-${crop.width}-${crop.height}` 
+    : 'no-crop';
+
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>
       <img
+        key={cropKey}
         src={src}
         alt=""
         style={{

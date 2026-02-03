@@ -1,106 +1,123 @@
 
 
-# Fix Crop Editor Viewport Resize Issue
+# Fix Three Collage Issues (Preserving Drag-to-Swap)
 
-The crop handles don't update their positions when the browser viewport is resized because the `scale` value is computed once at render time and never recalculated when the image dimensions change.
+Keep the interactive `CollagePreview` component for drag-to-swap and tap-to-crop functionality, while fixing the visual and mobile export issues.
 
 ---
 
-## Root Cause
+## Issue #1: Preview Gaps Don't Match Export
+
+**Problem:** CSS percentage positioning creates floating-point rounding differences at different viewport sizes.
+
+**Fix:** Round all cell coordinates and dimensions in `collageLayout.ts` to whole pixels before they're converted to percentages.
+
+### File: `src/lib/collageLayout.ts`
+
+**Lines 163-169** - Round values when creating cells:
 
 ```typescript
-// Line 134 - computed once per render
-const scale = getScale();
-
-// Lines 170-173 - uses stale scale value
-style={{
-  left: crop.x * scale,
-  top: crop.y * scale,
-  width: crop.width * scale,
-  height: crop.height * scale,
-}}
-```
-
-When viewport resizes:
-1. The `<img>` element resizes (CSS `max-width/max-height` causes it to fit new container)
-2. `imageRef.current.width` now returns a different value
-3. BUT React doesn't re-render because no state changed
-4. The crop overlay uses the OLD scale value, so it's positioned incorrectly
-
----
-
-## Solution
-
-Add a resize observer to track when the image element's dimensions change, and store the current scale in state to trigger re-renders.
-
-```text
-On image load OR resize:
-  - Read imageRef.current.width
-  - Compute new scale
-  - Store in state -> triggers re-render -> overlay repositions
+cells.push({
+  photoId: photo.id,
+  x: Math.round(x),
+  y: Math.round(y),
+  width: Math.round(photoWidth),
+  height: Math.round(height),
+});
 ```
 
 ---
 
-## File Changes
+## Issue #2: Background Too Dark
 
-### `src/components/CropEditor.tsx`
+**Problem:** App background is near-black (`3.9%` lightness), same as default gap color.
 
-1. **Add `scale` state** instead of computing inline:
-   ```typescript
-   const [scale, setScale] = useState(1);
-   ```
+**Fix:** Change to dark charcoal (`10%` lightness).
 
-2. **Add a function to update scale**:
-   ```typescript
-   const updateScale = useCallback(() => {
-     if (imageRef.current && photo.originalWidth > 0) {
-       setScale(imageRef.current.width / photo.originalWidth);
-     }
-   }, [photo.originalWidth]);
-   ```
+### File: `src/index.css`
 
-3. **Call updateScale on image load**:
-   ```typescript
-   onLoad={() => {
-     setImageLoaded(true);
-     updateScale();
-   }}
-   ```
+**Line 9** (light mode) and **Line 56** (dark mode):
 
-4. **Add ResizeObserver to track image size changes**:
-   ```typescript
-   useEffect(() => {
-     const img = imageRef.current;
-     if (!img) return;
-     
-     const resizeObserver = new ResizeObserver(() => {
-       updateScale();
-     });
-     
-     resizeObserver.observe(img);
-     return () => resizeObserver.disconnect();
-   }, [updateScale]);
-   ```
+```css
+/* Change from */
+--background: 240 10% 3.9%;
 
-5. **Remove inline `getScale()` call** at line 134 since scale is now in state.
+/* Change to */
+--background: 240 10% 10%;
+```
 
 ---
 
-## Why ResizeObserver?
+## Issue #3: Mobile Download Experience
 
-- `window.resize` event: Only fires when the window resizes, not when dialog/container resizes
-- Polling: Wasteful and introduces lag
-- **ResizeObserver**: Native browser API that efficiently notifies when an element's dimensions change
+**Problem:** File download is awkward on mobile - users want to save directly to Photos.
+
+**Fix:** Use Web Share API on mobile devices, which opens the native share sheet with "Save Image" option.
+
+### File: `src/lib/exportCollage.ts`
+
+Add new function after `downloadBlob`:
+
+```typescript
+export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
+  const file = new File([blob], filename, { type: 'image/png' });
+  const shareData = { files: [file] };
+  
+  // Check if Web Share API with file support is available (mobile browsers)
+  if (navigator.canShare && navigator.canShare(shareData)) {
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch (err) {
+      // User cancelled - that's fine
+      if ((err as Error).name === 'AbortError') return;
+      // Other error - fall through to download
+    }
+  }
+  
+  // Fallback to traditional download (desktop)
+  downloadBlob(blob, filename);
+}
+```
+
+### File: `src/pages/Index.tsx`
+
+**Update import** (line 5):
+
+```typescript
+import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
+```
+
+**Update handleExport** (around line 87):
+
+```typescript
+// Change from:
+downloadBlob(blob, `collage-${timestamp}.png`);
+
+// Change to:
+await shareOrDownload(blob, `collage-${timestamp}.png`);
+```
 
 ---
 
-## Before/After
+## How Mobile Share Works
 
-| Viewport Resize | Before | After |
-|-----------------|--------|-------|
-| Image shrinks | Crop overlay stays same size (wrong) | Crop overlay shrinks proportionally (correct) |
-| Image grows | Crop overlay stays same size (wrong) | Crop overlay grows proportionally (correct) |
+| Platform | Behavior |
+|----------|----------|
+| iOS Safari | Opens share sheet → "Save Image" saves to Photos |
+| Android Chrome | Opens share sheet → "Save to device" or share to apps |
+| Desktop | Falls back to file download (current behavior) |
 
-This is a legitimate use of useEffect - it synchronizes React state with an external system (DOM element dimensions via ResizeObserver).
+---
+
+## Summary
+
+| Change | File | Purpose |
+|--------|------|---------|
+| Round cell positions | `collageLayout.ts` | Fix gap inconsistencies |
+| Dark charcoal background | `index.css` | Make collage boundaries visible |
+| Web Share API | `exportCollage.ts` | Native mobile saving |
+| Use shareOrDownload | `Index.tsx` | Call new function |
+
+The drag-to-swap and tap-to-crop features in `CollagePreview` remain unchanged.
 

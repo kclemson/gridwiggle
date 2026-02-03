@@ -3,6 +3,7 @@ import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
+import { Star } from 'lucide-react';
 
 interface CollagePreviewProps {
   photos: PhotoItem[];
@@ -10,6 +11,7 @@ interface CollagePreviewProps {
   gapColor: string;
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
+  onToggleHero?: (photoId: string) => void;
 }
 
 /**
@@ -22,7 +24,8 @@ export function CollagePreview({
   layout, 
   gapColor, 
   onSwapPhotos,
-  onCellClick 
+  onCellClick,
+  onToggleHero
 }: CollagePreviewProps) {
   const collageRef = useRef<HTMLDivElement>(null); // Kept for potential future use (e.g., exporting)
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -126,7 +129,7 @@ export function CollagePreview({
               key={cell.photoId}
               data-photo-id={photo.id}
               className={cn(
-                "absolute overflow-hidden cursor-grab active:cursor-grabbing transition-all",
+                "absolute overflow-hidden cursor-grab active:cursor-grabbing transition-all group",
                 isBeingDragged && "opacity-50 scale-95",
                 isDragTarget && "ring-4 ring-primary ring-offset-2 ring-offset-background"
               )}
@@ -152,6 +155,35 @@ export function CollagePreview({
                 originalHeight={photo.originalHeight}
                 fit="cover"
               />
+              
+              {/* Hero toggle button - appears on hover, always visible on mobile */}
+              {!isBeingDragged && onToggleHero && (
+                <button
+                  className={cn(
+                    "absolute top-2 right-2 z-10 p-1.5 rounded-full transition-all",
+                    "bg-background/60 hover:bg-background/80",
+                    "opacity-70 md:opacity-0 md:group-hover:opacity-100", // Visible on mobile, hover on desktop
+                    "touch-manipulation" // Better touch handling on mobile
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleHero(photo.id);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  draggable={false}
+                  aria-label={photo.priority === 1 ? "Remove hero status" : "Mark as hero"}
+                >
+                  <Star 
+                    className={cn(
+                      "h-4 w-4",
+                      photo.priority === 1 
+                        ? "fill-amber-400 text-amber-400" 
+                        : "text-muted-foreground"
+                    )} 
+                  />
+                </button>
+              )}
             </div>
           );
         })}

@@ -2,46 +2,53 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PhotoItem, CropRegion } from '@/types/collage';
-import { loadImage } from '@/lib/imageUtils';
 
 interface CropEditorProps {
-  photo: PhotoItem | null;
-  isOpen: boolean;
+  photo: PhotoItem;
   onClose: () => void;
   onSave: (photoId: string, crop: CropRegion) => void;
 }
 
-export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) {
+function getDefaultCrop(photo: PhotoItem): CropRegion {
+  const activeCrop = photo.manualCrop || photo.smartCrop;
+  if (activeCrop) {
+    return { ...activeCrop };
+  }
+  // Default to center crop with some margin
+  const size = Math.min(photo.originalWidth, photo.originalHeight) * 0.8;
+  return {
+    x: (photo.originalWidth - size) / 2,
+    y: (photo.originalHeight - size) / 2,
+    width: size,
+    height: size,
+  };
+}
+
+/**
+ * CropEditor - Renders conditionally (when photo is provided).
+ * Uses useState initializer to set crop from props on mount.
+ * Component unmounts on close, so no useEffect sync needed.
+ */
+export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [crop, setCrop] = useState<CropRegion | null>(null);
+  
+  // Initialize crop from photo props on mount - no useEffect needed
+  const [crop, setCrop] = useState<CropRegion>(() => getDefaultCrop(photo));
+  
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0, displayWidth: 0, displayHeight: 0 });
+  const [imageDimensions, setImageDimensions] = useState({ 
+    width: photo.originalWidth, 
+    height: photo.originalHeight, 
+    displayWidth: 0, 
+    displayHeight: 0 
+  });
 
-  // Initialize crop from photo's current crop
+  // Calculate display scale when container size changes - appropriate useEffect for browser API
   useEffect(() => {
-    if (photo && isOpen) {
-      const activeCrop = photo.manualCrop || photo.smartCrop;
-      if (activeCrop) {
-        setCrop({ ...activeCrop });
-      } else {
-        // Default to center crop with some margin
-        const size = Math.min(photo.originalWidth, photo.originalHeight) * 0.8;
-        setCrop({
-          x: (photo.originalWidth - size) / 2,
-          y: (photo.originalHeight - size) / 2,
-          width: size,
-          height: size,
-        });
-      }
-    }
-  }, [photo, isOpen]);
-
-  // Calculate display scale when container size changes
-  useEffect(() => {
-    if (!photo || !containerRef.current) return;
+    if (!containerRef.current) return;
 
     const updateScale = () => {
       const container = containerRef.current;
@@ -65,7 +72,7 @@ export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) 
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [photo]);
+  }, [photo.originalWidth, photo.originalHeight]);
 
   const getEventPosition = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     const container = containerRef.current;
@@ -99,7 +106,7 @@ export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) 
   }, [getEventPosition]);
 
   const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDragging || !dragType || !crop || !photo) return;
+    if (!isDragging || !dragType) return;
 
     const pos = getEventPosition(e);
     const dx = pos.x - dragStart.x;
@@ -135,7 +142,7 @@ export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) 
 
     setCrop(newCrop);
     setDragStart(pos);
-  }, [isDragging, dragType, crop, photo, getEventPosition, dragStart]);
+  }, [isDragging, dragType, crop, photo.originalWidth, photo.originalHeight, getEventPosition, dragStart]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
@@ -143,16 +150,12 @@ export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) 
   }, []);
 
   const handleSave = () => {
-    if (photo && crop) {
-      onSave(photo.id, crop);
-      onClose();
-    }
+    onSave(photo.id, crop);
+    onClose();
   };
 
-  if (!photo) return null;
-
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
         <DialogHeader>
           <DialogTitle>Adjust Crop</DialogTitle>
@@ -189,46 +192,42 @@ export function CropEditor({ photo, isOpen, onClose, onSave }: CropEditorProps) 
               <div className="absolute inset-0 bg-black/60" />
               
               {/* Crop area */}
-              {crop && (
-                <>
-                  {/* Clear crop area */}
-                  <div
-                    className="absolute border-2 border-white cursor-move"
-                    style={{
-                      left: crop.x * scale,
-                      top: crop.y * scale,
-                      width: crop.width * scale,
-                      height: crop.height * scale,
-                      boxShadow: `0 0 0 9999px rgba(0, 0, 0, 0.6)`,
-                      background: 'transparent',
-                    }}
-                    onMouseDown={(e) => handlePointerDown(e, 'move')}
-                    onTouchStart={(e) => handlePointerDown(e, 'move')}
-                  >
-                    {/* Grid lines */}
-                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
-                      {Array.from({ length: 9 }).map((_, i) => (
-                        <div key={i} className="border border-white/30" />
-                      ))}
-                    </div>
+              {/* Clear crop area */}
+              <div
+                className="absolute border-2 border-white cursor-move"
+                style={{
+                  left: crop.x * scale,
+                  top: crop.y * scale,
+                  width: crop.width * scale,
+                  height: crop.height * scale,
+                  boxShadow: `0 0 0 9999px rgba(0, 0, 0, 0.6)`,
+                  background: 'transparent',
+                }}
+                onMouseDown={(e) => handlePointerDown(e, 'move')}
+                onTouchStart={(e) => handlePointerDown(e, 'move')}
+              >
+                {/* Grid lines */}
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div key={i} className="border border-white/30" />
+                  ))}
+                </div>
 
-                    {/* Corner handles */}
-                    {['nw', 'ne', 'sw', 'se'].map((corner) => (
-                      <div
-                        key={corner}
-                        className="absolute w-5 h-5 bg-white rounded-full border-2 border-primary -translate-x-1/2 -translate-y-1/2"
-                        style={{
-                          left: corner.includes('e') ? '100%' : 0,
-                          top: corner.includes('s') ? '100%' : 0,
-                          cursor: `${corner}-resize`,
-                        }}
-                        onMouseDown={(e) => handlePointerDown(e, `resize-${corner}` as typeof dragType)}
-                        onTouchStart={(e) => handlePointerDown(e, `resize-${corner}` as typeof dragType)}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
+                {/* Corner handles */}
+                {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
+                  <div
+                    key={corner}
+                    className="absolute w-5 h-5 bg-white rounded-full border-2 border-primary -translate-x-1/2 -translate-y-1/2"
+                    style={{
+                      left: corner.includes('e') ? '100%' : 0,
+                      top: corner.includes('s') ? '100%' : 0,
+                      cursor: `${corner}-resize`,
+                    }}
+                    onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}
+                    onTouchStart={(e) => handlePointerDown(e, `resize-${corner}`)}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>

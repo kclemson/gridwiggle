@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoGrid } from '@/components/PhotoGrid';
@@ -38,57 +38,58 @@ export default function Index() {
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [smartCropProgress, setSmartCropProgress] = useState(0);
+  const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
 
-  // Process smart crops for new photos
-  useEffect(() => {
-    const photosNeedingCrop = state.photos.filter(
-      (p) => p.isProcessing && !p.smartCrop && !p.error
-    );
+  // Process smart crops for photos - called directly from event handler
+  const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
+    if (photos.length === 0) return;
+    
+    setIsProcessingSmartCrop(true);
+    setSmartCropProgress(0);
+    
+    let completed = 0;
+    const total = photos.length;
 
-    if (photosNeedingCrop.length === 0) {
-      setSmartCropProgress(0);
-      return;
-    }
-
-    const processPhotos = async () => {
-      let completed = 0;
-      const total = photosNeedingCrop.length;
-
-      for (const photo of photosNeedingCrop) {
-        try {
-          const result = await getSmartCrop(
-            photo.originalDataUrl,
-            photo.originalWidth,
-            photo.originalHeight
-          );
-          
-          updatePhoto(photo.id, {
-            smartCrop: result.crop,
-            isProcessing: false,
-          });
-        } catch (error) {
-          console.error('Smart crop failed for photo:', photo.id, error);
-          updatePhoto(photo.id, {
-            isProcessing: false,
-            error: error instanceof Error ? error.message : 'Failed to process',
-          });
-          toast.error('Smart crop failed for one photo');
-        }
+    for (const photo of photos) {
+      try {
+        const result = await getSmartCrop(
+          photo.originalDataUrl,
+          photo.originalWidth,
+          photo.originalHeight
+        );
         
-        completed++;
-        setSmartCropProgress((completed / total) * 100);
+        updatePhoto(photo.id, {
+          smartCrop: result.crop,
+          isProcessing: false,
+        });
+      } catch (error) {
+        console.error('Smart crop failed for photo:', photo.id, error);
+        updatePhoto(photo.id, {
+          isProcessing: false,
+          error: error instanceof Error ? error.message : 'Failed to process',
+        });
+        toast.error('Smart crop failed for one photo');
       }
-    };
-
-    processPhotos();
-  }, [state.photos, updatePhoto]);
+      
+      completed++;
+      setSmartCropProgress((completed / total) * 100);
+    }
+    
+    setIsProcessingSmartCrop(false);
+    setSmartCropProgress(0);
+  }, [updatePhoto]);
 
   const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
     addPhotos(newPhotos);
+    
+    // Transition to review step if this is the first batch
     if (state.step === 'upload' && state.photos.length === 0) {
       setStep('review');
     }
-  }, [addPhotos, setStep, state.step, state.photos.length]);
+    
+    // Process smart crops in event handler, not useEffect
+    processSmartCrops(newPhotos);
+  }, [addPhotos, setStep, state.step, state.photos.length, processSmartCrops]);
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
@@ -142,7 +143,7 @@ export default function Index() {
   }, [state.photos, state.settings, setLayout]);
 
   const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
-  const isProcessing = state.photos.some((p) => p.isProcessing);
+  const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
   const canCreateCollage = photosWithSmartCrop.length >= 2 && !isProcessing;
 
   const editingPhoto = editingPhotoId 
@@ -324,13 +325,14 @@ export default function Index() {
         )}
       </main>
 
-      {/* Crop Editor Dialog */}
-      <CropEditor
-        photo={editingPhoto ?? null}
-        isOpen={!!editingPhotoId}
-        onClose={() => setEditingPhotoId(null)}
-        onSave={handleSaveCrop}
-      />
+      {/* Crop Editor - Conditional rendering so component unmounts on close */}
+      {editingPhotoId && editingPhoto && (
+        <CropEditor
+          photo={editingPhoto}
+          onClose={() => setEditingPhotoId(null)}
+          onSave={handleSaveCrop}
+        />
+      )}
     </div>
   );
 }

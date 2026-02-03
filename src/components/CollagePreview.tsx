@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
-import { getActiveCrop, loadImage, getCroppedImageDataUrl } from '@/lib/imageUtils';
+import { getActiveCrop } from '@/lib/imageUtils';
+import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
 
 interface CollagePreviewProps {
@@ -156,29 +157,13 @@ export function CollagePreview({
               onTouchStart={(e) => handleTouchStart(e, photo.id)}
               onClick={() => onCellClick?.(photo.id)}
             >
-              {crop ? (
-                <div className="w-full h-full relative overflow-hidden">
-                  <img
-                    src={photo.originalDataUrl}
-                    alt=""
-                    className="absolute"
-                    style={{
-                      width: `${(photo.originalWidth / crop.width) * 100}%`,
-                      height: `${(photo.originalHeight / crop.height) * 100}%`,
-                      left: `${(-crop.x / crop.width) * 100}%`,
-                      top: `${(-crop.y / crop.height) * 100}%`,
-                    }}
-                    draggable={false}
-                  />
-                </div>
-              ) : (
-                <img
-                  src={photo.originalDataUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
-              )}
+              <CroppedImage
+                src={photo.originalDataUrl}
+                crop={crop}
+                originalWidth={photo.originalWidth}
+                originalHeight={photo.originalHeight}
+                fit="cover"
+              />
             </div>
           );
         })}

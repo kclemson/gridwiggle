@@ -119,27 +119,28 @@ export function CroppedImage({
     ? Math.min(scaleForWidth, scaleForHeight)
     : Math.max(scaleForWidth, scaleForHeight);
   
-  // After scaling, the crop region's position in the container needs to be calculated
+  // After scaling, position the image so the crop region aligns with container origin
   // The crop's top-left corner (as fraction of image) should move to container origin
   const cropXPosFrac = crop.x / originalWidth;  // e.g., 0.25
   const cropYPosFrac = crop.y / originalHeight; // e.g., 0.25
   
-  // Translate to move crop origin to container origin (in percentage of container)
-  // After scale, image is scaleFactor * 100% wide
-  // Crop starts at (cropXPosFrac * scaleFactor * 100)% from left
-  // We need to translate by negative that amount
-  const translateX = -cropXPosFrac * scaleFactor * 100;
-  const translateY = -cropYPosFrac * scaleFactor * 100;
+  // IMPORTANT: translate() percentages are relative to the ELEMENT's size, not the container!
+  // Since the element is already scaled (width = scaleFactor * 100% of container),
+  // we only need to translate by the crop position as a percentage of the image.
+  // The scaleFactor is already "baked in" to the element's dimensions.
+  const translateX = -cropXPosFrac * 100;
+  const translateY = -cropYPosFrac * 100;
   
-  // Calculate centering offset
+  // Calculate centering offset (in container units)
   // After scale, crop region size (as % of container):
   const scaledCropWidth = cropXFrac * scaleFactor * 100;  // should be 100% for the fit dimension
   const scaledCropHeight = cropYFrac * scaleFactor * 100; // might be < or > 100%
   
   // For contain: center the smaller dimension
   // For cover: center the larger dimension (it will be clipped)
-  const centerOffsetX = (100 - scaledCropWidth) / 2;
-  const centerOffsetY = (100 - scaledCropHeight) / 2;
+  // These offsets need to be converted to element-relative percentages for translate()
+  const centerOffsetX = (100 - scaledCropWidth) / (2 * scaleFactor);
+  const centerOffsetY = (100 - scaledCropHeight) / (2 * scaleFactor);
   
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>

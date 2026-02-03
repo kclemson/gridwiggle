@@ -1,78 +1,93 @@
 
 
-# Remove Toast Notifications
+# Remove Step-Based Navigation Entirely
 
-Toast notifications are being removed in favor of inline feedback. The UI should make state changes clear through direct visual updates.
-
----
-
-## Current Toast Usages
-
-| Location | Type | Message | Replacement Strategy |
-|----------|------|---------|---------------------|
-| Smart crop failure | error | "Smart crop failed for one photo" | Already handled - error overlay on thumbnail |
-| Export success | success | "Collage downloaded!" | Remove - browser download dialog is feedback |
-| Export failure | error | "Failed to export collage" | Add inline error state in collage step |
-| Regenerate success | success | "Layout regenerated" | Remove - layout visually updates |
-| Clear all success | success | "All photos cleared" | Remove - photos disappear from screen |
+The step system (`upload` → `review` → `collage`) is unnecessary complexity. The UI should be a single vertically-scrolling page where content appears/hides based on whether photos exist and whether a layout has been generated.
 
 ---
 
-## Files to Modify
+## Current Architecture (Overly Complex)
 
-### 1. `src/pages/Index.tsx`
+```
+Step state: 'upload' | 'review' | 'collage'
+  ↓
+Conditional rendering based on step
+  ↓
+Back arrow navigation between steps
+  ↓
+Broken states when step doesn't match data
+```
+
+## New Architecture (Simple)
+
+```
+No step state needed
+  ↓
+Show upload prompt when: photos.length === 0
+Show review UI when: photos.length > 0
+Show collage preview when: layout !== null (below review UI)
+```
+
+---
+
+## File Changes
+
+### 1. `src/types/collage.ts`
 
 **Remove:**
-- Import of `toast` from `sonner`
-- All 5 toast calls
+- The `step` field from `CollageState` type
 
-**Add:**
-- `exportError` state for showing export failures inline
-- Inline error message in the collage step UI when export fails
-
-**Changes to handlers:**
-- `processSmartCrops`: Remove toast.error (thumbnail already shows error overlay)
-- `handleExport`: Remove toast.success, add setExportError for failures
-- `handleRegenerateLayout`: Remove toast.success
-- `clearAll` onClick: Remove toast.success
-
-### 2. `src/App.tsx`
+### 2. `src/hooks/useCollageState.ts`
 
 **Remove:**
-- Import of `Toaster` from `@/components/ui/toaster`
-- Import of `Toaster as Sonner` from `@/components/ui/sonner`
-- Both `<Toaster />` and `<Sonner />` components from JSX
+- `step` from default state
+- `setStep` function
 
-### 3. Delete Toast Infrastructure Files
+### 3. `src/pages/Index.tsx`
 
-- `src/components/ui/sonner.tsx`
-- `src/components/ui/toaster.tsx`
-- `src/components/ui/toast.tsx`
-- `src/components/ui/use-toast.ts`
-- `src/hooks/use-toast.ts`
+**Remove:**
+- `ArrowLeft` import (no longer needed)
+- `setStep` from destructured hook
+- The entire back arrow button in header
+- All `state.step` conditionals
+- `handleCreateCollage` can just call `setLayout` directly
 
----
-
-## Inline Error UI for Export Failures
-
-In the collage step, add an inline error message below the action buttons:
+**Simplify rendering logic:**
 
 ```text
 ┌─────────────────────────────────────────┐
-│  [Regenerate]  [Download PNG]           │
+│ Header: Smart Collage    [Clear All]    │
+├─────────────────────────────────────────┤
 │                                         │
-│  ⚠ Failed to export collage. Try again. │  ← Only shown when exportError is set
+│ (if no photos)                          │
+│   Full upload prompt                    │
+│                                         │
+│ (if has photos)                         │
+│   [Add More Photos] button              │
+│   Original Photos grid                  │
+│   Smart Cropped grid                    │
+│   Settings                              │
+│   [Create Collage] button               │
+│                                         │
+│ (if layout exists - appears below)      │
+│   Collage Preview                       │
+│   [Regenerate] [Download PNG]           │
+│                                         │
 └─────────────────────────────────────────┘
 ```
 
-The error clears when the user clicks Download again or navigates away.
+**Key change:** The collage preview appears *below* the review section, not replacing it. Users can still see and modify their photos/settings while viewing the collage.
 
 ---
 
-## Why This Is Better
+## Behavior After Changes
 
-- **Success feedback**: The UI itself changes (photos disappear, layout updates, download starts)
-- **Error feedback**: Inline text stays visible until addressed, unlike toasts that auto-dismiss
-- **Simpler architecture**: Removes ~300 lines of toast infrastructure code
-- **More accessible**: Inline errors are easier for screen readers to associate with context
+| Action | Result |
+|--------|--------|
+| Add first photos | Upload prompt disappears, review UI appears |
+| Click "Create Collage" | Collage preview appears below settings |
+| Change settings | Layout auto-regenerates |
+| Clear all | Everything resets to upload prompt |
+
+No steps. No navigation. No back arrows. Just a vertical flow.
 

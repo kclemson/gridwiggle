@@ -166,7 +166,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
           <div className="relative max-w-full max-h-full">
             <img
               ref={imageRef}
-              src={photo.originalDataUrl}
+              src={photo.objectUrl}
               alt=""
               className="max-w-full max-h-full object-contain block"
               style={{ maxHeight: 'calc(90vh - 140px)' }} // Account for header/footer

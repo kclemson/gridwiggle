@@ -1,4 +1,5 @@
 import { CropRegion } from '@/types/collage';
+import { blobToDataUrl } from '@/lib/imageUtils';
 
 interface SmartCropResult {
   crop: CropRegion;
@@ -76,14 +77,22 @@ function scaleImageForProcessing(
   });
 }
 
+/**
+ * Get smart crop for a photo using AI vision.
+ * Accepts objectUrl (for rendering) and blob (for processing).
+ */
 export async function getSmartCrop(
-  imageDataUrl: string,
+  objectUrl: string,
+  blob: Blob,
   width: number,
   height: number,
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
+  // Convert blob to dataUrl for the vision worker
+  const dataUrl = await blobToDataUrl(blob);
+  
   // Scale down for performance
-  const scaled = await scaleImageForProcessing(imageDataUrl, width, height);
+  const scaled = await scaleImageForProcessing(dataUrl, width, height);
   
   return new Promise((resolve, reject) => {
     const currentWorker = getWorker();

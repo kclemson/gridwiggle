@@ -37,7 +37,7 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
     >
       <ImageContainer aspectRatio="square">
         <CroppedImage
-          src={photo.originalDataUrl}
+          src={photo.objectUrl}
           crop={showCropped ? activeCrop : null}
           originalWidth={photo.originalWidth}
           originalHeight={photo.originalHeight}

@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { Upload, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { fileToDataUrl, getImageDimensions, generateId } from '@/lib/imageUtils';
+import { getImageDimensions, generateId } from '@/lib/imageUtils';
 import { PhotoItem } from '@/types/collage';
 
 interface PhotoUploaderProps {
@@ -18,11 +18,15 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
 
   const processFiles = useCallback(async (files: FileList) => {
     const photoPromises = Array.from(files).map(async (file): Promise<PhotoItem> => {
-      const dataUrl = await fileToDataUrl(file);
-      const dimensions = await getImageDimensions(dataUrl);
+      // File is already a Blob - no conversion needed
+      const blob = file;
+      const objectUrl = URL.createObjectURL(blob);
+      const dimensions = await getImageDimensions(objectUrl);
+      
       return {
         id: generateId(),
-        originalDataUrl: dataUrl,
+        objectUrl,
+        blob,
         originalWidth: dimensions.width,
         originalHeight: dimensions.height,
         smartCrop: null,

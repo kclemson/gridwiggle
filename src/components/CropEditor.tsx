@@ -19,7 +19,11 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   
   // Initialize crop from photo props on mount using centralized utility
-  const [crop, setCrop] = useState<CropRegion>(() => getEditorInitialCrop(photo));
+  const [crop, setCrop] = useState<CropRegion>(() => {
+    const initialCrop = getEditorInitialCrop(photo);
+    console.log('[CropEditor init]', { photoId: photo.id, initialCrop });
+    return initialCrop;
+  });
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);

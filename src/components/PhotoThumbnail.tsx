@@ -16,6 +16,7 @@ interface PhotoThumbnailProps {
 export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, className }: PhotoThumbnailProps) {
   // Use centralized crop utility for consistent validation
   const activeCrop = showCropped ? getDisplayCrop(photo) : null;
+  console.log('[PhotoThumbnail]', { photoId: photo.id, showCropped, activeCrop });
   
   // Always use "contain" so thumbnails show the full image/crop region
   // This ensures the thumbnail matches what the user sees in the crop editor

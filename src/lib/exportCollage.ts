@@ -84,3 +84,23 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
+  const file = new File([blob], filename, { type: 'image/png' });
+  const shareData = { files: [file] };
+  
+  // Check if Web Share API with file support is available (mobile browsers)
+  if (navigator.canShare && navigator.canShare(shareData)) {
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch (err) {
+      // User cancelled - that's fine
+      if ((err as Error).name === 'AbortError') return;
+      // Other error - fall through to download
+    }
+  }
+  
+  // Fallback to traditional download (desktop)
+  downloadBlob(blob, filename);
+}

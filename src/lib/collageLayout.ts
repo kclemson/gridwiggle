@@ -162,10 +162,10 @@ function calculateLayout(
       
       cells.push({
         photoId: photo.id,
-        x,
-        y,
-        width: photoWidth,
-        height,
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(photoWidth),
+        height: Math.round(height),
       });
       
       x += photoWidth + gap;

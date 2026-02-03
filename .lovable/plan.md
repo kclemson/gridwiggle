@@ -1,212 +1,93 @@
 
+# Fix Smart Crop Thumbnail Not Updating After Save
 
-# Make "Create Collage" Button Contextual
+## Problem Analysis
 
-Transform the button to show "Create Collage" vs "Regenerate Collage" based on whether changes have been made since the last collage was generated.
+When editing a photo's crop in the CropEditor and saving, the "Smart Cropped" thumbnail doesn't visually update to reflect the new crop region.
 
----
+### Root Cause
 
-## Current State
+The issue is in how `CroppedImage` renders cropped photos. When the crop changes:
+1. The `src` stays the same (same base64 data URL)
+2. Only the CSS `transform` and `width` properties change
+3. The browser may optimize away the re-render since the image source hasn't changed
 
-Two separate buttons exist:
-1. **"Create Collage"** button - always shows this text, visible before layout exists
-2. **"Regenerate"** button - separate button inside the collage preview section
+Additionally, there's no `key` prop on the `<img>` element to force React to recreate it when crop parameters change significantly.
 
-The user wants a single contextual button that changes its label based on state.
+### Evidence from Console Logs
 
----
-
-## Detection Logic
-
-The button should show "Regenerate Collage" when a layout exists AND any of these have changed:
-
-| Change Type | How to Detect |
-|-------------|---------------|
-| Photo crop edited | `manualCrop` changed after layout was created |
-| Photo added | Photo count increased |
-| Photo removed | Photo count decreased |
-| Settings changed | `orientation`, `gapColor`, or `gapSize` changed |
+The console shows a `QuotaExceededError` when saving (localStorage is full due to large base64 images), but this is a separate issue - the in-memory state update still succeeds. The visual update is failing at the rendering layer.
 
 ---
 
-## Approach: Track "Layout Stale" State
+## Solution
 
-Rather than complex change detection, we can derive "needs regeneration" by checking if the layout exists. When it does, any edit should signal regeneration is needed.
+Add a `key` prop to the `CroppedImage` component that changes when the crop region changes. This forces React to unmount and remount the image element, ensuring the browser renders the new crop.
 
-**Simpler approach:** Track a `layoutVersion` counter in state. When layout is created, snapshot the current state's "version". Any subsequent change (photo edit, settings change, photo add/remove) bumps a version counter. If versions don't match, layout is stale.
+### File: `src/components/common/CroppedImage.tsx`
 
-**Even simpler:** Just check if `state.layout` exists. If yes, button says "Regenerate". If no, button says "Create". This works because:
-- Before first collage: no layout → "Create Collage"
-- After creating: layout exists → "Regenerate Collage" (user may want to try different layout)
-- After clearing: no layout → back to "Create Collage"
-
-However, the user specifically wants the button to change **when a crop is edited**, implying "I made changes, now regenerate". So we need to track "dirty" state.
-
----
-
-## Solution: Invalidate Layout on Edit
-
-When photos or settings change, automatically set `layout` to `null`. This way:
-- No layout → "Create Collage"  
-- Has layout → "Regenerate Collage" (only possible right after generating, before any edits)
-
-**Wait** - this doesn't quite work because we want to keep showing the preview while indicating it's stale.
-
-**Better approach:** Add a `layoutStale` boolean to the component state (not persisted). Set it to `true` when photos/settings change while a layout exists.
-
----
-
-## Final Design
-
-### State Changes
-
-Add local state in `Index.tsx`:
-```typescript
-const [layoutStale, setLayoutStale] = useState(false);
-```
-
-### Mark Layout as Stale
-
-Update these handlers to set stale when layout exists:
-
-1. **`handleSaveCrop`** - when user edits a crop
-2. **`handlePhotosAdded`** - when new photos are added  
-3. **`handleRemovePhoto`** - when a photo is removed
-4. **`updateSettings`** - when settings change (already wrapped)
-
-### Clear Stale Flag
-
-When `handleCreateCollage` runs, set `layoutStale` to `false`.
-
-### Button Logic
+Add a key to the inner `<img>` element based on the crop parameters:
 
 ```typescript
-const hasLayout = state.layout !== null;
-const needsRegenerate = hasLayout && layoutStale;
+// Generate a stable key from crop parameters
+const cropKey = crop 
+  ? `${crop.x}-${crop.y}-${crop.width}-${crop.height}` 
+  : 'no-crop';
 
-// Button shows:
-// - "Create Collage" when no layout exists
-// - "Regenerate Collage" when layout exists AND is stale
-// - Keep existing "Regenerate Collage" state when layout exists but not stale (optional)
+return (
+  <div className={cn('relative overflow-hidden w-full h-full', className)}>
+    <img
+      key={cropKey}  // Force re-mount when crop changes
+      src={src}
+      alt=""
+      style={{
+        position: 'absolute',
+        width: `${scaleFactor * 100}%`,
+        height: 'auto',
+        transform: `translate(${translateX + centerOffsetX}%, ${translateY + centerOffsetY}%)`,
+        transformOrigin: 'top left',
+      }}
+      draggable={false}
+    />
+  </div>
+);
 ```
 
-Actually, reconsidering: if a layout exists but isn't stale, do we still show "Create" or "Regenerate"? 
+### Alternative Approach: Key at PhotoThumbnail Level
 
-The cleanest UX:
-- **No layout**: "Create Collage" (primary action)
-- **Has layout, not stale**: Button still says "Regenerate Collage" but maybe dimmed or secondary
-- **Has layout, IS stale**: "Regenerate Collage" with emphasis/highlight
-
-Let me simplify further based on the user's request:
-
----
-
-## Simplified Implementation
-
-### Logic
+An even cleaner fix is to add the key at the `PhotoThumbnail` level in `PhotoGrid.tsx`:
 
 ```typescript
-const hasLayout = state.layout !== null;
-const buttonLabel = hasLayout ? "Regenerate Collage" : "Create Collage";
-const buttonIcon = hasLayout ? RefreshCw : Wand2;
+// PhotoGrid.tsx
+{photos.map((photo) => (
+  <PhotoThumbnail
+    key={`${photo.id}-${photo.manualCrop?.x ?? 'none'}-${photo.manualCrop?.y ?? 'none'}`}
+    photo={photo}
+    // ... rest of props
+  />
+))}
 ```
 
-This already gets us most of the way - once a collage exists, button changes to "Regenerate". 
-
-To add **emphasis when stale**, we can:
-1. Track `layoutStale` boolean
-2. Add a visual indicator (different color, animation, or badge)
+However, this would cause the entire thumbnail to remount (losing hover states, etc.). The more surgical fix is at the `CroppedImage` level.
 
 ---
 
-## File Changes
+## Additional Fix: Separate localStorage Quota Issue
 
-### `src/pages/Index.tsx`
+While not the direct cause, the console shows localStorage is exceeding quota because photo data URLs are being stored. This should be addressed separately:
 
-1. **Add state** to track if layout is stale:
-   ```typescript
-   const [layoutStale, setLayoutStale] = useState(false);
-   ```
+1. **Don't persist photo data URLs** - they're too large
+2. Or **use IndexedDB** instead of localStorage for large data
+3. Or **compress/limit stored data**
 
-2. **Update `handleSaveCrop`** to mark stale:
-   ```typescript
-   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion) => {
-     updatePhoto(photoId, { manualCrop: crop });
-     setEditingPhotoId(null);
-     if (state.layout) setLayoutStale(true);
-   }, [updatePhoto, state.layout]);
-   ```
-
-3. **Update `handlePhotosAdded`** to mark stale:
-   ```typescript
-   const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
-     addPhotos(newPhotos);
-     processSmartCrops(newPhotos);
-     if (state.layout) setLayoutStale(true);
-   }, [addPhotos, processSmartCrops, state.layout]);
-   ```
-
-4. **Update `handleRemovePhoto`** to mark stale:
-   ```typescript
-   const handleRemovePhoto = useCallback((photoId: string) => {
-     removePhoto(photoId);
-     if (state.layout) setLayoutStale(true);
-   }, [removePhoto, state.layout]);
-   ```
-
-5. **Wrap settings update** to mark stale:
-   ```typescript
-   const handleUpdateSettings = useCallback((updates: Partial<CollageSettings>) => {
-     updateSettings(updates);
-     if (state.layout) setLayoutStale(true);
-   }, [updateSettings, state.layout]);
-   ```
-   And pass `handleUpdateSettings` instead of `updateSettings` to `CollageSettings`.
-
-6. **Update `handleCreateCollage`** to clear stale:
-   ```typescript
-   const handleCreateCollage = useCallback(() => {
-     const layout = generateCollageLayout(state.photos, state.settings);
-     setLayout(layout);
-     setLayoutStale(false);
-   }, [state.photos, state.settings, setLayout]);
-   ```
-
-7. **Update button rendering**:
-   ```typescript
-   const hasLayout = state.layout !== null;
-   
-   <Button
-     size="default"
-     className={cn("gap-2", layoutStale && "ring-2 ring-primary animate-pulse")}
-     disabled={!canCreateCollage}
-     onClick={handleCreateCollage}
-   >
-     {hasLayout ? <RefreshCw className="h-5 w-5" /> : <Wand2 className="h-5 w-5" />}
-     {hasLayout ? "Regenerate Collage" : "Create Collage"}
-     {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-   </Button>
-   ```
-
-8. **Remove separate "Regenerate" button** from the collage preview section (lines 258-266).
+This is a separate issue but worth noting for future improvement.
 
 ---
 
-## Visual Indicator When Stale
+## Summary of Changes
 
-When `layoutStale` is true, the button could have:
-- A subtle ring/glow effect
-- Or simply rely on the label change being obvious enough
+| File | Change |
+|------|--------|
+| `src/components/common/CroppedImage.tsx` | Add `key` prop to `<img>` element based on crop parameters to force re-render |
 
-I'll add a subtle ring highlight to draw attention.
-
----
-
-## Summary
-
-| State | Button Text | Visual |
-|-------|-------------|--------|
-| No layout | "Create Collage" | Normal primary button |
-| Has layout, not stale | "Regenerate Collage" | Normal primary button |
-| Has layout, IS stale | "Regenerate Collage" | Ring highlight |
-
+This is a minimal, targeted fix that ensures the browser re-renders the image whenever the crop region changes.

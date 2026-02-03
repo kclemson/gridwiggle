@@ -1,41 +1,40 @@
 
-## Alternative Styling for Orientation Toggle
 
-### Problem
-The selected toggle state uses `bg-accent` which is the same purple (`262 83% 58%`) as the primary CTA button. This creates visual competition where both elements demand equal attention.
+## Refine Settings Row Styling
 
-### Solution Options
+### Issues to Fix
 
-I recommend using a **subtle border/underline approach** instead of a filled background:
+1. **Underline too wide** - Currently applied to ToggleGroupItem which has padding, making underline wider than text
+2. **Vertical gap too large** - Border-bottom has too much space from the text
+3. **Border cuts off content** - The outer border doesn't contain the "12px" label
+4. **Need subtle separators** - Simple vertical pipes between sections
 
-**Option: Border + Text Weight (Recommended)**
-- Selected state: White text with a bottom border indicator
-- Unselected state: Muted text, no border
-- This keeps the toggle clearly readable but neutral, letting the purple CTA stand out
+### Solution
 
-### Visual Result
+**1. Move underline to the text span** - Apply the border directly to the inner `<span>` instead of the ToggleGroupItem, so it matches text width exactly
 
-Before (competing purple):
-```
-Orientation: [████Landscape████] [Portrait]    ⟵ Purple fill
-             ↓
-         [████ Create Collage ████]            ⟵ Also purple
-```
+**2. Reduce vertical gap** - Use `pb-0.5` (2px padding) on the span to bring underline closer to text
 
-After (subtle selection):
-```
-Orientation: [Landscape̲] [Portrait]    ⟵ White text + underline
-                   ↓
-         [████ Create Collage ████]    ⟵ Purple stands alone
-```
+**3. Remove outer border** - Remove `border border-border` from the container, keep just `bg-surface` for subtle distinction
+
+**4. Keep separators** - The existing `<div className="w-px h-6 bg-border" />` separators are already simple pipes - they'll remain
 
 ### Technical Changes
 
 **File: `src/components/CollageSettings.tsx`**
 
-Override the default toggle styling by adding custom classes to the `ToggleGroupItem` components:
-
+**Container (line 19):**
 ```tsx
+// Before
+<div className="flex items-center gap-3 p-2 rounded-lg bg-surface border border-border">
+
+// After - remove border, keep subtle background
+<div className="flex items-center gap-3 p-2 rounded-lg bg-surface">
+```
+
+**Toggle Items - move underline to inner span:**
+```tsx
+// Before
 <ToggleGroupItem 
   value="landscape" 
   size="sm"
@@ -43,17 +42,41 @@ Override the default toggle styling by adding custom classes to the `ToggleGroup
 >
   <span className="text-xs">Landscape</span>
 </ToggleGroupItem>
+
+// After - underline on span, not toggle item
+<ToggleGroupItem 
+  value="landscape" 
+  size="sm"
+  className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
+>
+  <span className={`text-xs pb-0.5 ${settings.orientation === 'landscape' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
+    Landscape
+  </span>
+</ToggleGroupItem>
 ```
 
-Key style changes:
-- `data-[state=on]:bg-transparent` - Remove the purple fill
-- `data-[state=on]:text-foreground` - White text when selected
-- `data-[state=on]:border-b-2 data-[state=on]:border-foreground` - Underline indicator
-- `data-[state=on]:rounded-b-none` - Square bottom for clean underline
-- `data-[state=off]:text-muted-foreground` - Gray text when not selected
+Using conditional class based on `settings.orientation` since we can't use `data-[state=on]` on the inner span.
+
+### Visual Result
+
+Before:
+```
+┌─────────────────────────────────────────────────────────┐
+│ Orientation: [Landscape̲̲̲̲̲̲̲̲̲̲]  Portrait │ Background: [■] │ Gap: ──●── 12px
+└─────────────────────────────────────────────────────────┘
+                  ↑ wide underline                              ↑ cut off
+```
+
+After:
+```
+  Orientation: Landscape  Portrait │ Background: [■] │ Gap: ──●── 12px
+                  ̲̲̲̲̲̲̲̲̲̲̲
+              ↑ tight underline    ↑ simple pipe separators, no outer border
+```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Add custom classes to ToggleGroupItem to use underline instead of purple fill |
+| `src/components/CollageSettings.tsx` | Remove outer border, move underline to inner span with tighter spacing |
+

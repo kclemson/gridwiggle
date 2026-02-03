@@ -1,235 +1,80 @@
 
-
-# Migrate Photo Storage to IndexedDB (Simplified)
+# Constrain Entire App to 512px Width
 
 ## Overview
 
-Move photo image data from localStorage to IndexedDB. Photos never leave the browser - this is 100% client-side storage.
-
-**Simplified scope**: No migration logic for existing localStorage data. Fresh start.
+Cap the entire app UI to a maximum width of 512px, creating a mobile-app-like experience that looks clean on all screen sizes. This is a simple change to the container configuration in Tailwind.
 
 ---
 
-## Architecture
+## Current Behavior
 
-```text
-User selects files
-       │
-       ▼
-PhotoUploader (File → Blob + dimensions)
-       │
-       ├──► IndexedDB: { id, blob, width, height }
-       │
-       └──► localStorage: { id, width, height, smartCrop, manualCrop, ... }
-                          + settings, layout
-       │
-       ▼
-useCollageState hydrates on load
-       │
-       ▼
-PhotoItem { id, objectUrl, blob, ... } (in-memory)
-```
-
-**Key point**: Zero server round-trips for photos. All storage and processing happens in the browser.
-
----
-
-## Implementation Steps
-
-### Step 1: Create IndexedDB Storage Module
-
-**New file**: `src/lib/photoStorage.ts`
+The Tailwind container is configured to expand to 1400px on large screens:
 
 ```typescript
-const DB_NAME = 'smart-collage';  // Easy to rename later
-const DB_VERSION = 1;
-const PHOTOS_STORE = 'photos';
-
-interface StoredPhoto {
-  id: string;
-  blob: Blob;
-  width: number;
-  height: number;
-}
-
-export async function initPhotoStorage(): Promise<IDBDatabase>
-export async function savePhoto(photo: StoredPhoto): Promise<void>
-export async function getPhoto(id: string): Promise<StoredPhoto | undefined>
-export async function getAllPhotos(): Promise<StoredPhoto[]>
-export async function deletePhoto(id: string): Promise<void>
-export async function clearAllPhotos(): Promise<void>
+container: {
+  center: true,
+  padding: "1rem",
+  screens: {
+    "2xl": "1400px",  // This is why everything is huge
+  },
+},
 ```
+
+The `container` class is applied to:
+- Header content (`<div className="container ...">`)
+- Main content (`<main className="container ...">`)
 
 ---
 
-### Step 2: Update Types
+## Solution
 
-**File**: `src/types/collage.ts`
+Update the Tailwind container config to cap at 512px for all screen sizes:
 
 ```typescript
-// Runtime state (in-memory)
-export interface PhotoItem {
-  id: string;
-  objectUrl: string;          // For <img src> rendering
-  blob: Blob;                 // For canvas operations
-  originalWidth: number;
-  originalHeight: number;
-  smartCrop: CropRegion | null;
-  manualCrop: CropRegion | null;
-  isProcessing: boolean;
-  error: string | null;
-}
-
-// What gets saved to localStorage (no image data)
-export interface PhotoMetadata {
-  id: string;
-  originalWidth: number;
-  originalHeight: number;
-  smartCrop: CropRegion | null;
-  manualCrop: CropRegion | null;
-}
+container: {
+  center: true,
+  padding: "1rem",
+  screens: {
+    sm: "512px",
+    md: "512px",
+    lg: "512px",
+    xl: "512px",
+    "2xl": "512px",
+  },
+},
 ```
+
+This ensures the entire app (header, photo grids, settings, collage preview, buttons) stays within 512px and is centered on larger screens.
 
 ---
 
-### Step 3: Update useCollageState Hook
-
-**File**: `src/hooks/useCollageState.ts`
-
-**Changes**:
-- Add `isLoading` state for async initialization
-- On mount: load metadata from localStorage, load blobs from IndexedDB, create Object URLs, merge into PhotoItem[]
-- `addPhotos`: save blob to IndexedDB, save metadata to localStorage
-- `removePhoto`: revoke Object URL, delete from IndexedDB, remove from localStorage
-- `clearAll`: revoke all URLs, clear IndexedDB, clear localStorage
-- Add cleanup effect to revoke Object URLs on unmount
-
-**localStorage now stores**:
-```typescript
-{
-  photos: PhotoMetadata[],  // No image data
-  settings: CollageSettings,
-  layout: CollageLayout | null
-}
-```
-
----
-
-### Step 4: Update PhotoUploader
-
-**File**: `src/components/PhotoUploader.tsx`
-
-**Before**:
-```typescript
-const dataUrl = await fileToDataUrl(file);
-```
-
-**After**:
-```typescript
-const blob = file;  // File is already a Blob
-const objectUrl = URL.createObjectURL(blob);
-const dimensions = await getImageDimensions(objectUrl);
-
-return {
-  id: generateId(),
-  objectUrl,
-  blob,
-  originalWidth: dimensions.width,
-  originalHeight: dimensions.height,
-  // ...
-};
-```
-
----
-
-### Step 5: Update Image Consumers
-
-Replace `originalDataUrl` with `objectUrl` for rendering:
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `CropEditor.tsx` | `photo.originalDataUrl` → `photo.objectUrl` |
-| `CroppedImage.tsx` | Already uses `src` prop, no change needed |
-| `PhotoThumbnail.tsx` | Passes correct prop, no change needed |
-
-For canvas operations, use `blob`:
-
-| File | Change |
-|------|--------|
-| `exportCollage.ts` | Create Image from `URL.createObjectURL(photo.blob)` |
-| `smartCropService.ts` | Accept objectUrl or convert blob to dataUrl on demand |
+| `tailwind.config.ts` | Update container screens to cap at 512px |
 
 ---
 
-### Step 6: Add Loading State
+## Visual Result
 
-**File**: `src/pages/Index.tsx`
+**Before (large screen)**:
+- App spans up to 1400px
+- Thumbnails are ~180-280px each
+- Settings slider stretches across the full width
 
-```typescript
-const { state, isLoading, ... } = useCollageState();
-
-if (isLoading) {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
-}
-```
+**After (large screen)**:
+- App capped at 512px, centered on screen
+- Thumbnails are ~80-100px each (5 columns in 512px)
+- Compact, mobile-like experience on all devices
+- Dark background visible on sides, app content centered
 
 ---
 
-### Step 7: Update imageUtils
+## Technical Notes
 
-**File**: `src/lib/imageUtils.ts`
-
-- Remove `fileToDataUrl` (no longer needed)
-- Keep `getImageDimensions` (works with Object URLs)
-- Add `blobToDataUrl` for smart crop service (needs base64 for edge function)
-
----
-
-## Files Summary
-
-| File | Action |
-|------|--------|
-| `src/lib/photoStorage.ts` | **CREATE** - IndexedDB wrapper |
-| `src/types/collage.ts` | **MODIFY** - Update PhotoItem, add PhotoMetadata |
-| `src/hooks/useCollageState.ts` | **MODIFY** - Async init, hybrid storage, URL cleanup |
-| `src/components/PhotoUploader.tsx` | **MODIFY** - Use Blob instead of dataUrl |
-| `src/components/CropEditor.tsx` | **MODIFY** - Use objectUrl |
-| `src/lib/exportCollage.ts` | **MODIFY** - Load from blob |
-| `src/services/smartCropService.ts` | **MODIFY** - Convert blob to dataUrl for edge function |
-| `src/lib/imageUtils.ts` | **MODIFY** - Add blobToDataUrl, remove fileToDataUrl |
-| `src/pages/Index.tsx` | **MODIFY** - Handle loading state |
-
----
-
-## Error Handling
-
-| Scenario | Handling |
-|----------|----------|
-| IndexedDB unavailable | Show error toast, app works but photos won't persist |
-| Blob missing for metadata | Remove orphaned metadata silently |
-| Storage quota exceeded | Show user-friendly error suggesting to remove some photos |
-
----
-
-## Memory Management
-
-- **Object URLs**: Revoked when photo is removed or on component unmount
-- **Blobs**: Held in memory during session for fast canvas access; garbage collected when photo removed from state
-
----
-
-## Testing Checklist
-
-1. Upload photos, refresh page - photos persist
-2. Remove single photo - removed from both stores
-3. Clear all - both stores cleared
-4. Export collage - renders correctly
-5. Smart crop - processes correctly
-6. Crop editor - displays full image
-7. 20+ photos - no quota errors
-8. Private browsing - works but shows "photos won't persist" warning
-
+- On mobile (< 512px), the app will still use full width minus 1rem padding on each side
+- On larger screens, the app will be 512px wide and centered
+- No changes needed to individual components since they all use the `container` class
+- The collage preview will also be constrained, which keeps it proportional to the thumbnails

@@ -25,10 +25,18 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
             value={settings.orientation} 
             onValueChange={(value) => value && onUpdate({ orientation: value as 'portrait' | 'landscape' })}
           >
-            <ToggleGroupItem value="landscape" size="sm">
+            <ToggleGroupItem 
+              value="landscape" 
+              size="sm"
+              className="data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:border-b-2 data-[state=on]:border-foreground data-[state=on]:rounded-b-none data-[state=off]:text-muted-foreground"
+            >
               <span className="text-xs">Landscape</span>
             </ToggleGroupItem>
-            <ToggleGroupItem value="portrait" size="sm">
+            <ToggleGroupItem 
+              value="portrait" 
+              size="sm"
+              className="data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:border-b-2 data-[state=on]:border-foreground data-[state=on]:rounded-b-none data-[state=off]:text-muted-foreground"
+            >
               <span className="text-xs">Portrait</span>
             </ToggleGroupItem>
           </ToggleGroup>

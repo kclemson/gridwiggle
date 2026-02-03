@@ -1,98 +1,58 @@
 
 
-## Add Labels to Settings Controls
+## Improve Color Swatch Appearance
 
-### Current State (too minimal)
-```
-SETTINGS
-[🔲|🔳] | [■] | Gap [--slider--] 8px
-```
-
-### Proposed Layout
-```
-SETTINGS
-Orientation: [Landscape] [Portrait] | Color: [■] | Gap: [--slider--] 8px
-```
+### Current Issue
+The color picker is `w-6 h-6` (24x24px) which appears small and slightly rectangular compared to the toggle buttons and slider controls.
 
 ### Changes
 
 **File: `src/components/CollageSettings.tsx`**
 
-1. **Replace icon toggle with text buttons** - Use "Landscape" and "Portrait" text instead of icons
+1. **Increase swatch size** - Change from `w-6 h-6` to `w-8 h-8` (32x32px) to better match the visual weight of the toggle buttons
 
-2. **Add labels before each control**:
-   - "Orientation:" before the toggle group
-   - "Color:" before the color picker  
-   - "Gap:" (with colon) before the slider
+2. **Ensure square aspect ratio** - Add `aspect-square` class to guarantee it stays square
 
-3. **Keep compact layout** - All still fits on one row with the narrower slider
+3. **Change label** - Update "Color:" to "Background:"
 
-### Updated Structure
+4. **Update aria-label** - Change from "Gap color" to "Background color" for accessibility
 
-```tsx
-<div className="flex items-center gap-3 p-2 rounded-lg bg-surface border border-border">
-  {/* Orientation with label */}
-  <div className="flex items-center gap-2">
-    <span className="text-xs text-muted-foreground">Orientation:</span>
-    <ToggleGroup type="single" value={settings.orientation} onValueChange={...}>
-      <ToggleGroupItem value="landscape" size="sm">
-        <span className="text-xs">Landscape</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem value="portrait" size="sm">
-        <span className="text-xs">Portrait</span>
-      </ToggleGroupItem>
-    </ToggleGroup>
-  </div>
-  
-  {/* Separator */}
-  <div className="w-px h-6 bg-border" />
-  
-  {/* Color with label */}
-  <div className="flex items-center gap-2">
-    <span className="text-xs text-muted-foreground">Color:</span>
-    <input type="color" className="w-6 h-6 ..." />
-  </div>
-  
-  {/* Separator */}
-  <div className="w-px h-6 bg-border" />
-  
-  {/* Gap with colon */}
-  <div className="flex items-center gap-2">
-    <span className="text-xs text-muted-foreground">Gap:</span>
-    <Slider className="w-20" ... />
-    <span className="text-xs text-muted-foreground w-6">{gapSize}px</span>
-  </div>
-</div>
+### Code Change
+
+Line 42:
+```diff
+- <span className="text-xs text-muted-foreground">Color:</span>
++ <span className="text-xs text-muted-foreground">Background:</span>
+```
+
+Lines 43-49:
+```diff
+  <input
+    type="color"
+    value={settings.gapColor}
+    onChange={(e) => onUpdate({ gapColor: e.target.value })}
+-   className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent"
+-   aria-label="Gap color"
++   className="w-8 h-8 aspect-square rounded border border-border cursor-pointer bg-transparent"
++   aria-label="Background color"
+  />
 ```
 
 ### Visual Result
 
 Before:
 ```
-SETTINGS
-┌─────────────────────────────────────────────────────────┐
-│ [🔲|🔳]  │  [■]  │  Gap [━━●━━] 8px                     │
-└─────────────────────────────────────────────────────────┘
+Color: [■]  (24x24px, slightly small)
 ```
 
 After:
 ```
-SETTINGS
-┌──────────────────────────────────────────────────────────────────────────┐
-│ Orientation: [Landscape] [Portrait]  │  Color: [■]  │  Gap: [━━●━━] 8px  │
-└──────────────────────────────────────────────────────────────────────────┘
-```
-
-### Import Changes
-
-Remove the Lucide icons since we're using text now:
-```diff
-- import { RectangleHorizontal, RectangleVertical } from 'lucide-react';
+Background: [██]  (32x32px, visually balanced with toggles)
 ```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Add text labels, replace icons with text in toggle buttons |
+| `src/components/CollageSettings.tsx` | Resize color swatch to 32x32px, rename label to "Background:" |
 

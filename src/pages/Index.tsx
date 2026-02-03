@@ -161,9 +161,11 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
+      {/* Single wrapper constrains ALL content to 512px */}
+      <div className="max-w-lg mx-auto w-full">
+        {/* Header */}
+        <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="flex h-14 items-center justify-between px-4">
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <Grid3X3 className="h-5 w-5 text-primary" />
             Smart Collage
@@ -181,9 +183,9 @@ export default function Index() {
             </Button>
           )}
         </div>
-      </header>
+        </header>
 
-      <main className="container py-3 space-y-4">
+        <main className="py-3 space-y-4 px-4">
         {/* Progress bar for smart cropping */}
         {isProcessing && (
           <div className="space-y-2">
@@ -303,8 +305,9 @@ export default function Index() {
               </div>
             )}
           </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
       {/* Crop Editor - Conditional rendering so component unmounts on close */}
       {editingPhotoId && editingPhoto && (

@@ -22,10 +22,16 @@ export function CroppedImage({
   fit = 'contain',
   className,
 }: CroppedImageProps) {
+  // Generate key FIRST, before any early returns - forces React to recreate element when crop changes
+  const cropKey = crop 
+    ? `${crop.x.toFixed(0)}-${crop.y.toFixed(0)}-${crop.width.toFixed(0)}-${crop.height.toFixed(0)}` 
+    : 'no-crop';
+
   // If no crop, render simple image with object-fit
   if (!crop) {
     return (
       <img
+        key={cropKey}
         src={src}
         alt=""
         className={cn(
@@ -42,6 +48,7 @@ export function CroppedImage({
   if (crop.width < 50 || crop.height < 50) {
     return (
       <img
+        key={cropKey}
         src={src}
         alt=""
         className={cn(
@@ -142,11 +149,6 @@ export function CroppedImage({
   const centerOffsetX = (100 - scaledCropWidth) / (2 * scaleFactor);
   const centerOffsetY = (100 - scaledCropHeight) / (2 * scaleFactor);
   
-  // Generate a stable key from crop parameters to force re-mount when crop changes
-  const cropKey = crop 
-    ? `${crop.x}-${crop.y}-${crop.width}-${crop.height}` 
-    : 'no-crop';
-
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>
       <img

@@ -1,119 +1,219 @@
 
-# Fix Smart Cropped Thumbnails Not Displaying
 
-The smart cropped photos appear as blank squares because of two related issues in how crop regions are handled and displayed.
+# Revised Architecture Plan with Proper useEffect Usage
 
----
-
-## Root Cause Analysis
-
-### Issue 1: AI Returns Extreme Aspect Ratio Crops
-Looking at the edge function logs, some crops have extreme dimensions:
-```
-Smart crop result: { x: 717, y: 1486, width: 1331, height: 50 }
-```
-This creates a 26:1 aspect ratio (1331px wide by only 50px tall), which is an extremely thin horizontal strip.
-
-### Issue 2: Thumbnail Rendering Breaks for Extreme Aspect Ratios
-The current `PhotoThumbnail.tsx` creates a container that:
-- Has `aspectRatio: activeCrop.width / activeCrop.height` (e.g., 26.6:1)
-- Is constrained by `maxWidth: 100%` and `maxHeight: 100%` of the parent square
-
-For a 26:1 aspect ratio inside a square container, the result is a paper-thin horizontal line that appears invisible.
+This plan addresses both the architectural consolidation AND corrects useEffect anti-patterns based on the project guidelines.
 
 ---
 
-## Solution
+## useEffect Audit
 
-### Part 1: Improve Edge Function Validation
-Add validation in the `smart-crop` edge function to ensure reasonable aspect ratios:
+### Current useEffect Usages
 
-- Enforce minimum dimensions relative to image size (not just 50px absolute)
-- Clamp extreme aspect ratios (e.g., limit to 3:1 or 1:3 maximum)
-- If the AI returns an invalid crop, fall back to a sensible center crop
+| Location | Purpose | Verdict |
+|----------|---------|---------|
+| `Index.tsx:43-84` | Process smart crops when photos added | **VIOLATION** - Should be triggered in event handler |
+| `useCollageState.ts:51-53` | Persist to localStorage on state change | **VIOLATION** - Should persist in setter functions |
+| `CollagePreview.tsx:27-42` | Window resize listener | **APPROPRIATE** - Browser API subscription |
+| `CropEditor.tsx:24-40` | Init crop from photo prop when dialog opens | **VIOLATION** - Should use conditional rendering |
+| `CropEditor.tsx:43-68` | Window resize listener | **APPROPRIATE** - Browser API subscription |
 
-```
-Validation rules:
-- Minimum width: 20% of original image width
-- Minimum height: 20% of original image height  
-- Maximum aspect ratio deviation: 3:1 or 1:3
-- Fallback: 80% center crop if validation fails
-```
+### Fixes
 
-### Part 2: Fix Thumbnail Rendering Logic
-Update `PhotoThumbnail.tsx` to handle cropped preview display more robustly:
-
-Instead of using CSS transforms and absolute positioning which breaks for extreme cases, use a more reliable approach:
-1. Create a wrapper div that fills the square container using flexbox centering
-2. Set the inner container to use `object-fit: cover` behavior via CSS clipping
-3. Add a fallback: if crop dimensions seem invalid, show the original image instead
-
-```
-New rendering approach:
-- Use a wrapper div with flex centering
-- Calculate scale to fit the crop preview within the square
-- Apply transform-based scaling and translation to show correct crop region
-- Add validation: if cropWidth < 100px or cropHeight < 100px, show original
-```
-
----
-
-## Files to Modify
-
-### 1. `supabase/functions/smart-crop/index.ts`
-- Add aspect ratio validation after converting percentages to pixels
-- Ensure minimum crop is 20% of image dimensions
-- Cap extreme aspect ratios at 3:1
-- Add fallback logic for invalid crops
-
-### 2. `src/components/PhotoThumbnail.tsx`
-- Rewrite the cropped image rendering logic
-- Add validation check for minimum usable crop dimensions
-- Use a more robust CSS approach for displaying the crop preview:
-  - Calculate proper scale factor
-  - Use transform: translate + scale for positioning
-  - Ensure container has explicit dimensions
-
----
-
-## Technical Details
-
-### Edge Function Changes
+**1. Smart crop processing** - Move to event handler in `handlePhotosAdded`:
 ```text
-// After line 159, add validation:
-const aspectRatio = cropRegion.width / cropRegion.height;
-const minDimension = Math.min(width, height) * 0.2;
+// Instead of useEffect watching state.photos:
+const handlePhotosAdded = async (newPhotos: PhotoItem[]) => {
+  addPhotos(newPhotos);
+  // Process immediately after adding
+  for (const photo of newPhotos) {
+    processSmartCrop(photo); // handles its own state updates
+  }
+};
+```
 
-// Validate dimensions
-if (cropRegion.width < minDimension || cropRegion.height < minDimension || 
-    aspectRatio > 3 || aspectRatio < 0.33) {
-  // Fall back to 80% center crop
-  cropRegion = {
-    x: Math.round(width * 0.1),
-    y: Math.round(height * 0.1),
-    width: Math.round(width * 0.8),
-    height: Math.round(height * 0.8),
+**2. localStorage persistence** - Move into the setter callbacks:
+```text
+// Instead of useEffect watching state:
+const addPhotos = useCallback((newPhotos) => {
+  setState((prev) => {
+    const next = { ...prev, photos: [...prev.photos, ...newPhotos] };
+    saveToStorage(next); // Persist in same callback
+    return next;
+  });
+}, []);
+```
+
+**3. CropEditor initialization** - Use conditional rendering:
+```text
+// Instead of always rendering with useEffect sync:
+{editingPhotoId && (
+  <CropEditor
+    photo={photos.find(p => p.id === editingPhotoId)!}
+    onClose={() => setEditingPhotoId(null)}
+    onSave={handleSaveCrop}
+  />
+)}
+// Component unmounts on close, useState naturally resets
+```
+
+---
+
+## Component Architecture
+
+### New Shared Components
+
+**`src/components/common/CroppedImage.tsx`**
+
+Single source of truth for rendering any image with optional crop:
+
+```text
+Props:
+- src: string (image data URL)
+- crop: CropRegion | null
+- originalWidth: number
+- originalHeight: number
+- fit: 'contain' | 'cover' (how to fit within container)
+- className?: string
+
+Rendering logic:
+- If no crop: render with object-contain or object-cover
+- If crop: use CSS transform to scale and translate
+```
+
+Used by: `PhotoThumbnail`, `CollagePreview`, `CropEditor`
+
+**`src/components/common/ImageContainer.tsx`**
+
+Flexible container with consistent sizing:
+
+```text
+Props:
+- aspectRatio: 'square' | 'original' | number
+- className?: string
+- children: React.ReactNode
+```
+
+---
+
+## Hook Refactoring
+
+### `useCollageState.ts` - Remove localStorage useEffect
+
+```text
+Before:
+  useEffect(() => saveToStorage(state), [state]);
+
+After:
+  // Each setter function persists immediately:
+  const addPhotos = useCallback((newPhotos) => {
+    setState((prev) => {
+      const next = {...};
+      saveToStorage(next);
+      return next;
+    });
+  }, []);
+```
+
+Benefits:
+- No sync effect watching state
+- Persistence is explicit side effect of user action
+- Easier to reason about when saves happen
+
+### `useSmartCropProcessor.ts` - Processing via callbacks, not effects
+
+```text
+// Returns a function to process photos, not a hook with effects
+function createSmartCropProcessor(updatePhoto: Function) {
+  return async (photos: PhotoItem[], onProgress?: (pct: number) => void) => {
+    let completed = 0;
+    for (const photo of photos) {
+      // ... process each photo
+      completed++;
+      onProgress?.(completed / photos.length * 100);
+    }
   };
 }
 ```
 
-### PhotoThumbnail Rendering Fix
+Called from `handlePhotosAdded` event handler, not from a useEffect.
+
+---
+
+## CropEditor Refactoring
+
+### Problem
+Current code uses useEffect to initialize `crop` state from `photo` prop:
 ```text
-For cropped preview:
-1. Validate crop dimensions (min 100x100 px)
-2. Calculate the scale needed to fit crop region into container
-3. Render image at full size, then use CSS transform to:
-   - Translate to position crop region at origin
-   - Scale down to fit within container
-4. Clip overflow to show only the crop region
+useEffect(() => {
+  if (photo && isOpen) {
+    setCrop(photo.manualCrop || photo.smartCrop || defaultCrop);
+  }
+}, [photo, isOpen]);
+```
+
+This is state synchronization between props and local state - exactly what the guidelines say NOT to do.
+
+### Solution
+Use conditional rendering so component unmounts on close:
+
+```text
+// In Index.tsx:
+{editingPhotoId && (
+  <CropEditor
+    photo={photos.find(p => p.id === editingPhotoId)!}
+    ...
+  />
+)}
+
+// In CropEditor.tsx:
+// Remove isOpen prop entirely - component only renders when open
+// Initialize crop directly from props:
+const initialCrop = photo.manualCrop || photo.smartCrop || defaultCrop;
+const [crop, setCrop] = useState(initialCrop);
+// No useEffect needed - useState initializer runs once on mount
 ```
 
 ---
 
-## Expected Result
+## File Changes Summary
 
-After these fixes:
-- All smart cropped photos will display correctly in their thumbnail squares
-- Extreme AI responses will be caught and corrected to reasonable center crops
-- The thumbnail preview will accurately show what portion of the image is cropped
-- No more blank squares in the "Smart Cropped" section
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/components/common/CroppedImage.tsx` | Unified crop rendering |
+| `src/components/common/ImageContainer.tsx` | Flexible container |
+| `src/components/layout/AppHeader.tsx` | Extracted header |
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/hooks/useCollageState.ts` | Remove useEffect, persist in setters |
+| `src/pages/Index.tsx` | Move smart crop processing to event handler, use conditional rendering for CropEditor |
+| `src/components/PhotoThumbnail.tsx` | Use CroppedImage component |
+| `src/components/CollagePreview.tsx` | Use CroppedImage component |
+| `src/components/CropEditor.tsx` | Remove isOpen/useEffect pattern, use useState initializer |
+
+### Folder Reorganization
+
+```text
+src/components/collage/     # Feature components
+src/components/common/      # Shared primitives
+src/components/layout/      # Layout components
+```
+
+---
+
+## Implementation Order
+
+1. Fix `useCollageState.ts` - remove localStorage useEffect
+2. Create `CroppedImage` and `ImageContainer` components
+3. Refactor `CropEditor` - conditional rendering pattern
+4. Update `PhotoThumbnail` to use `CroppedImage`
+5. Update `CollagePreview` to use `CroppedImage`
+6. Move smart crop processing to event handler in `Index.tsx`
+7. Extract `AppHeader` component
+8. Reorganize folder structure
+

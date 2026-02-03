@@ -1,185 +1,401 @@
 
-# Fix Blank Smart Cropped Photo - Transform Calculation Bug
 
-The blank photo in the lower left of the Smart Cropped section is caused by incorrect CSS transform calculations in the `CroppedImage` component.
+# Smart Crop with Object Detection - Enhanced Plan
 
----
-
-## Root Cause
-
-The `translate()` CSS function uses percentages **relative to the element's own size**, not the container. The current code calculates translations as if they were relative to the container, which causes images to be pushed completely off-screen when:
-
-1. The crop region is positioned far from the top-left corner (high `x` or `y` values)
-2. The scale factor is large (small crop regions)
-
-**Example of the bug:**
-- Image: 1000x750, Crop: starts at x=700 (70%), width=200 (20%)
-- `scaleFactor = 1 / 0.2 = 5` (to make 20% crop fill container)
-- `translateX = -0.7 * 5 * 100 = -350%`
-- The image is 500% wide, so -350% of that = -1750% of container
-- Result: Image is pushed far off the left edge, container appears blank
+Replace the LLM-based approach with a client-side DETR object detection model, incorporating best practices from your proven implementation.
 
 ---
 
-## Solution
+## Key Insights from Reference Implementation
 
-Change from percentage-based translation to absolute positioning with pixel calculations, OR use a different approach that doesn't rely on percentage-based translate.
-
-### Recommended Fix
-
-Use `left` and `top` positioning instead of `translate()` with percentages:
-
-```text
-// Instead of:
-transform: `translate(${translateX}%, ${translateY}%)`
-
-// Use:
-// Position based on where crop region should align with container
-left: `${(-crop.x / originalWidth) * 100}%`   // as % of IMAGE width
-top: `${(-crop.y / originalHeight) * 100}%`   // as % of IMAGE height
-```
-
-Or better, use the transform with **pixel values** calculated from actual percentages:
-
-```text
-// Calculate positions as percentages of the SCALED image size
-const scaledImageWidth = scaleFactor * 100;  // as % of container
-const scaledImageHeight = (scaleFactor * 100) / imageAR;  // maintains aspect ratio
-
-// Translate to position crop at origin (in % of container, not element)
-// Use calc() or convert to the correct reference frame
-```
-
-### Simplest Fix
-
-Use a nested container approach where:
-1. Outer container clips to bounds
-2. Inner container is sized to the scaled image dimensions
-3. Image is positioned within using object-position or background-position
+| Pattern | What it Does | We Should Adopt |
+|---------|-------------|-----------------|
+| **Image scaling to 640px** | Performance optimization for detection | Yes - reduces processing time significantly |
+| **Confidence threshold 0.4** | Filters low-quality detections | Yes - balances accuracy vs recall |
+| **Padding = min(w,h) * 0.1** | Consistent padding regardless of aspect ratio | Yes - simpler and more consistent |
+| **Content type detection** | Classifies portrait/landscape/mixed/object | Nice-to-have for future features |
+| **Scale bounding boxes back** | Maps 640px coords to original dimensions | Essential for accuracy |
 
 ---
 
-## Files to Modify
-
-### `src/components/common/CroppedImage.tsx`
-
-Rewrite the cropped image rendering to use a more reliable positioning method:
-
-1. **Option A: Use `left`/`top` positioning** (simpler math)
-   - Set the image position using percentage-based `left` and `top`
-   - The percentage reference changes from element to container
-
-2. **Option B: Use pixel-based transforms** (more precise)
-   - Calculate actual pixel offsets based on container dimensions
-   - Requires knowing container size (may need `useRef` + measurement)
-
-3. **Option C: Use background-image approach** (most reliable)
-   - Render as a div with `background-image` instead of `<img>`
-   - Use `background-size` and `background-position` which have clearer semantics
-
----
-
-## Recommended Implementation (Option A)
+## Architecture
 
 ```text
-// For cropped images:
-<div className="relative overflow-hidden w-full h-full">
-  <img
-    src={src}
-    style={{
-      position: 'absolute',
-      width: `${scaleFactor * 100}%`,
-      height: 'auto',
-      // Use left/top which are relative to CONTAINER, not element
-      left: `${-cropXPosFrac * scaleFactor * 100}%`,
-      top: `${-cropYPosFrac * scaleFactor * 100}%`,
-      // Add centering offset for contain behavior
-      marginLeft: `${centerOffsetX}%`,
-      marginTop: `${centerOffsetY}%`,
-    }}
-  />
-</div>
-```
-
-Wait - `left` with percentage is also relative to the container, but the offset we're calculating is relative to the image. Let me reconsider...
-
-### Correct Implementation
-
-The key insight: we need to express the crop position as a fraction of the **scaled image**, then convert to container-relative units.
-
-```text
-// Crop region start in original image coordinates
-cropXPosFrac = crop.x / originalWidth   // e.g., 0.7 (starts 70% from left)
-
-// After scaling by scaleFactor, the image is (scaleFactor * 100)% of container width
-// We need to shift the image left so that the crop's left edge aligns with container's left edge
-
-// In container units:
-// Image width = scaleFactor * 100 (% of container)
-// Crop starts at = cropXPosFrac * (scaleFactor * 100) from left of image
-// To align crop with container left: shift image left by that amount
-
-// Using left property (% relative to container):
-left: `${-cropXPosFrac * scaleFactor * 100}%`
-
-// This should work because:
-// - Image is scaleFactor*100% wide
-// - Crop starts at cropXPosFrac * that width
-// - We move image left by that amount so crop starts at 0
-```
-
-This is actually the same math, but using `left` instead of `translate`. The difference is:
-- `translate(X%)` moves by X% of the **element's own width**
-- `left: X%` positions at X% of the **containing block's width**
-
-So we need to adjust for this difference. The current translate approach needs to account for the element being scaled.
-
-**The fix:** Convert the translation from "% of container" to "% of element":
-
-```text
-// Current (broken):
-translateX = -cropXPosFrac * scaleFactor * 100;  // this is in % of container
-
-// The element is (scaleFactor * 100)% of container width
-// To translate by X% of container, we need to translate by X/(scaleFactor) percent of element
-
-translateX = -cropXPosFrac * 100;  // Now in % of element (which is scaleFactor * container)
-```
-
-That's the bug! The `scaleFactor` multiplication is wrong because `translate()` is already relative to the element's size.
-
----
-
-## Final Fix
-
-In `CroppedImage.tsx`, change:
-
-```text
-// OLD (buggy):
-const translateX = -cropXPosFrac * scaleFactor * 100;
-const translateY = -cropYPosFrac * scaleFactor * 100;
-
-// NEW (correct):
-const translateX = -cropXPosFrac * 100;
-const translateY = -cropYPosFrac * 100;
-```
-
-The `scaleFactor` is already accounted for by the element's size. The translate just needs to move by the crop's position as a percentage of the image (which equals the element).
-
-For the centering offset, we also need to adjust:
-
-```text
-// OLD (in % of container):
-const centerOffsetX = (100 - scaledCropWidth) / 2;
-
-// This needs to be converted to % of element:
-const centerOffsetXElement = ((100 - scaledCropWidth) / 2) / scaleFactor;
-// Or equivalently:
-const centerOffsetXElement = (100 - scaledCropWidth) / (2 * scaleFactor);
+Photo Upload
+      |
+      v
+smartCropService.getSmartCrop()
+   - Scales image down to max 640px for performance
+   - Extracts ImageData from canvas
+      |
+      v
+Web Worker (visionWorker.ts)
+   - Loads DETR model (cached after first use)
+   - Runs object detection
+   - Returns: [{label: "person", box: {xmin, ymin, xmax, ymax}, score: 0.95}, ...]
+      |
+      v
+processDetections() in worker
+   - Filters by confidence > 0.4
+   - Scales bounding boxes back to original image dimensions
+   - Calculates optimalCropArea (union of all subjects + 10% padding)
+      |
+      v
+Returns CropRegion to main thread
 ```
 
 ---
 
-## Summary
+## Files to Create/Modify
 
-The bug is that `translate()` percentages are relative to the element, but the code calculated them as if relative to the container. The fix is to remove the `scaleFactor` multiplier from the translate calculations, since the element is already scaled.
+### 1. New File: `src/workers/visionWorker.ts`
+
+Web Worker that runs object detection in a separate thread:
+
+```typescript
+import { pipeline } from "@huggingface/transformers";
+
+let detector: any = null;
+
+interface DetectionResult {
+  label: string;
+  score: number;
+  box: { xmin: number; ymin: number; xmax: number; ymax: number };
+}
+
+interface WorkerMessage {
+  type: 'detect';
+  imageDataUrl: string;
+  originalWidth: number;
+  originalHeight: number;
+  processedWidth: number;
+  processedHeight: number;
+}
+
+async function loadModel() {
+  if (!detector) {
+    // Try WebGPU first, fallback to WASM
+    const device = navigator.gpu ? "webgpu" : "wasm";
+    detector = await pipeline("object-detection", "Xenova/detr-resnet-50", { device });
+  }
+  return detector;
+}
+
+function calculateOptimalCrop(
+  detections: DetectionResult[],
+  originalWidth: number,
+  originalHeight: number,
+  processedWidth: number,
+  processedHeight: number
+): { x: number; y: number; width: number; height: number } {
+  // Filter by confidence > 0.4
+  const subjects = detections.filter(d => d.score > 0.4);
+  
+  if (subjects.length === 0) {
+    // No subjects detected - crop 10% from each edge
+    return {
+      x: originalWidth * 0.1,
+      y: originalHeight * 0.1,
+      width: originalWidth * 0.8,
+      height: originalHeight * 0.8
+    };
+  }
+  
+  // Scale factor to convert from processed dimensions back to original
+  const scaleX = originalWidth / processedWidth;
+  const scaleY = originalHeight / processedHeight;
+  
+  // Find bounding box that contains ALL detected subjects
+  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+  
+  for (const subject of subjects) {
+    // Scale coordinates back to original image dimensions
+    minX = Math.min(minX, subject.box.xmin * scaleX);
+    minY = Math.min(minY, subject.box.ymin * scaleY);
+    maxX = Math.max(maxX, subject.box.xmax * scaleX);
+    maxY = Math.max(maxY, subject.box.ymax * scaleY);
+  }
+  
+  // Add 10% padding based on smaller dimension (consistent padding)
+  const padding = Math.min(originalWidth, originalHeight) * 0.1;
+  
+  // Apply padding and clamp to image bounds
+  const x = Math.max(0, minX - padding);
+  const y = Math.max(0, minY - padding);
+  const right = Math.min(originalWidth, maxX + padding);
+  const bottom = Math.min(originalHeight, maxY + padding);
+  
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(right - x),
+    height: Math.round(bottom - y)
+  };
+}
+
+self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
+  if (e.data.type !== 'detect') return;
+  
+  try {
+    self.postMessage({ type: 'status', message: 'Loading model...' });
+    const model = await loadModel();
+    
+    self.postMessage({ type: 'status', message: 'Detecting subjects...' });
+    const results: DetectionResult[] = await model(e.data.imageDataUrl);
+    
+    // Calculate optimal crop
+    const crop = calculateOptimalCrop(
+      results,
+      e.data.originalWidth,
+      e.data.originalHeight,
+      e.data.processedWidth,
+      e.data.processedHeight
+    );
+    
+    // Determine subject description
+    const subjects = results
+      .filter(r => r.score > 0.4)
+      .map(r => r.label);
+    const subjectDescription = subjects.length > 0 
+      ? [...new Set(subjects)].join(', ')
+      : 'No subjects detected';
+    
+    self.postMessage({
+      type: 'result',
+      crop,
+      confidence: subjects.length > 0 ? Math.max(...results.map(r => r.score)) : 0.5,
+      subjects: subjectDescription
+    });
+  } catch (error) {
+    self.postMessage({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Detection failed'
+    });
+  }
+};
+```
+
+### 2. Rewrite: `src/services/smartCropService.ts`
+
+Replace the edge function call with worker-based detection:
+
+```typescript
+import { CropRegion } from '@/types/collage';
+
+interface SmartCropResult {
+  crop: CropRegion;
+  confidence: number;
+  subjects: string;
+}
+
+// Create worker singleton
+let worker: Worker | null = null;
+
+function getWorker(): Worker {
+  if (!worker) {
+    worker = new Worker(
+      new URL('../workers/visionWorker.ts', import.meta.url),
+      { type: 'module' }
+    );
+  }
+  return worker;
+}
+
+// Scale image down to max 640px for performance
+function scaleImageForProcessing(
+  imageDataUrl: string,
+  originalWidth: number,
+  originalHeight: number
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const maxSize = 640;
+    
+    // Check if scaling needed
+    if (originalWidth <= maxSize && originalHeight <= maxSize) {
+      resolve({ dataUrl: imageDataUrl, width: originalWidth, height: originalHeight });
+      return;
+    }
+    
+    const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+    const newWidth = Math.round(originalWidth * scale);
+    const newHeight = Math.round(originalHeight * scale);
+    
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      resolve({
+        dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+        width: newWidth,
+        height: newHeight
+      });
+    };
+    img.onerror = reject;
+    img.src = imageDataUrl;
+  });
+}
+
+export async function getSmartCrop(
+  imageDataUrl: string,
+  width: number,
+  height: number
+): Promise<SmartCropResult> {
+  // Scale down for performance
+  const scaled = await scaleImageForProcessing(imageDataUrl, width, height);
+  
+  return new Promise((resolve, reject) => {
+    const worker = getWorker();
+    
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data.type === 'result') {
+        worker.removeEventListener('message', handleMessage);
+        resolve({
+          crop: e.data.crop,
+          confidence: e.data.confidence,
+          subjects: e.data.subjects
+        });
+      } else if (e.data.type === 'error') {
+        worker.removeEventListener('message', handleMessage);
+        reject(new Error(e.data.error));
+      }
+      // Ignore 'status' messages for now (could use for progress UI)
+    };
+    
+    worker.addEventListener('message', handleMessage);
+    
+    worker.postMessage({
+      type: 'detect',
+      imageDataUrl: scaled.dataUrl,
+      originalWidth: width,
+      originalHeight: height,
+      processedWidth: scaled.width,
+      processedHeight: scaled.height
+    });
+  });
+}
+```
+
+### 3. Update: `src/pages/Index.tsx`
+
+Add model loading state for better UX:
+
+- Track if model is being downloaded (first use)
+- Show appropriate loading message
+- Consider adding progress indicator for model download
+
+```typescript
+// Add state for model loading
+const [isModelLoading, setIsModelLoading] = useState(false);
+
+// In the progress indicator section:
+{isProcessing && (
+  <div className="space-y-2">
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Wand2 className="h-4 w-4 animate-pulse-soft text-primary" />
+      <span>
+        {isModelLoading 
+          ? 'Downloading AI model (first time only, ~85MB)...' 
+          : 'Detecting faces and subjects...'}
+      </span>
+    </div>
+    <Progress value={smartCropProgress} className="h-2" />
+  </div>
+)}
+```
+
+### 4. Update: `package.json`
+
+Add the transformers library:
+
+```json
+"@huggingface/transformers": "^3.4.1"
+```
+
+### 5. Update: `vite.config.ts`
+
+Ensure worker bundling is configured (may already work by default):
+
+```typescript
+// Vite handles workers with type: 'module' automatically
+// No changes needed unless issues arise
+```
+
+### 6. Optional Cleanup: Remove Edge Function
+
+- Delete `supabase/functions/smart-crop/` directory
+- Update `supabase/config.toml` to remove function reference
+
+---
+
+## Key Algorithm Details
+
+### Bounding Box Scaling
+
+The reference implementation correctly scales bounding boxes from processed dimensions back to original:
+
+```typescript
+// DETR returns coordinates relative to the 640px processed image
+// Must scale back to original dimensions
+const scaleX = originalWidth / processedWidth;  // e.g., 3000/640 = 4.69
+const scaleY = originalHeight / processedHeight;
+
+// Apply scale to each coordinate
+actualX = detectedX * scaleX;
+actualY = detectedY * scaleY;
+```
+
+### Padding Calculation
+
+Use the smaller image dimension for consistent padding:
+
+```typescript
+// Padding as 10% of the smaller dimension
+// This ensures consistent "breathing room" regardless of aspect ratio
+const padding = Math.min(originalWidth, originalHeight) * 0.1;
+```
+
+### Fallback Strategy
+
+When no subjects are detected:
+
+```typescript
+// Crop 10% from each edge, keeping center 80%
+return {
+  x: width * 0.1,
+  y: height * 0.1,
+  width: width * 0.8,
+  height: height * 0.8
+};
+```
+
+---
+
+## Benefits vs Current LLM Approach
+
+| Aspect | LLM (Current) | DETR (Proposed) |
+|--------|---------------|-----------------|
+| **Accuracy** | Inconsistent, can "hallucinate" | Trained specifically for detection |
+| **Face detection** | Prompt-based (unreliable) | Detects "person" with precise boxes |
+| **Latency** | ~2-5s per image (network) | First: ~10s (download), then: <1s |
+| **Cost** | API credits per image | Free after download |
+| **Offline** | No | Yes (after first use) |
+| **Deterministic** | No | Yes |
+
+---
+
+## Implementation Order
+
+1. Add `@huggingface/transformers` dependency
+2. Create `src/workers/visionWorker.ts` with DETR pipeline
+3. Rewrite `src/services/smartCropService.ts` to use worker
+4. Update `src/pages/Index.tsx` for model loading state
+5. Test with the same photos that showed problems
+6. Remove edge function (optional cleanup after verification)
+

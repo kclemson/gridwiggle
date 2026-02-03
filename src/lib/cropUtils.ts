@@ -43,6 +43,15 @@ export function getPreferredCrop(
  * This is the main function to use for rendering.
  */
 export function getDisplayCrop(photo: PhotoItem): CropRegion | null {
+  console.log('[getDisplayCrop]', {
+    photoId: photo.id,
+    hasOriginalDims: Boolean(photo.originalWidth && photo.originalHeight),
+    hasSmartCrop: Boolean(photo.smartCrop),
+    hasManualCrop: Boolean(photo.manualCrop),
+    smartCrop: photo.smartCrop,
+    manualCrop: photo.manualCrop
+  });
+  
   // Can't compute crop without dimensions
   if (!photo.originalWidth || !photo.originalHeight) {
     return null;
@@ -70,6 +79,12 @@ export function getDisplayCrop(photo: PhotoItem): CropRegion | null {
  */
 export function getEditorInitialCrop(photo: PhotoItem): CropRegion {
   const displayCrop = getDisplayCrop(photo);
+  console.log('[getEditorInitialCrop]', {
+    photoId: photo.id,
+    displayCrop,
+    usingFallback: !displayCrop
+  });
+  
   if (displayCrop) {
     return { ...displayCrop };
   }

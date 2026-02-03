@@ -23,6 +23,18 @@ function getWorker(): Worker {
   return worker;
 }
 
+// Reset worker on crash so next attempt uses fresh worker
+function resetWorker() {
+  if (worker) {
+    try {
+      worker.terminate();
+    } catch (e) {
+      // Ignore termination errors
+    }
+    worker = null;
+  }
+}
+
 // Scale image down to max 640px for performance
 function scaleImageForProcessing(
   imageDataUrl: string,
@@ -74,27 +86,51 @@ export async function getSmartCrop(
   const scaled = await scaleImageForProcessing(imageDataUrl, width, height);
   
   return new Promise((resolve, reject) => {
-    const worker = getWorker();
+    const currentWorker = getWorker();
+    
+    // Timeout after 60 seconds (model download + processing)
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resetWorker();
+      reject(new Error('Processing timeout - please try again'));
+    }, 60000);
+    
+    // Cleanup function to remove all listeners
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      currentWorker.removeEventListener('message', handleMessage);
+      currentWorker.removeEventListener('error', handleError);
+    };
     
     const handleMessage = (e: MessageEvent) => {
       if (e.data.type === 'result') {
-        worker.removeEventListener('message', handleMessage);
+        cleanup();
         resolve({
           crop: e.data.crop,
           confidence: e.data.confidence,
           subjects: e.data.subjects
         });
       } else if (e.data.type === 'error') {
-        worker.removeEventListener('message', handleMessage);
+        cleanup();
+        resetWorker();
         reject(new Error(e.data.error));
       } else if (e.data.type === 'status' && onStatus) {
         onStatus(e.data.message);
       }
     };
     
-    worker.addEventListener('message', handleMessage);
+    // Handle worker-level crashes (OOM, uncaught exceptions)
+    const handleError = (errorEvent: ErrorEvent) => {
+      console.error('Vision worker crashed:', errorEvent);
+      cleanup();
+      resetWorker();
+      reject(new Error('AI processing failed - please try again'));
+    };
     
-    worker.postMessage({
+    currentWorker.addEventListener('message', handleMessage);
+    currentWorker.addEventListener('error', handleError);
+    
+    currentWorker.postMessage({
       type: 'detect',
       imageDataUrl: scaled.dataUrl,
       originalWidth: width,

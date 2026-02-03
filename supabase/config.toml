@@ -1,0 +1,4 @@
+project_id = "rkdpxjzocxeozuvhgxpx"
+
+[functions.smart-crop]
+verify_jwt = false

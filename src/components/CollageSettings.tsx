@@ -47,7 +47,7 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
         </div>
         
         {/* Separator */}
-        <div className="w-px h-6 bg-muted-foreground/30" />
+        <div className="w-px h-6 bg-muted-foreground/50" />
         
         {/* Color with label */}
         <div className="flex items-center gap-2">
@@ -56,13 +56,13 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
             type="color"
             value={settings.gapColor}
             onChange={(e) => onUpdate({ gapColor: e.target.value })}
-            className="w-6 h-6 rounded-md cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-0"
+            className="w-6 h-6 rounded-sm cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0"
             aria-label="Background color"
           />
         </div>
         
         {/* Separator */}
-        <div className="w-px h-6 bg-muted-foreground/30" />
+        <div className="w-px h-6 bg-muted-foreground/50" />
         
         {/* Gap with colon */}
         <div className="flex items-center gap-2">
@@ -73,7 +73,7 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
             min={0}
             max={32}
             step={2}
-            className="w-20"
+            className="w-20 [&>span:first-child]:bg-muted-foreground/30"
           />
           <span className="text-xs text-muted-foreground w-6">{settings.gapSize}px</span>
         </div>

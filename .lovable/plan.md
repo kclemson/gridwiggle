@@ -1,128 +1,103 @@
 
 
-## CropEditor Layout Fix - Header and Buttons Hug the Canvas
+## Fix: CropEditor Layout - Make Dialog Size to Content
 
-### Goal
-Make the title row ("Adjust Crop" + close X) and action buttons (Cancel/Save) sit directly above and below the crop canvas, eliminating the excessive empty space.
+### Problem
+The current layout forces the dialog to be exactly `h-[90vh]` tall, and `flex-1` on the canvas container makes it expand to fill that space. For wide/landscape images, this creates massive empty black areas above and below the image.
 
-### Current Layout Issues
-
-```text
-┌─────────────────────────────────┐
-│  [p-4 padding]                  │
-│  ┌───────────────────────────┐  │
-│  │ Adjust Crop           [X] │  │  ← DialogHeader
-│  └───────────────────────────┘  │
-│  [gap-4]                        │
-│  ┌───────────────────────────┐  │
-│  │                           │  │
-│  │   ┌─────────────────┐     │  │  ← flex-1 container expands
-│  │   │   SVG Canvas    │     │  │     to fill available space
-│  │   │   (letterboxed) │     │  │
-│  │   └─────────────────┘     │  │
-│  │                           │  │
-│  └───────────────────────────┘  │
-│  [gap-4]                        │
-│  ┌───────────────────────────┐  │
-│  │      [Cancel] [Save]      │  │  ← DialogFooter
-│  └───────────────────────────┘  │
-│  [p-4 padding]                  │
-└─────────────────────────────────┘
+### Root Cause
+```
+Current: h-[90vh] + flex-1 = container always 90vh, image floats in middle
+Desired: max-h-[90vh] + no flex-1 = container sizes to image, capped at 90vh
 ```
 
-### Target Layout
+### Solution
+Change the layout so the **image determines the dialog height** (up to a maximum), rather than the dialog forcing a fixed height.
 
-```text
-┌─────────────────────────────────┐
-│ Adjust Crop              [X]   │  ← Header with border-bottom
-├─────────────────────────────────┤
-│                                 │
-│      ┌─────────────────┐        │  ← Canvas area (flex-1 min-h-0)
-│      │   SVG Canvas    │        │     SVG sizes to fit naturally
-│      └─────────────────┘        │
-│                                 │
-├─────────────────────────────────┤
-│           [Cancel] [Save Crop] │  ← Footer with border-top
-└─────────────────────────────────┘
-```
+---
 
 ### Changes to `src/components/CropEditor.tsx`
 
-**Line 150 - DialogContent:**
+#### 1. DialogContent (line 150)
+Change from fixed height to max height:
 ```tsx
 // FROM:
-<DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
+className="max-w-4xl w-full h-[90vh] flex flex-col p-0 gap-0 overflow-hidden"
 
 // TO:
-<DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden"
 ```
 
-**Lines 151-156 - DialogHeader:**
+#### 2. Canvas container (line 158)
+Remove `flex-1` so it doesn't expand, and constrain the SVG height:
 ```tsx
 // FROM:
-<DialogHeader>
-  <DialogTitle>Adjust Crop</DialogTitle>
-  <DialogDescription className="sr-only">
-    Drag the crop area to reposition, or drag corners to resize
-  </DialogDescription>
-</DialogHeader>
-
-// TO:
-<DialogHeader className="px-4 py-3 border-b border-border shrink-0">
-  <DialogTitle>Adjust Crop</DialogTitle>
-  <DialogDescription className="sr-only">
-    Drag the crop area to reposition, or drag corners to resize
-  </DialogDescription>
-</DialogHeader>
-```
-
-**Lines 158-274 - Canvas container:**
-```tsx
-// FROM:
-<div className="flex-1 relative overflow-hidden bg-black/50 rounded-lg flex items-center justify-center">
-  <svg
-    ...
-    style={{ maxHeight: 'calc(90vh - 140px)' }}
-  >
-
-// TO:
 <div className="flex-1 min-h-0 overflow-hidden bg-black/50 flex items-center justify-center p-4">
   <svg
     ...
     className="max-w-full max-h-full block touch-none select-none"
-    // Remove the inline maxHeight style - let flexbox handle it
-  >
-```
-
-**Lines 276-283 - DialogFooter:**
-```tsx
-// FROM:
-<DialogFooter className="flex gap-2">
 
 // TO:
-<DialogFooter className="px-4 py-3 border-t border-border shrink-0">
+<div className="overflow-hidden bg-black/50 flex items-center justify-center p-4">
+  <svg
+    ...
+    className="max-w-full block touch-none select-none"
+    style={{ maxHeight: 'calc(90vh - 120px)' }}
 ```
 
-### Summary of Class Changes
+The `calc(90vh - 120px)` accounts for header (~48px) + footer (~48px) + padding (~24px).
+
+---
+
+### How This Works
+
+**Before (forced 90vh):**
+```text
+┌─────────────────────────────────┐ ← h-[90vh] forces this height
+│ Header                          │
+├─────────────────────────────────┤
+│                                 │
+│         (empty space)           │  ← flex-1 expands
+│                                 │
+│      ┌─────────────────┐        │
+│      │   Wide Image    │        │  ← SVG fits within expanded container
+│      └─────────────────┘        │
+│                                 │
+│         (empty space)           │
+│                                 │
+├─────────────────────────────────┤
+│ Footer                          │
+└─────────────────────────────────┘
+```
+
+**After (content-sized):**
+```text
+┌─────────────────────────────────┐
+│ Header                          │
+├─────────────────────────────────┤
+│ ┌─────────────────────────────┐ │ ← Container sizes to image
+│ │       Wide Image            │ │
+│ └─────────────────────────────┘ │
+├─────────────────────────────────┤
+│ Footer                          │
+└─────────────────────────────────┘ ← Dialog height = content height
+```
+
+---
+
+### Edge Cases
+
+1. **Very tall images**: The `maxHeight: calc(90vh - 120px)` on the SVG prevents the dialog from exceeding 90vh
+2. **Very wide images**: Image will be width-constrained, dialog will be short (header + small image + footer)
+3. **Mobile**: Same behavior - dialog sizes to content, capped at 90vh
+
+---
+
+### Summary of Changes
 
 | Element | Current | New |
 |---------|---------|-----|
-| DialogContent | `p-4 gap-4` | `p-0 gap-0 overflow-hidden` |
-| DialogHeader | (default) | `px-4 py-3 border-b border-border shrink-0` |
-| Canvas wrapper | `flex-1 relative overflow-hidden bg-black/50 rounded-lg` | `flex-1 min-h-0 overflow-hidden bg-black/50 p-4` |
-| SVG | `w-full h-full` + inline maxHeight | `max-w-full max-h-full` (no inline maxHeight) |
-| DialogFooter | `flex gap-2` | `px-4 py-3 border-t border-border shrink-0` |
-
-### Why This Works
-
-1. **`p-0 gap-0`** on DialogContent removes all default spacing so we control it precisely
-2. **`shrink-0`** on header/footer prevents them from being compressed
-3. **`flex-1 min-h-0`** on the canvas container allows it to shrink properly within the flex layout
-4. **`max-w-full max-h-full`** on SVG makes it size naturally to available space
-5. **Border separators** visually connect header/footer to canvas
-6. **`p-4`** on canvas container provides breathing room around the image itself
-
-### File to Modify
-
-- `src/components/CropEditor.tsx`
+| DialogContent | `h-[90vh]` | `max-h-[90vh]` |
+| Canvas container | `flex-1 min-h-0` | (remove flex-1) |
+| SVG | `max-h-full` | `style={{ maxHeight: 'calc(90vh - 120px)' }}` |
 

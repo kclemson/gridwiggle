@@ -39,6 +39,7 @@ export default function Index() {
   const [isExporting, setIsExporting] = useState(false);
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -55,7 +56,8 @@ export default function Index() {
         const result = await getSmartCrop(
           photo.originalDataUrl,
           photo.originalWidth,
-          photo.originalHeight
+          photo.originalHeight,
+          (status) => setProcessingStatus(status)
         );
         
         updatePhoto(photo.id, {
@@ -190,13 +192,15 @@ export default function Index() {
 
       <main className="container py-3 space-y-4">
         {/* Progress bar for smart cropping */}
-        {isProcessing && smartCropProgress > 0 && (
+        {isProcessing && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Wand2 className="h-4 w-4 animate-pulse-soft text-primary" />
-              <span>AI analyzing photos...</span>
+              <span>{processingStatus}</span>
             </div>
-            <Progress value={smartCropProgress} className="h-2" />
+            {smartCropProgress > 0 && (
+              <Progress value={smartCropProgress} className="h-2" />
+            )}
           </div>
         )}
 

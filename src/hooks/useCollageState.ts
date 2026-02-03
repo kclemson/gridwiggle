@@ -63,6 +63,7 @@ function saveMetadataToStorage(state: CollageState) {
         originalHeight: p.originalHeight,
         smartCrop: p.smartCrop,
         manualCrop: p.manualCrop,
+        priority: p.priority,
       })),
       settings: state.settings,
       layout: state.layout,
@@ -96,6 +97,7 @@ function hydratePhotos(
         manualCrop: meta.manualCrop,
         isProcessing: false,
         error: null,
+        priority: meta.priority ?? 3, // Default to standard for existing photos
       });
     }
     // If blob missing, silently skip (orphaned metadata)

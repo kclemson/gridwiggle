@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
 import { PhotoThumbnail } from './PhotoThumbnail';
 
@@ -20,6 +21,11 @@ export function PhotoGrid({
   hint,
   emptyMessage 
 }: PhotoGridProps) {
+  // Sort by priority (heroes first), preserving original order within same priority
+  const sortedPhotos = useMemo(() => {
+    return [...photos].sort((a, b) => (a.priority ?? 3) - (b.priority ?? 3));
+  }, [photos]);
+
   if (photos.length === 0 && emptyMessage) {
     return (
       <div className="p-4 text-center text-muted-foreground">
@@ -37,7 +43,7 @@ export function PhotoGrid({
         )}
       </h3>
       <div className="flex flex-wrap gap-2">
-        {photos.map((photo) => (
+        {sortedPhotos.map((photo) => (
           <PhotoThumbnail
             key={photo.id}
             photo={photo}

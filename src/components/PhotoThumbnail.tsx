@@ -1,4 +1,4 @@
-import { X, Loader2, AlertCircle } from 'lucide-react';
+import { X, Loader2, AlertCircle, Star } from 'lucide-react';
 import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { getDisplayCrop } from '@/lib/cropUtils';
@@ -62,6 +62,13 @@ export function PhotoThumbnail({
       {photo.error && (
         <div className="absolute inset-0 flex items-center justify-center bg-destructive/20 backdrop-blur-sm">
           <AlertCircle className="h-6 w-6 text-destructive" />
+        </div>
+      )}
+
+      {/* Hero badge */}
+      {photo.priority === 1 && (
+        <div className="absolute top-1 left-1 p-1 rounded-full bg-amber-500 text-white shadow-sm">
+          <Star className="h-3 w-3 fill-current" />
         </div>
       )}
 

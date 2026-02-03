@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, swapPhotosInLayout } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -108,14 +108,32 @@ export default function Index() {
     if (state.layout) setLayoutStale(true);
   }, [removePhoto, state.layout]);
 
-  const handleSaveCrop = useCallback((photoId: string, crop: CropRegion) => {
-    updatePhoto(photoId, { manualCrop: crop });
+  const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
+    updatePhoto(photoId, { manualCrop: crop, priority });
     setEditingPhotoId(null);
-    if (state.layout) setLayoutStale(true);
-  }, [updatePhoto, state.layout]);
+    
+    // Auto-regenerate layout since priority affects weights
+    if (state.layout) {
+      // Build weights with the updated priority for this photo
+      const photoWeights: Record<string, number> = {};
+      for (const photo of state.photos) {
+        const effectivePriority = photo.id === photoId ? priority : photo.priority;
+        photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
+      }
+      const newLayout = generateCollageLayout(state.photos, state.settings, { photoWeights });
+      setLayout(newLayout);
+      setLayoutStale(false);
+    }
+  }, [updatePhoto, state.layout, state.photos, state.settings, setLayout]);
 
   const handleCreateCollage = useCallback(() => {
-    const layout = generateCollageLayout(state.photos, state.settings);
+    // Build weights from photo priorities
+    const photoWeights: Record<string, number> = {};
+    for (const photo of state.photos) {
+      photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
+    }
+    
+    const layout = generateCollageLayout(state.photos, state.settings, { photoWeights });
     setLayout(layout);
     setLayoutStale(false);
   }, [state.photos, state.settings, setLayout]);
@@ -254,7 +272,7 @@ export default function Index() {
                 onPhotoClick={setEditingPhotoId}
                 showCropped
                 title="Smart Cropped"
-                hint="tap to adjust"
+                hint="tap to adjust or mark heroes"
               />
             )}
 

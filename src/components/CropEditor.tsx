@@ -1,13 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { PhotoItem, CropRegion } from '@/types/collage';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getEditorInitialCrop } from '@/lib/cropUtils';
 
 interface CropEditorProps {
   photo: PhotoItem;
   onClose: () => void;
-  onSave: (photoId: string, crop: CropRegion) => void;
+  onSave: (photoId: string, crop: CropRegion, priority: PhotoPriority) => void;
 }
 
 /**
@@ -29,6 +31,9 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropStart, setCropStart] = useState<CropRegion | null>(null);
+  
+  // Hero toggle state - initialized from photo.priority
+  const [isHero, setIsHero] = useState(photo.priority === 1);
   
   // Track viewScale for sizing handles in screen pixels
   const [viewScale, setViewScale] = useState(1);
@@ -127,7 +132,8 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   }, []);
 
   const handleSave = () => {
-    onSave(photo.id, crop);
+    const priority: PhotoPriority = isHero ? 1 : 3;
+    onSave(photo.id, crop, priority);
     onClose();
   };
 
@@ -263,13 +269,25 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
           </svg>
         </div>
 
-        <DialogFooter className="px-4 py-3 border-t border-border shrink-0">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave}>
-            Save Crop
-          </Button>
+        <DialogFooter className="px-4 py-3 border-t border-border shrink-0 flex-col sm:flex-row gap-3">
+          <div className="flex items-center gap-3 mr-auto">
+            <Switch 
+              id="hero-toggle"
+              checked={isHero} 
+              onCheckedChange={setIsHero} 
+            />
+            <Label htmlFor="hero-toggle" className="text-sm">
+              Make this a hero photo (larger in collage)
+            </Label>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave}>
+              Save
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

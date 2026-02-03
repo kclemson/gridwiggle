@@ -6,6 +6,13 @@ export interface CropRegion {
 }
 
 /**
+ * Photo priority for layout weighting.
+ * 1 = hero (largest), 2 = medium, 3 = standard (default).
+ * Currently UI only supports 1 (hero) vs 3 (standard), but 2 is reserved for future expansion.
+ */
+export type PhotoPriority = 1 | 2 | 3;
+
+/**
  * Runtime photo state (in-memory).
  * objectUrl and blob are NOT persisted - they're hydrated from IndexedDB on load.
  */
@@ -19,6 +26,7 @@ export interface PhotoItem {
   manualCrop: CropRegion | null;
   isProcessing: boolean;
   error: string | null;
+  priority: PhotoPriority;    // Default: 3 (standard)
 }
 
 /**
@@ -30,6 +38,7 @@ export interface PhotoMetadata {
   originalHeight: number;
   smartCrop: CropRegion | null;
   manualCrop: CropRegion | null;
+  priority: PhotoPriority;
 }
 
 export interface CollageSettings {

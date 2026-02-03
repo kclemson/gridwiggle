@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
 import { getActiveCrop } from '@/lib/imageUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
@@ -12,6 +12,11 @@ interface CollagePreviewProps {
   onCellClick?: (photoId: string) => void;
 }
 
+/**
+ * CollagePreview - Uses CSS-based sizing with aspect-ratio.
+ * No useEffect needed for dimensions - browser handles layout.
+ * Scale is computed on-demand from actual rendered dimensions.
+ */
 export function CollagePreview({ 
   photos, 
   layout, 
@@ -19,28 +24,9 @@ export function CollagePreview({
   onSwapPhotos,
   onCellClick 
 }: CollagePreviewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const collageRef = useRef<HTMLDivElement>(null); // Kept for potential future use (e.g., exporting)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
-
-  // Calculate display scale
-  useEffect(() => {
-    const updateScale = () => {
-      const container = containerRef.current;
-      if (!container) return;
-
-      const maxWidth = container.clientWidth;
-      const maxHeight = container.clientHeight || 600;
-      const scaleX = maxWidth / layout.width;
-      const scaleY = maxHeight / layout.height;
-      setScale(Math.min(scaleX, scaleY, 1));
-    };
-
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
-  }, [layout.width, layout.height]);
 
   const handleDragStart = useCallback((e: React.DragEvent, photoId: string) => {
     setDraggingId(photoId);
@@ -110,18 +96,20 @@ export function CollagePreview({
     return photos.find((p) => p.id === cell.photoId);
   };
 
+
   return (
     <div 
-      ref={containerRef}
       className="w-full overflow-hidden"
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
+      {/* CSS handles responsive scaling via max-width and aspect-ratio */}
       <div
-        className="relative mx-auto"
+        ref={collageRef}
+        className="relative mx-auto w-full"
         style={{
-          width: layout.width * scale,
-          height: layout.height * scale,
+          maxWidth: layout.width,
+          aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
         }}
       >
@@ -143,10 +131,10 @@ export function CollagePreview({
                 isDragTarget && "ring-4 ring-primary ring-offset-2 ring-offset-background"
               )}
               style={{
-                left: cell.x * scale,
-                top: cell.y * scale,
-                width: cell.width * scale,
-                height: cell.height * scale,
+                left: `${(cell.x / layout.width) * 100}%`,
+                top: `${(cell.y / layout.height) * 100}%`,
+                width: `${(cell.width / layout.width) * 100}%`,
+                height: `${(cell.height / layout.height) * 100}%`,
               }}
               draggable
               onDragStart={(e) => handleDragStart(e, photo.id)}

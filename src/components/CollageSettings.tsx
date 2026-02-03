@@ -16,7 +16,7 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
       </h3>
       
       {/* All settings in one row */}
-      <div className="flex items-center gap-3 p-2 rounded-lg bg-surface border border-border">
+      <div className="flex items-center gap-3 p-2 rounded-lg bg-surface">
         {/* Orientation with label */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Orientation:</span>
@@ -28,16 +28,20 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
             <ToggleGroupItem 
               value="landscape" 
               size="sm"
-              className="data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:border-b-2 data-[state=on]:border-foreground data-[state=on]:rounded-b-none data-[state=off]:text-muted-foreground"
+              className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
             >
-              <span className="text-xs">Landscape</span>
+              <span className={`text-xs pb-0.5 ${settings.orientation === 'landscape' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
+                Landscape
+              </span>
             </ToggleGroupItem>
             <ToggleGroupItem 
               value="portrait" 
               size="sm"
-              className="data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:border-b-2 data-[state=on]:border-foreground data-[state=on]:rounded-b-none data-[state=off]:text-muted-foreground"
+              className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
             >
-              <span className="text-xs">Portrait</span>
+              <span className={`text-xs pb-0.5 ${settings.orientation === 'portrait' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
+                Portrait
+              </span>
             </ToggleGroupItem>
           </ToggleGroup>
         </div>

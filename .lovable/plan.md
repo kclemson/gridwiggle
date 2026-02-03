@@ -1,91 +1,78 @@
 
+## Auto-Regenerate Collage on Settings Change
 
-## Fix Three Settings Row Issues
+### Problem Analysis
 
-### Issues Identified
+**Issue 1: Gap slider doesn't auto-regenerate**
+- Background color updates live because CollagePreview just uses it as CSS (`backgroundColor: gapColor`)
+- Gap size requires layout regeneration because cell positions are calculated based on gap in `calculateLayout()`
+- Currently, changing gap size only marks layout as "stale" requiring manual button click
 
-1. **Invisible separators** - The separator divs exist but may not be rendering visibly. Will increase opacity and add a fallback approach.
-
-2. **Color swatch too round** - `rounded-md` (6px) on a 24x24px element creates nearly circular appearance. Need smaller radius.
-
-3. **Slider track too dark** - `bg-secondary` is `hsl(240 5% 15%)` which is nearly invisible against `bg-surface` (`hsl(240 8% 8%)`).
+**Issue 2: Orientation not being applied**
+- Orientation affects `targetAspect` and row distribution in `findBestRowSplit()`
+- Same problem - changing orientation marks layout stale but doesn't regenerate
+- The screenshot shows "Landscape" selected but a portrait-shaped collage (generated before the orientation change)
 
 ### Solution
 
-**1. Make separators visible**
-Change from `bg-muted-foreground/30` to `bg-muted-foreground/50` (50% opacity for more visibility), or use a solid lighter color.
+Auto-regenerate the collage whenever gap size OR orientation changes (when a layout already exists).
 
-**2. Less rounded color swatch**
-Change from `rounded-md` to `rounded-sm` (2px radius) for a square with subtle rounded corners.
-
-**3. Lighter slider track**
-Override the slider track's background with a visible color like `bg-muted-foreground/30` or `bg-border`.
+**Key principle:** Settings that only affect CSS (gapColor) update instantly. Settings that affect layout geometry (gapSize, orientation) trigger regeneration.
 
 ### Technical Changes
 
-**File: `src/components/CollageSettings.tsx`**
+**File: `src/pages/Index.tsx`**
 
-**Separators (lines 50, 65):**
+Modify `handleUpdateSettings` to auto-regenerate when layout-affecting settings change:
+
 ```tsx
-// Before
-<div className="w-px h-6 bg-muted-foreground/30" />
-
-// After - higher contrast
-<div className="w-px h-6 bg-muted-foreground/50" />
+const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
+  updateSettings(updates);
+  
+  // Auto-regenerate collage for layout-affecting settings
+  if (state.layout && ('gapSize' in updates || 'orientation' in updates)) {
+    // Create new settings with updates applied
+    const newSettings = { ...state.settings, ...updates };
+    const newLayout = generateCollageLayout(state.photos, newSettings);
+    setLayout(newLayout);
+  }
+  // gapColor updates don't need regeneration - CollagePreview uses it directly as CSS
+}, [updateSettings, state.layout, state.settings, state.photos, setLayout]);
 ```
 
-**Color input (line 59):**
-```tsx
-// Before
-className="w-6 h-6 rounded-md cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-0"
+This approach:
+- Only regenerates when necessary (gapSize or orientation changes)
+- Uses the updated settings to generate the new layout immediately
+- gapColor still updates instantly without regeneration (CSS-only change)
+- Removes the need for layoutStale flag for these settings
 
-// After - less rounded (rounded-sm = 2px instead of rounded-md = 6px)
-className="w-6 h-6 rounded-sm cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0"
-```
-
-**Slider (lines 70-77):**
-```tsx
-// Before
-<Slider
-  value={[settings.gapSize]}
-  onValueChange={([value]) => onUpdate({ gapSize: value })}
-  min={0}
-  max={32}
-  step={2}
-  className="w-20"
-/>
-
-// After - with custom lighter track via CSS override
-<Slider
-  value={[settings.gapSize]}
-  onValueChange={([value]) => onUpdate({ gapSize: value })}
-  min={0}
-  max={32}
-  step={2}
-  className="w-20 [&>span:first-child]:bg-muted-foreground/30"
-/>
-```
-
-The `[&>span:first-child]:bg-muted-foreground/30` targets the Track element and gives it a visible lighter gray background.
+**Optional refinement:** If the user is actively dragging the slider, we could debounce the regeneration to avoid excessive recalculations. However, since `generateCollageLayout` is synchronous and fast, immediate regeneration should feel responsive.
 
 ### Visual Result
 
 Before:
 ```
-Orientation: Landscape  Portrait  Background: (●)  Gap: ──●── 12px
-             (no separators)        (circle)        (invisible track)
+User changes gap: 8px → 12px
+Layout marked "stale" with ring around button
+User must click "Regenerate Collage"
 ```
 
 After:
 ```
-Orientation: Landscape  Portrait │ Background: [■] │ Gap: ──●── 12px
-                                 ↑             ↑           ↑
-                           visible pipe  square-ish   visible track
+User changes gap: 8px → 12px
+Collage immediately regenerates with 12px gaps
+No manual button click needed
+```
+
+Same for orientation:
+```
+User clicks "Portrait"
+Collage immediately regenerates with portrait aspect ratio
 ```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Increase separator opacity, reduce color swatch rounding, add visible slider track |
+| `src/pages/Index.tsx` | Update `handleUpdateSettings` to auto-regenerate for gapSize/orientation changes |
 

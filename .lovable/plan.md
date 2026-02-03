@@ -1,55 +1,100 @@
 
 
-## Change: Use Full Image When No Subjects Detected
+## Compact Settings Row Redesign
 
-### Current Behavior
-When DETR doesn't detect any objects with confidence > 0.4, the worker returns a 10% edge crop:
-```typescript
-return {
-  x: Math.round(originalWidth * 0.1),
-  y: Math.round(originalHeight * 0.1),
-  width: Math.round(originalWidth * 0.8),
-  height: Math.round(originalHeight * 0.8)
-};
+### Current Layout (2 rows)
+```
+Row 1: [Orientation label] [Landscape btn] [Portrait btn]
+Row 2: [Color label] [picker] [Gap label] [--slider---] [8px]
 ```
 
-### New Behavior
-Return the full image dimensions - no cropping applied:
-```typescript
-return {
-  x: 0,
-  y: 0,
-  width: originalWidth,
-  height: originalHeight
-};
+### New Layout (header + 1 row)
+```
+SETTINGS                              (styled like photo grid headers)
+[🔲|🔳 toggle] [■ picker] [Gap] [--slider--] [8px]
 ```
 
-### Technical Change
+### Changes
 
-**File: `src/workers/visionWorker.ts`**
+**File: `src/components/CollageSettings.tsx`**
 
-Update the `calculateOptimalCrop` function's fallback case (around line 45):
+1. **Add SETTINGS header** - Match PhotoGrid styling: `text-xs font-medium text-muted-foreground uppercase tracking-wide`
 
-```typescript
-if (subjects.length === 0) {
-  // No subjects detected - use full image (no cropping)
-  return {
-    x: 0,
-    y: 0,
-    width: originalWidth,
-    height: originalHeight
-  };
-}
+2. **Replace RadioGroup with ToggleGroup** - More compact, just icons, no labels needed
+
+3. **Combine all controls in one row**:
+   - Orientation toggle (landscape/portrait icons only, no text)
+   - Color picker (smaller, no label)
+   - Gap slider (narrower, constrained with `max-w-[120px]`)
+
+### New Structure
+
+```tsx
+<div className="space-y-2">
+  {/* Header - matching PhotoGrid style */}
+  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+    Settings
+  </h3>
+  
+  {/* All settings in one row */}
+  <div className="flex items-center gap-3 p-2 rounded-lg bg-surface border border-border">
+    {/* Orientation toggle - icons only */}
+    <ToggleGroup type="single" value={orientation} onValueChange={...}>
+      <ToggleGroupItem value="landscape" size="sm">
+        <RectangleHorizontal className="h-4 w-4" />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="portrait" size="sm">
+        <RectangleVertical className="h-4 w-4" />
+      </ToggleGroupItem>
+    </ToggleGroup>
+    
+    {/* Separator */}
+    <div className="w-px h-6 bg-border" />
+    
+    {/* Color picker - smaller, no label */}
+    <input type="color" className="w-6 h-6 rounded ..." />
+    
+    {/* Separator */}
+    <div className="w-px h-6 bg-border" />
+    
+    {/* Gap slider - narrower */}
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground">Gap</span>
+      <Slider className="w-20" ... />
+      <span className="text-xs text-muted-foreground w-6">{gapSize}px</span>
+    </div>
+  </div>
+</div>
 ```
 
-### Changes Summary
+### Visual Result
+
+Before:
+```
+┌─────────────────────────────────────────────────┐
+│ Orientation  [□ Landscape] [□ Portrait]         │
+│ Color [■]    Gap [━━━━━━━━━●━━━━━━━━━━━━] 8px   │
+└─────────────────────────────────────────────────┘
+```
+
+After:
+```
+SETTINGS
+┌─────────────────────────────────────────────────┐
+│ [🔲|🔳]  │  [■]  │  Gap [━━●━━] 8px             │
+└─────────────────────────────────────────────────┘
+```
+
+### Import Changes
+
+```diff
+- import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
++ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+```
+
+### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/workers/visionWorker.ts` | Change no-detection fallback from 10% edge crop to full image |
-
-### Result
-- Cartoon images like Lisa Simpson will appear in Smart Cropped grid unchanged
-- Photos with detectable subjects still get intelligent cropping
-- User can manually adjust any crop via the editor if desired
+| `src/components/CollageSettings.tsx` | Redesign to compact single-row layout with header |
 

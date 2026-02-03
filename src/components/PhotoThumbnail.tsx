@@ -1,7 +1,8 @@
 import { X, Loader2, AlertCircle, Check } from 'lucide-react';
-import { PhotoItem, CropRegion } from '@/types/collage';
+import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { ImageContainer } from '@/components/common/ImageContainer';
+import { getDisplayCrop } from '@/lib/cropUtils';
 import { cn } from '@/lib/utils';
 
 interface PhotoThumbnailProps {
@@ -12,15 +13,9 @@ interface PhotoThumbnailProps {
   className?: string;
 }
 
-// Check if crop dimensions are valid for display
-function isValidCrop(crop: CropRegion): boolean {
-  return crop.width >= 50 && crop.height >= 50;
-}
-
 export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, className }: PhotoThumbnailProps) {
-  const rawCrop = showCropped ? (photo.manualCrop || photo.smartCrop) : null;
-  // Only use crop if it's valid
-  const activeCrop = rawCrop && isValidCrop(rawCrop) ? rawCrop : null;
+  // Use centralized crop utility for consistent validation
+  const activeCrop = showCropped ? getDisplayCrop(photo) : null;
   
   // Always use "contain" so thumbnails show the full image/crop region
   // This ensures the thumbnail matches what the user sees in the crop editor

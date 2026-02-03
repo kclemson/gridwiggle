@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
-import { getActiveCrop } from '@/lib/imageUtils';
+import { getDisplayCrop } from '@/lib/cropUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
 
@@ -117,7 +117,7 @@ export function CollagePreview({
           const photo = getPhotoForCell(cell);
           if (!photo) return null;
 
-          const crop = getActiveCrop(photo);
+          const crop = getDisplayCrop(photo);
           const isBeingDragged = draggingId === photo.id || touchDragId === photo.id;
           const isDragTarget = dragOver === photo.id;
 

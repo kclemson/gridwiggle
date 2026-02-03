@@ -1,38 +1,44 @@
 
 
-# Fix Corner Handle Resizing - Event Propagation Issue
+# Fix Crop Editor Viewport Resize Issue
 
-The corner handles can't resize the crop because click events on handles bubble up to the parent crop box, which triggers the "move" handler instead of the "resize" handler.
+The crop handles don't update their positions when the browser viewport is resized because the `scale` value is computed once at render time and never recalculated when the image dimensions change.
 
 ---
 
 ## Root Cause
 
-Looking at lines 187-200:
-
 ```typescript
-{/* Corner handles are INSIDE the crop box */}
-<div onMouseDown={(e) => handlePointerDown(e, 'move')}>  {/* Parent catches all clicks */}
-  {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
-    <div
-      onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}  {/* Handle click */}
-      ...
-    />
-  ))}
-</div>
+// Line 134 - computed once per render
+const scale = getScale();
+
+// Lines 170-173 - uses stale scale value
+style={{
+  left: crop.x * scale,
+  top: crop.y * scale,
+  width: crop.width * scale,
+  height: crop.height * scale,
+}}
 ```
 
-When you click a corner handle:
-1. The handle's `onMouseDown` fires with `resize-nw` (correct)
-2. Event bubbles to parent crop box
-3. Parent's `onMouseDown` fires with `move` (overwrites!)
-4. `dragType` becomes `'move'` instead of `'resize-nw'`
+When viewport resizes:
+1. The `<img>` element resizes (CSS `max-width/max-height` causes it to fit new container)
+2. `imageRef.current.width` now returns a different value
+3. BUT React doesn't re-render because no state changed
+4. The crop overlay uses the OLD scale value, so it's positioned incorrectly
 
 ---
 
 ## Solution
 
-Add `e.stopPropagation()` to the corner handle event handlers to prevent the event from bubbling up to the parent "move" handler.
+Add a resize observer to track when the image element's dimensions change, and store the current scale in state to trigger re-renders.
+
+```text
+On image load OR resize:
+  - Read imageRef.current.width
+  - Compute new scale
+  - Store in state -> triggers re-render -> overlay repositions
+```
 
 ---
 
@@ -40,38 +46,61 @@ Add `e.stopPropagation()` to the corner handle event handlers to prevent the eve
 
 ### `src/components/CropEditor.tsx`
 
-**Lines 197-198 - Update corner handle event handlers:**
+1. **Add `scale` state** instead of computing inline:
+   ```typescript
+   const [scale, setScale] = useState(1);
+   ```
 
-```typescript
-// Before:
-onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}
-onTouchStart={(e) => handlePointerDown(e, `resize-${corner}`)}
+2. **Add a function to update scale**:
+   ```typescript
+   const updateScale = useCallback(() => {
+     if (imageRef.current && photo.originalWidth > 0) {
+       setScale(imageRef.current.width / photo.originalWidth);
+     }
+   }, [photo.originalWidth]);
+   ```
 
-// After:
-onMouseDown={(e) => {
-  e.stopPropagation();
-  handlePointerDown(e, `resize-${corner}`);
-}}
-onTouchStart={(e) => {
-  e.stopPropagation();
-  handlePointerDown(e, `resize-${corner}`);
-}}
-```
+3. **Call updateScale on image load**:
+   ```typescript
+   onLoad={() => {
+     setImageLoaded(true);
+     updateScale();
+   }}
+   ```
 
-This ensures the resize handler fires and the event doesn't bubble up to trigger the move handler.
+4. **Add ResizeObserver to track image size changes**:
+   ```typescript
+   useEffect(() => {
+     const img = imageRef.current;
+     if (!img) return;
+     
+     const resizeObserver = new ResizeObserver(() => {
+       updateScale();
+     });
+     
+     resizeObserver.observe(img);
+     return () => resizeObserver.disconnect();
+   }, [updateScale]);
+   ```
+
+5. **Remove inline `getScale()` call** at line 134 since scale is now in state.
 
 ---
 
-## Why This Works
+## Why ResizeObserver?
 
-| Before | After |
-|--------|-------|
-| Click handle → resize fires → bubbles → move fires → dragType = 'move' | Click handle → resize fires → stopPropagation → dragType = 'resize-nw' |
-| User sees crop box moving instead of resizing | User can freely resize each corner independently |
+- `window.resize` event: Only fires when the window resizes, not when dialog/container resizes
+- Polling: Wasteful and introduces lag
+- **ResizeObserver**: Native browser API that efficiently notifies when an element's dimensions change
 
 ---
 
-## Summary
+## Before/After
 
-Single change: Add `e.stopPropagation()` to corner handle mouse/touch down events. This allows the user to drag any corner to resize the crop box in any direction, changing the aspect ratio as needed.
+| Viewport Resize | Before | After |
+|-----------------|--------|-------|
+| Image shrinks | Crop overlay stays same size (wrong) | Crop overlay shrinks proportionally (correct) |
+| Image grows | Crop overlay stays same size (wrong) | Crop overlay grows proportionally (correct) |
+
+This is a legitimate use of useEffect - it synchronizes React state with an external system (DOM element dimensions via ResizeObserver).
 

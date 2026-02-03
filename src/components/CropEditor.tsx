@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PhotoItem, CropRegion } from '@/types/collage';
@@ -42,19 +42,36 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   
   // Trigger re-render when image loads so scale can be computed
   const [imageLoaded, setImageLoaded] = useState(false);
+  
+  // Store scale in state so ResizeObserver can trigger re-renders
+  const [scale, setScale] = useState(1);
 
-  // Compute scale on-demand from the actual rendered image
-  const getScale = useCallback(() => {
-    if (!imageRef.current) return 1;
-    return imageRef.current.width / photo.originalWidth;
+  // Update scale from actual rendered image dimensions
+  const updateScale = useCallback(() => {
+    if (imageRef.current && photo.originalWidth > 0) {
+      setScale(imageRef.current.width / photo.originalWidth);
+    }
   }, [photo.originalWidth]);
+
+  // Track image size changes via ResizeObserver
+  useEffect(() => {
+    const img = imageRef.current;
+    if (!img) return;
+    
+    const resizeObserver = new ResizeObserver(() => {
+      updateScale();
+    });
+    
+    resizeObserver.observe(img);
+    return () => resizeObserver.disconnect();
+  }, [updateScale]);
 
   const getEventPosition = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     const img = imageRef.current;
     if (!img) return { x: 0, y: 0 };
 
     const rect = img.getBoundingClientRect();
-    const scale = getScale();
+    const currentScale = img.width / photo.originalWidth;
 
     let clientX: number, clientY: number;
     if ('touches' in e) {
@@ -66,10 +83,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     }
 
     return {
-      x: (clientX - rect.left) / scale,
-      y: (clientY - rect.top) / scale,
+      x: (clientX - rect.left) / currentScale,
+      y: (clientY - rect.top) / currentScale,
     };
-  }, [getScale]);
+  }, [photo.originalWidth]);
 
   const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent, type: typeof dragType) => {
     e.preventDefault();
@@ -130,9 +147,6 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     onClose();
   };
 
-  // Get current scale for rendering crop overlay
-  const scale = getScale();
-
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
@@ -157,7 +171,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
               className="max-w-full max-h-full object-contain block"
               style={{ maxHeight: 'calc(90vh - 140px)' }} // Account for header/footer
               draggable={false}
-              onLoad={() => setImageLoaded(true)}
+              onLoad={() => {
+                setImageLoaded(true);
+                updateScale();
+              }}
             />
             
             {/* Only render overlay once image has loaded and we can compute scale */}

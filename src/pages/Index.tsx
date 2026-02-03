@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, swapPhotosInLayout } from '@/lib/collageLayout';
-import { exportCollageAsPng, downloadBlob } from '@/lib/exportCollage';
+import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { PhotoItem, CropRegion } from '@/types/collage';
 import { 
   Wand2, 
@@ -120,7 +120,7 @@ export default function Index() {
       );
       
       const timestamp = new Date().toISOString().split('T')[0];
-      downloadBlob(blob, `collage-${timestamp}.png`);
+      await shareOrDownload(blob, `collage-${timestamp}.png`);
     } catch (error) {
       console.error('Export failed:', error);
       setExportError('Failed to export collage. Please try again.');

@@ -33,6 +33,7 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
         manualCrop: null,
         isProcessing: true,
         error: null,
+        priority: 3, // Default: standard
       };
     });
 

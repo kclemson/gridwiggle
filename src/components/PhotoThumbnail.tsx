@@ -1,7 +1,6 @@
 import { X, Loader2, AlertCircle, Check } from 'lucide-react';
 import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
-import { ImageContainer } from '@/components/common/ImageContainer';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { cn } from '@/lib/utils';
 
@@ -10,36 +9,47 @@ interface PhotoThumbnailProps {
   onRemove: () => void;
   onClick?: () => void;
   showCropped?: boolean;
+  height?: number;
   className?: string;
 }
 
-export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, className }: PhotoThumbnailProps) {
+export function PhotoThumbnail({ 
+  photo, 
+  onRemove, 
+  onClick, 
+  showCropped, 
+  height = 80,
+  className 
+}: PhotoThumbnailProps) {
   // Use centralized crop utility for consistent validation
   const activeCrop = showCropped ? getDisplayCrop(photo) : null;
-  console.log('[PhotoThumbnail]', { photoId: photo.id, showCropped, activeCrop });
   
-  // Always use "contain" so thumbnails show the full image/crop region
-  // This ensures the thumbnail matches what the user sees in the crop editor
-  const fitMode = 'contain';
+  // Calculate width based on aspect ratio
+  // If cropped: use crop's aspect ratio
+  // If not cropped: use original image's aspect ratio
+  const aspectRatio = activeCrop 
+    ? activeCrop.width / activeCrop.height 
+    : photo.originalWidth / photo.originalHeight;
+  
+  const width = Math.round(height * aspectRatio);
 
   return (
     <div
       className={cn(
-        "relative group rounded-lg overflow-hidden bg-surface-elevated",
+        "relative group rounded-lg overflow-hidden bg-surface-elevated shrink-0",
         onClick && "cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
         className
       )}
+      style={{ width, height }}
       onClick={onClick}
     >
-      <ImageContainer aspectRatio="square">
-        <CroppedImage
-          src={photo.objectUrl}
-          crop={showCropped ? activeCrop : null}
-          originalWidth={photo.originalWidth}
-          originalHeight={photo.originalHeight}
-          fit={fitMode}
-        />
-      </ImageContainer>
+      <CroppedImage
+        src={photo.objectUrl}
+        crop={showCropped ? activeCrop : null}
+        originalWidth={photo.originalWidth}
+        originalHeight={photo.originalHeight}
+        fit="cover"
+      />
 
       {/* Processing overlay */}
       {photo.isProcessing && (

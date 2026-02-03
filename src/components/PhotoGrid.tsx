@@ -31,7 +31,7 @@ export function PhotoGrid({
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
         {title}
       </h3>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+      <div className="flex flex-wrap gap-2">
         {photos.map((photo) => (
           <PhotoThumbnail
             key={photo.id}
@@ -39,6 +39,7 @@ export function PhotoGrid({
             onRemove={() => onRemove(photo.id)}
             onClick={onPhotoClick ? () => onPhotoClick(photo.id) : undefined}
             showCropped={showCropped}
+            height={80}
           />
         ))}
       </div>

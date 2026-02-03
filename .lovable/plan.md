@@ -1,24 +1,25 @@
 
 
-## Fix Settings Row Visibility & Color Swatch Styling
+## Fix Three Settings Row Issues
 
 ### Issues Identified
 
-1. **Invisible separators** - The `bg-border` color (`hsl(240 5% 18%)`) is too close to `bg-surface` (`hsl(240 8% 8%)`) making the pipe dividers nearly invisible
+1. **Invisible separators** - The separator divs exist but may not be rendering visibly. Will increase opacity and add a fallback approach.
 
-2. **Color swatch double-border** - The `<input type="color">` has browser default styling that creates a white/gray inner border, plus we're adding our own border - resulting in an awkward double-box effect
+2. **Color swatch too round** - `rounded-md` (6px) on a 24x24px element creates nearly circular appearance. Need smaller radius.
+
+3. **Slider track too dark** - `bg-secondary` is `hsl(240 5% 15%)` which is nearly invisible against `bg-surface` (`hsl(240 8% 8%)`).
 
 ### Solution
 
 **1. Make separators visible**
-- Change from `bg-border` to `bg-muted-foreground/30` (white at 30% opacity)
-- This ensures visibility against any background while staying subtle
+Change from `bg-muted-foreground/30` to `bg-muted-foreground/50` (50% opacity for more visibility), or use a solid lighter color.
 
-**2. Fix color swatch styling**
-- Remove the outer border
-- Use `appearance-none` to remove browser default chrome
-- Apply `rounded-md` directly to a filled swatch
-- Use CSS to target the color-swatch pseudo-element to ensure the color fills edge-to-edge
+**2. Less rounded color swatch**
+Change from `rounded-md` to `rounded-sm` (2px radius) for a square with subtle rounded corners.
+
+**3. Lighter slider track**
+Override the slider track's background with a visible color like `bg-muted-foreground/30` or `bg-border`.
 
 ### Technical Changes
 
@@ -27,60 +28,64 @@
 **Separators (lines 50, 65):**
 ```tsx
 // Before
-<div className="w-px h-6 bg-border" />
-
-// After - more visible
 <div className="w-px h-6 bg-muted-foreground/30" />
+
+// After - higher contrast
+<div className="w-px h-6 bg-muted-foreground/50" />
 ```
 
-**Color input (lines 55-61):**
+**Color input (line 59):**
 ```tsx
 // Before
-<input
-  type="color"
-  value={settings.gapColor}
-  onChange={(e) => onUpdate({ gapColor: e.target.value })}
-  className="w-8 h-8 aspect-square rounded border border-border cursor-pointer bg-transparent"
-  aria-label="Background color"
+className="w-6 h-6 rounded-md cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-0"
+
+// After - less rounded (rounded-sm = 2px instead of rounded-md = 6px)
+className="w-6 h-6 rounded-sm cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0"
+```
+
+**Slider (lines 70-77):**
+```tsx
+// Before
+<Slider
+  value={[settings.gapSize]}
+  onValueChange={([value]) => onUpdate({ gapSize: value })}
+  min={0}
+  max={32}
+  step={2}
+  className="w-20"
 />
 
-// After - rounded filled swatch, no double border
-<input
-  type="color"
-  value={settings.gapColor}
-  onChange={(e) => onUpdate({ gapColor: e.target.value })}
-  className="w-6 h-6 rounded-md cursor-pointer appearance-none border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-md [&::-moz-color-swatch]:border-0"
-  aria-label="Background color"
+// After - with custom lighter track via CSS override
+<Slider
+  value={[settings.gapSize]}
+  onValueChange={([value]) => onUpdate({ gapSize: value })}
+  min={0}
+  max={32}
+  step={2}
+  className="w-20 [&>span:first-child]:bg-muted-foreground/30"
 />
 ```
 
-Key CSS applied:
-- `appearance-none` - removes browser default styling
-- `border-0` - no outer border
-- `[&::-webkit-color-swatch-wrapper]:p-0` - removes internal padding in Chrome/Safari
-- `[&::-webkit-color-swatch]:rounded-md` - rounds the actual color swatch
-- `[&::-webkit-color-swatch]:border-0` - removes inner border
-- Same for Firefox with `::-moz-color-swatch`
+The `[&>span:first-child]:bg-muted-foreground/30` targets the Track element and gives it a visible lighter gray background.
 
 ### Visual Result
 
 Before:
 ```
-Orientation: Landscape  Portrait    Background: [┌──┐]    Gap: ──●── 12px
-                                                 │██│
-                        (invisible)              └──┘ (double border)
+Orientation: Landscape  Portrait  Background: (●)  Gap: ──●── 12px
+             (no separators)        (circle)        (invisible track)
 ```
 
 After:
 ```
-Orientation: Landscape  Portrait │ Background: ██ │ Gap: ──●── 12px
-                  ̲̲̲̲̲̲̲̲̲̲̲                          ↑                ↑
-                              visible pipe    rounded color only
+Orientation: Landscape  Portrait │ Background: [■] │ Gap: ──●── 12px
+                                 ↑             ↑           ↑
+                           visible pipe  square-ish   visible track
 ```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/CollageSettings.tsx` | Update separator color, fix color input to be a clean rounded swatch |
+| `src/components/CollageSettings.tsx` | Increase separator opacity, reduce color swatch rounding, add visible slider track |
 

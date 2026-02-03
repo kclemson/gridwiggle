@@ -15,7 +15,6 @@ import {
   Wand2, 
   Grid3X3, 
   Download, 
-  ArrowLeft, 
   Loader2,
   Trash2,
   RefreshCw,
@@ -30,7 +29,6 @@ export default function Index() {
     updatePhoto,
     updateSettings,
     setLayout,
-    setStep,
     updateLayoutCells,
     clearAll,
   } = useCollageState();
@@ -83,15 +81,9 @@ export default function Index() {
 
   const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
     addPhotos(newPhotos);
-    
-    // Transition to review step if this is the first batch
-    if (state.step === 'upload' && state.photos.length === 0) {
-      setStep('review');
-    }
-    
     // Process smart crops in event handler, not useEffect
     processSmartCrops(newPhotos);
-  }, [addPhotos, setStep, state.step, state.photos.length, processSmartCrops]);
+  }, [addPhotos, processSmartCrops]);
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
@@ -105,8 +97,7 @@ export default function Index() {
   const handleCreateCollage = useCallback(() => {
     const layout = generateCollageLayout(state.photos, state.settings);
     setLayout(layout);
-    setStep('collage');
-  }, [state.photos, state.settings, setLayout, setStep]);
+  }, [state.photos, state.settings, setLayout]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {
@@ -157,21 +148,10 @@ export default function Index() {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
-          <div className="flex items-center gap-2">
-            {state.step !== 'upload' && state.photos.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setStep(state.step === 'collage' ? 'review' : 'upload')}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            )}
-            <h1 className="text-lg font-semibold flex items-center gap-2">
-              <Grid3X3 className="h-5 w-5 text-primary" />
-              Smart Collage
-            </h1>
-          </div>
+          <h1 className="text-lg font-semibold flex items-center gap-2">
+            <Grid3X3 className="h-5 w-5 text-primary" />
+            Smart Collage
+          </h1>
 
           {state.photos.length > 0 && (
             <Button
@@ -201,16 +181,16 @@ export default function Index() {
           </div>
         )}
 
-        {/* Upload step or empty state */}
-        {(state.step === 'upload' || state.photos.length === 0) && (
+        {/* Upload prompt when no photos */}
+        {state.photos.length === 0 && (
           <PhotoUploader 
             onPhotosAdded={handlePhotosAdded}
-            hasPhotos={state.photos.length > 0}
+            hasPhotos={false}
           />
         )}
 
-        {/* Review step */}
-        {state.step === 'review' && state.photos.length > 0 && (
+        {/* Review UI when photos exist */}
+        {state.photos.length > 0 && (
           <div className="space-y-4">
             {/* Add more photos button */}
             <div className="flex justify-center">
@@ -266,68 +246,57 @@ export default function Index() {
                 }
               </p>
             )}
-          </div>
-        )}
 
-        {/* Collage step */}
-        {state.step === 'collage' && state.layout && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <p className="text-sm text-muted-foreground">
-                Drag photos to rearrange • Tap to adjust crop
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRegenerateLayout}
-                  className="gap-2"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Regenerate
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  className="gap-2"
-                >
-                  {isExporting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  Download PNG
-                </Button>
+            {/* Collage preview - appears below when layout exists */}
+            {state.layout && (
+              <div className="space-y-4 pt-4 border-t border-border">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    Drag photos to rearrange • Tap to adjust crop
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRegenerateLayout}
+                      className="gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Regenerate
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleExport}
+                      disabled={isExporting}
+                      className="gap-2"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                      Download PNG
+                    </Button>
+                  </div>
+                </div>
+                {exportError && (
+                  <p className="text-sm text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {exportError}
+                  </p>
+                )}
+
+                <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+                  <CollagePreview
+                    photos={state.photos}
+                    layout={state.layout}
+                    gapColor={state.settings.gapColor}
+                    onSwapPhotos={handleSwapPhotos}
+                    onCellClick={setEditingPhotoId}
+                  />
+                </div>
               </div>
-              {exportError && (
-                <p className="text-sm text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-4 w-4" />
-                  {exportError}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
-              <CollagePreview
-                photos={state.photos}
-                layout={state.layout}
-                gapColor={state.settings.gapColor}
-                onSwapPhotos={handleSwapPhotos}
-                onCellClick={setEditingPhotoId}
-              />
-            </div>
-
-            {/* Settings for adjusting on the fly */}
-            <CollageSettings
-              settings={state.settings}
-              onUpdate={(updates) => {
-                updateSettings(updates);
-                // Regenerate layout when settings change
-                const layout = generateCollageLayout(state.photos, { ...state.settings, ...updates });
-                setLayout(layout);
-              }}
-            />
+            )}
           </div>
         )}
       </main>

@@ -13,7 +13,6 @@ const defaultState: CollageState = {
   photos: [],
   settings: defaultSettings,
   layout: null,
-  step: 'upload',
 };
 
 function loadFromStorage(): CollageState {
@@ -96,13 +95,6 @@ export function useCollageState() {
     }));
   }, []);
 
-  const setStep = useCallback((step: CollageState['step']) => {
-    updateAndPersist(setState, (prev) => ({
-      ...prev,
-      step,
-    }));
-  }, []);
-
   const updateLayoutCells = useCallback((cells: CollageLayout['cells']) => {
     updateAndPersist(setState, (prev) => ({
       ...prev,
@@ -122,7 +114,6 @@ export function useCollageState() {
     updatePhoto,
     updateSettings,
     setLayout,
-    setStep,
     updateLayoutCells,
     clearAll,
   };

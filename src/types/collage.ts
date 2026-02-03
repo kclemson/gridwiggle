@@ -40,5 +40,4 @@ export interface CollageState {
   photos: PhotoItem[];
   settings: CollageSettings;
   layout: CollageLayout | null;
-  step: 'upload' | 'review' | 'collage';
 }

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getEditorInitialCrop } from '@/lib/cropUtils';
@@ -271,10 +271,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
 
         <DialogFooter className="px-4 py-3 border-t border-border shrink-0 flex-col sm:flex-row gap-3">
           <div className="flex items-center gap-3 mr-auto">
-            <Switch 
+            <Checkbox 
               id="hero-toggle"
               checked={isHero} 
-              onCheckedChange={setIsHero} 
+              onCheckedChange={(checked) => setIsHero(checked === true)} 
             />
             <Label htmlFor="hero-toggle" className="text-sm">
               Make this a hero photo (larger in collage)

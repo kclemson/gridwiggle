@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PhotoItem, CropRegion } from '@/types/collage';
@@ -26,61 +26,34 @@ function getDefaultCrop(photo: PhotoItem): CropRegion {
 
 /**
  * CropEditor - Renders conditionally (when photo is provided).
- * Uses useState initializer to set crop from props on mount.
- * Component unmounts on close, so no useEffect sync needed.
+ * Uses CSS-based image sizing - no useEffect needed for dimensions.
+ * Scale is computed on-demand from the actual rendered image size.
  */
 export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   
-  // Initialize crop from photo props on mount - no useEffect needed
+  // Initialize crop from photo props on mount
   const [crop, setCrop] = useState<CropRegion>(() => getDefaultCrop(photo));
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [scale, setScale] = useState(1);
-  const [imageDimensions, setImageDimensions] = useState({ 
-    width: photo.originalWidth, 
-    height: photo.originalHeight, 
-    displayWidth: 0, 
-    displayHeight: 0 
-  });
+  
+  // Trigger re-render when image loads so scale can be computed
+  const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Calculate display scale when container size changes - appropriate useEffect for browser API
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const updateScale = () => {
-      const container = containerRef.current;
-      if (!container) return;
-
-      const maxWidth = container.clientWidth;
-      const maxHeight = container.clientHeight;
-      const scaleX = maxWidth / photo.originalWidth;
-      const scaleY = maxHeight / photo.originalHeight;
-      const newScale = Math.min(scaleX, scaleY, 1);
-      
-      setScale(newScale);
-      setImageDimensions({
-        width: photo.originalWidth,
-        height: photo.originalHeight,
-        displayWidth: photo.originalWidth * newScale,
-        displayHeight: photo.originalHeight * newScale,
-      });
-    };
-
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
-  }, [photo.originalWidth, photo.originalHeight]);
+  // Compute scale on-demand from the actual rendered image
+  const getScale = useCallback(() => {
+    if (!imageRef.current) return 1;
+    return imageRef.current.width / photo.originalWidth;
+  }, [photo.originalWidth]);
 
   const getEventPosition = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    const container = containerRef.current;
-    if (!container) return { x: 0, y: 0 };
+    const img = imageRef.current;
+    if (!img) return { x: 0, y: 0 };
 
-    const rect = container.getBoundingClientRect();
-    const offsetX = (container.clientWidth - imageDimensions.displayWidth) / 2;
-    const offsetY = (container.clientHeight - imageDimensions.displayHeight) / 2;
+    const rect = img.getBoundingClientRect();
+    const scale = getScale();
 
     let clientX: number, clientY: number;
     if ('touches' in e) {
@@ -92,10 +65,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     }
 
     return {
-      x: (clientX - rect.left - offsetX) / scale,
-      y: (clientY - rect.top - offsetY) / scale,
+      x: (clientX - rect.left) / scale,
+      y: (clientY - rect.top) / scale,
     };
-  }, [scale, imageDimensions]);
+  }, [getScale]);
 
   const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent, type: typeof dragType) => {
     e.preventDefault();
@@ -154,6 +127,9 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     onClose();
   };
 
+  // Get current scale for rendering crop overlay
+  const scale = getScale();
+
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-full h-[90vh] flex flex-col p-4 gap-4">
@@ -162,73 +138,69 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
         </DialogHeader>
         
         <div 
-          ref={containerRef}
-          className="flex-1 relative overflow-hidden bg-black/50 rounded-lg touch-none select-none"
+          className="flex-1 relative overflow-hidden bg-black/50 rounded-lg touch-none select-none flex items-center justify-center"
           onMouseMove={handlePointerMove}
           onMouseUp={handlePointerUp}
           onMouseLeave={handlePointerUp}
           onTouchMove={handlePointerMove}
           onTouchEnd={handlePointerUp}
         >
-          {/* Image */}
-          <div 
-            className="absolute inset-0 flex items-center justify-center"
-          >
-            <div 
-              className="relative"
-              style={{
-                width: imageDimensions.displayWidth,
-                height: imageDimensions.displayHeight,
-              }}
-            >
-              <img
-                src={photo.originalDataUrl}
-                alt=""
-                className="w-full h-full"
-                draggable={false}
-              />
-              
-              {/* Darkened overlay */}
-              <div className="absolute inset-0 bg-black/60" />
-              
-              {/* Crop area */}
-              {/* Clear crop area */}
-              <div
-                className="absolute border-2 border-white cursor-move"
-                style={{
-                  left: crop.x * scale,
-                  top: crop.y * scale,
-                  width: crop.width * scale,
-                  height: crop.height * scale,
-                  boxShadow: `0 0 0 9999px rgba(0, 0, 0, 0.6)`,
-                  background: 'transparent',
-                }}
-                onMouseDown={(e) => handlePointerDown(e, 'move')}
-                onTouchStart={(e) => handlePointerDown(e, 'move')}
-              >
-                {/* Grid lines */}
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
-                  {Array.from({ length: 9 }).map((_, i) => (
-                    <div key={i} className="border border-white/30" />
+          {/* Image wrapper - browser handles sizing via CSS */}
+          <div className="relative max-w-full max-h-full">
+            <img
+              ref={imageRef}
+              src={photo.originalDataUrl}
+              alt=""
+              className="max-w-full max-h-full object-contain block"
+              style={{ maxHeight: 'calc(90vh - 140px)' }} // Account for header/footer
+              draggable={false}
+              onLoad={() => setImageLoaded(true)}
+            />
+            
+            {/* Only render overlay once image has loaded and we can compute scale */}
+            {imageLoaded && (
+              <>
+                {/* Darkened overlay */}
+                <div className="absolute inset-0 bg-black/60 pointer-events-none" />
+                
+                {/* Clear crop area */}
+                <div
+                  className="absolute border-2 border-white cursor-move"
+                  style={{
+                    left: crop.x * scale,
+                    top: crop.y * scale,
+                    width: crop.width * scale,
+                    height: crop.height * scale,
+                    boxShadow: `0 0 0 9999px rgba(0, 0, 0, 0.6)`,
+                    background: 'transparent',
+                  }}
+                  onMouseDown={(e) => handlePointerDown(e, 'move')}
+                  onTouchStart={(e) => handlePointerDown(e, 'move')}
+                >
+                  {/* Grid lines */}
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <div key={i} className="border border-white/30" />
+                    ))}
+                  </div>
+
+                  {/* Corner handles */}
+                  {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
+                    <div
+                      key={corner}
+                      className="absolute w-5 h-5 bg-white rounded-full border-2 border-primary -translate-x-1/2 -translate-y-1/2"
+                      style={{
+                        left: corner.includes('e') ? '100%' : 0,
+                        top: corner.includes('s') ? '100%' : 0,
+                        cursor: `${corner}-resize`,
+                      }}
+                      onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}
+                      onTouchStart={(e) => handlePointerDown(e, `resize-${corner}`)}
+                    />
                   ))}
                 </div>
-
-                {/* Corner handles */}
-                {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
-                  <div
-                    key={corner}
-                    className="absolute w-5 h-5 bg-white rounded-full border-2 border-primary -translate-x-1/2 -translate-y-1/2"
-                    style={{
-                      left: corner.includes('e') ? '100%' : 0,
-                      top: corner.includes('s') ? '100%' : 0,
-                      cursor: `${corner}-resize`,
-                    }}
-                    onMouseDown={(e) => handlePointerDown(e, `resize-${corner}`)}
-                    onTouchStart={(e) => handlePointerDown(e, `resize-${corner}`)}
-                  />
-                ))}
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
 

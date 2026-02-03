@@ -26,11 +26,6 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
   // Use "contain" for original photos to show the full image
   const fitMode = showCropped && activeCrop ? 'cover' : 'contain';
 
-  // Generate a key that changes when crop changes - forces React to remount CroppedImage
-  const cropKey = activeCrop 
-    ? `${activeCrop.x.toFixed(0)}-${activeCrop.y.toFixed(0)}-${activeCrop.width.toFixed(0)}-${activeCrop.height.toFixed(0)}`
-    : 'no-crop';
-
   return (
     <div
       className={cn(
@@ -42,7 +37,6 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
     >
       <ImageContainer aspectRatio="square">
         <CroppedImage
-          key={cropKey}
           src={photo.objectUrl}
           crop={showCropped ? activeCrop : null}
           originalWidth={photo.originalWidth}

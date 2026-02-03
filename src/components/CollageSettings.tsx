@@ -39,13 +39,13 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
         
         {/* Color with label */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Color:</span>
+          <span className="text-xs text-muted-foreground">Background:</span>
           <input
             type="color"
             value={settings.gapColor}
             onChange={(e) => onUpdate({ gapColor: e.target.value })}
-            className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent"
-            aria-label="Gap color"
+            className="w-8 h-8 aspect-square rounded border border-border cursor-pointer bg-transparent"
+            aria-label="Background color"
           />
         </div>
         

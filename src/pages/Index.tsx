@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoGrid } from '@/components/PhotoGrid';
@@ -83,10 +84,22 @@ export default function Index() {
     setSmartCropProgress(0);
   }, [updatePhoto]);
 
-  const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
-    addPhotos(newPhotos);
-    // Process smart crops in event handler, not useEffect
-    processSmartCrops(newPhotos);
+  const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+    // Step 1: Wait for photos to be saved to storage
+    const { succeeded } = await addPhotos(newPhotos);
+    
+    if (succeeded.length === 0) {
+      return;
+    }
+
+    // Step 2: Only process photos that were successfully saved
+    try {
+      await processSmartCrops(succeeded);
+    } catch (error) {
+      console.error('Smart crop processing failed:', error);
+      toast.error('AI processing failed. Please try again.');
+    }
+
     if (state.layout) setLayoutStale(true);
   }, [addPhotos, processSmartCrops, state.layout]);
 

@@ -173,8 +173,10 @@ export function useCollageState() {
     };
   }, []);
 
-  const addPhotos = useCallback(async (newPhotos: PhotoItem[]) => {
-    // Save blobs to IndexedDB
+  const addPhotos = useCallback(async (newPhotos: PhotoItem[]): Promise<{ succeeded: PhotoItem[]; failed: PhotoItem[] }> => {
+    const succeeded: PhotoItem[] = [];
+    const failed: PhotoItem[] = [];
+
     for (const photo of newPhotos) {
       try {
         await savePhoto({
@@ -183,23 +185,31 @@ export function useCollageState() {
           width: photo.originalWidth,
           height: photo.originalHeight,
         });
+        succeeded.push(photo);
+        objectUrlsRef.current.add(photo.objectUrl);
       } catch (e) {
         console.error('Failed to save photo to IndexedDB:', photo.id, e);
-        toast.error('Failed to save photo. Storage may be full.');
+        failed.push(photo);
+        URL.revokeObjectURL(photo.objectUrl);
       }
-      
-      // Track Object URL
-      objectUrlsRef.current.add(photo.objectUrl);
     }
 
-    setState((prev) => {
-      const next = {
-        ...prev,
-        photos: [...prev.photos, ...newPhotos],
-      };
-      saveMetadataToStorage(next);
-      return next;
-    });
+    if (failed.length > 0) {
+      toast.error(`Failed to save ${failed.length} photo(s). Storage may be full.`);
+    }
+
+    if (succeeded.length > 0) {
+      setState((prev) => {
+        const next = {
+          ...prev,
+          photos: [...prev.photos, ...succeeded],
+        };
+        saveMetadataToStorage(next);
+        return next;
+      });
+    }
+
+    return { succeeded, failed };
   }, []);
 
   const removePhoto = useCallback(async (photoId: string) => {

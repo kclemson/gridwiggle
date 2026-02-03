@@ -22,9 +22,9 @@ export function PhotoThumbnail({ photo, onRemove, onClick, showCropped, classNam
   // Only use crop if it's valid
   const activeCrop = rawCrop && isValidCrop(rawCrop) ? rawCrop : null;
   
-  // Use "cover" when displaying a crop so the cropped region fills the thumbnail
-  // Use "contain" for original photos to show the full image
-  const fitMode = showCropped && activeCrop ? 'cover' : 'contain';
+  // Always use "contain" so thumbnails show the full image/crop region
+  // This ensures the thumbnail matches what the user sees in the crop editor
+  const fitMode = 'contain';
 
   return (
     <div

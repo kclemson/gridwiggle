@@ -1,14 +1,336 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useCallback, useEffect } from 'react';
+import { useCollageState } from '@/hooks/useCollageState';
+import { PhotoUploader } from '@/components/PhotoUploader';
+import { PhotoGrid } from '@/components/PhotoGrid';
+import { CollageSettings } from '@/components/CollageSettings';
+import { CropEditor } from '@/components/CropEditor';
+import { CollagePreview } from '@/components/CollagePreview';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { getSmartCrop } from '@/services/smartCropService';
+import { generateCollageLayout, swapPhotosInLayout } from '@/lib/collageLayout';
+import { exportCollageAsPng, downloadBlob } from '@/lib/exportCollage';
+import { PhotoItem, CropRegion } from '@/types/collage';
+import { 
+  Wand2, 
+  Grid3X3, 
+  Download, 
+  ArrowLeft, 
+  Loader2,
+  Trash2,
+  RefreshCw
+} from 'lucide-react';
+import { toast } from 'sonner';
 
-const Index = () => {
+export default function Index() {
+  const {
+    state,
+    addPhotos,
+    removePhoto,
+    updatePhoto,
+    updateSettings,
+    setLayout,
+    setStep,
+    updateLayoutCells,
+    clearAll,
+  } = useCollageState();
+
+  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [smartCropProgress, setSmartCropProgress] = useState(0);
+
+  // Process smart crops for new photos
+  useEffect(() => {
+    const photosNeedingCrop = state.photos.filter(
+      (p) => p.isProcessing && !p.smartCrop && !p.error
+    );
+
+    if (photosNeedingCrop.length === 0) {
+      setSmartCropProgress(0);
+      return;
+    }
+
+    const processPhotos = async () => {
+      let completed = 0;
+      const total = photosNeedingCrop.length;
+
+      for (const photo of photosNeedingCrop) {
+        try {
+          const result = await getSmartCrop(
+            photo.originalDataUrl,
+            photo.originalWidth,
+            photo.originalHeight
+          );
+          
+          updatePhoto(photo.id, {
+            smartCrop: result.crop,
+            isProcessing: false,
+          });
+        } catch (error) {
+          console.error('Smart crop failed for photo:', photo.id, error);
+          updatePhoto(photo.id, {
+            isProcessing: false,
+            error: error instanceof Error ? error.message : 'Failed to process',
+          });
+          toast.error('Smart crop failed for one photo');
+        }
+        
+        completed++;
+        setSmartCropProgress((completed / total) * 100);
+      }
+    };
+
+    processPhotos();
+  }, [state.photos, updatePhoto]);
+
+  const handlePhotosAdded = useCallback((newPhotos: PhotoItem[]) => {
+    addPhotos(newPhotos);
+    if (state.step === 'upload' && state.photos.length === 0) {
+      setStep('review');
+    }
+  }, [addPhotos, setStep, state.step, state.photos.length]);
+
+  const handleRemovePhoto = useCallback((photoId: string) => {
+    removePhoto(photoId);
+  }, [removePhoto]);
+
+  const handleSaveCrop = useCallback((photoId: string, crop: CropRegion) => {
+    updatePhoto(photoId, { manualCrop: crop });
+    setEditingPhotoId(null);
+  }, [updatePhoto]);
+
+  const handleCreateCollage = useCallback(() => {
+    const layout = generateCollageLayout(state.photos, state.settings);
+    setLayout(layout);
+    setStep('collage');
+  }, [state.photos, state.settings, setLayout, setStep]);
+
+  const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
+    if (state.layout) {
+      const newLayout = swapPhotosInLayout(state.layout, photoId1, photoId2);
+      setLayout(newLayout);
+    }
+  }, [state.layout, setLayout]);
+
+  const handleExport = useCallback(async () => {
+    if (!state.layout) return;
+
+    setIsExporting(true);
+    try {
+      const blob = await exportCollageAsPng(
+        state.photos,
+        state.layout,
+        state.settings.gapColor,
+        2 // 2x scale for higher resolution
+      );
+      
+      const timestamp = new Date().toISOString().split('T')[0];
+      downloadBlob(blob, `collage-${timestamp}.png`);
+      toast.success('Collage downloaded!');
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Failed to export collage');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [state.photos, state.layout, state.settings.gapColor]);
+
+  const handleRegenerateLayout = useCallback(() => {
+    const layout = generateCollageLayout(state.photos, state.settings);
+    setLayout(layout);
+    toast.success('Layout regenerated');
+  }, [state.photos, state.settings, setLayout]);
+
+  const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
+  const isProcessing = state.photos.some((p) => p.isProcessing);
+  const canCreateCollage = photosWithSmartCrop.length >= 2 && !isProcessing;
+
+  const editingPhoto = editingPhotoId 
+    ? state.photos.find((p) => p.id === editingPhotoId) 
+    : null;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-14 items-center justify-between">
+          <div className="flex items-center gap-2">
+            {state.step !== 'upload' && state.photos.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setStep(state.step === 'collage' ? 'review' : 'upload')}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            )}
+            <h1 className="text-lg font-semibold flex items-center gap-2">
+              <Grid3X3 className="h-5 w-5 text-primary" />
+              Smart Collage
+            </h1>
+          </div>
+
+          {state.photos.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => {
+                clearAll();
+                toast.success('All photos cleared');
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Clear All
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <main className="container py-6 space-y-6">
+        {/* Progress bar for smart cropping */}
+        {isProcessing && smartCropProgress > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Wand2 className="h-4 w-4 animate-pulse-soft text-primary" />
+              <span>AI analyzing photos...</span>
+            </div>
+            <Progress value={smartCropProgress} className="h-2" />
+          </div>
+        )}
+
+        {/* Upload step or empty state */}
+        {(state.step === 'upload' || state.photos.length === 0) && (
+          <PhotoUploader 
+            onPhotosAdded={handlePhotosAdded}
+            hasPhotos={state.photos.length > 0}
+          />
+        )}
+
+        {/* Review step */}
+        {state.step === 'review' && state.photos.length > 0 && (
+          <div className="space-y-8">
+            {/* Add more photos button */}
+            <div className="flex justify-center">
+              <PhotoUploader 
+                onPhotosAdded={handlePhotosAdded}
+                hasPhotos={true}
+              />
+            </div>
+
+            {/* Original photos grid */}
+            <PhotoGrid
+              photos={state.photos}
+              onRemove={handleRemovePhoto}
+              title="Original Photos"
+            />
+
+            {/* Smart cropped photos grid */}
+            {photosWithSmartCrop.length > 0 && (
+              <PhotoGrid
+                photos={photosWithSmartCrop}
+                onRemove={handleRemovePhoto}
+                onPhotoClick={setEditingPhotoId}
+                showCropped
+                title="Smart Cropped (tap to adjust)"
+              />
+            )}
+
+            {/* Settings */}
+            <CollageSettings
+              settings={state.settings}
+              onUpdate={updateSettings}
+            />
+
+            {/* Create collage button */}
+            <div className="flex justify-center pt-4">
+              <Button
+                size="lg"
+                className="touch-target gap-2 text-lg px-8"
+                disabled={!canCreateCollage}
+                onClick={handleCreateCollage}
+              >
+                <Wand2 className="h-5 w-5" />
+                Create Collage
+                {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+              </Button>
+            </div>
+
+            {!canCreateCollage && state.photos.length > 0 && (
+              <p className="text-center text-sm text-muted-foreground">
+                {isProcessing 
+                  ? 'Please wait while AI analyzes your photos...'
+                  : 'Add at least 2 photos to create a collage'
+                }
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Collage step */}
+        {state.step === 'collage' && state.layout && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <p className="text-sm text-muted-foreground">
+                Drag photos to rearrange • Tap to adjust crop
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRegenerateLayout}
+                  className="gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Regenerate
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="gap-2"
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Download PNG
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+              <CollagePreview
+                photos={state.photos}
+                layout={state.layout}
+                gapColor={state.settings.gapColor}
+                onSwapPhotos={handleSwapPhotos}
+                onCellClick={setEditingPhotoId}
+              />
+            </div>
+
+            {/* Settings for adjusting on the fly */}
+            <CollageSettings
+              settings={state.settings}
+              onUpdate={(updates) => {
+                updateSettings(updates);
+                // Regenerate layout when settings change
+                const layout = generateCollageLayout(state.photos, { ...state.settings, ...updates });
+                setLayout(layout);
+              }}
+            />
+          </div>
+        )}
+      </main>
+
+      {/* Crop Editor Dialog */}
+      <CropEditor
+        photo={editingPhoto ?? null}
+        isOpen={!!editingPhotoId}
+        onClose={() => setEditingPhotoId(null)}
+        onSave={handleSaveCrop}
+      />
     </div>
   );
-};
-
-export default Index;
+}

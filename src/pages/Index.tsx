@@ -126,6 +126,26 @@ export default function Index() {
     }
   }, [updatePhoto, state.layout, state.photos, state.settings, setLayout]);
 
+  const handleToggleHero = useCallback((photoId: string) => {
+    const photo = state.photos.find(p => p.id === photoId);
+    if (!photo) return;
+    
+    // Toggle priority: 1 -> 3, 3 -> 1
+    const newPriority = photo.priority === 1 ? 3 : 1;
+    updatePhoto(photoId, { priority: newPriority });
+    
+    // Auto-regenerate layout with new weights
+    if (state.layout) {
+      const photoWeights: Record<string, number> = {};
+      for (const p of state.photos) {
+        const effectivePriority = p.id === photoId ? newPriority : p.priority;
+        photoWeights[p.id] = effectivePriority === 1 ? 2.0 : 1.0;
+      }
+      const newLayout = generateCollageLayout(state.photos, state.settings, { photoWeights });
+      setLayout(newLayout);
+    }
+  }, [state.photos, state.layout, state.settings, updatePhoto, setLayout]);
+
   const handleCreateCollage = useCallback(() => {
     // Build weights from photo priorities
     const photoWeights: Record<string, number> = {};
@@ -310,7 +330,7 @@ export default function Index() {
               <div className="space-y-4 pt-4 border-t border-border">
               <div className="flex items-center justify-between flex-wrap gap-4">
                   <p className="text-sm text-muted-foreground">
-                    Drag photos to rearrange • Tap to adjust crop
+                    Drag to rearrange • Tap ★ for hero • Tap photo to crop
                   </p>
                   <Button
                     size="sm"
@@ -340,6 +360,7 @@ export default function Index() {
                     gapColor={state.settings.gapColor}
                     onSwapPhotos={handleSwapPhotos}
                     onCellClick={setEditingPhotoId}
+                    onToggleHero={handleToggleHero}
                   />
                 </div>
               </div>

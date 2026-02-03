@@ -118,9 +118,6 @@ export function CollagePreview({
           if (!photo) return null;
 
           const crop = getActiveCrop(photo);
-          const cropKey = crop 
-            ? `${crop.x.toFixed(0)}-${crop.y.toFixed(0)}-${crop.width.toFixed(0)}-${crop.height.toFixed(0)}`
-            : 'no-crop';
           const isBeingDragged = draggingId === photo.id || touchDragId === photo.id;
           const isDragTarget = dragOver === photo.id;
 
@@ -149,7 +146,6 @@ export function CollagePreview({
               onClick={() => onCellClick?.(photo.id)}
             >
               <CroppedImage
-                key={cropKey}
                 src={photo.objectUrl}
                 crop={crop}
                 originalWidth={photo.originalWidth}

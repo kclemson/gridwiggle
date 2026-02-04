@@ -1305,6 +1305,9 @@ function generateBlockBasedHeroLayout(
       threeRowThreshold: tuning.threeRowThreshold,
       scaleToleranceLow: tuning.scaleToleranceLow,
       scaleToleranceHigh: tuning.scaleToleranceHigh,
+      maxBesideFraction: tuning.maxBesideFraction,
+      totalPhotoCount: standards.length + 1, // +1 for hero
+      minContentPhotos: tuning.minContentPhotos,
     }
   );
   

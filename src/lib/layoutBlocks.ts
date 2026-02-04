@@ -83,6 +83,12 @@ export interface HeroUnitOptions {
   scaleToleranceLow?: number;
   /** Maximum scale tolerance (default 1.25) */
   scaleToleranceHigh?: number;
+  /** Max fraction of total photos hero can consume (default 0.6) */
+  maxBesideFraction?: number;
+  /** Total photo count (needed for fraction calculation) */
+  totalPhotoCount?: number;
+  /** Minimum photos to reserve for content (default 4) */
+  minContentPhotos?: number;
 }
 
 // ============================================================================
@@ -162,15 +168,38 @@ export function buildHeroUnitBlock(
     threeRowThreshold = 6,
     scaleToleranceLow = 0.75,
     scaleToleranceHigh = 1.25,
+    maxBesideFraction = 0.6,
+    totalPhotoCount = candidates.length + 1, // +1 for hero
+    minContentPhotos = 4,
   } = options;
   
   // Determine anchor side
   const anchorRight = anchorSide === 'random' ? Math.random() < 0.5 : anchorSide === 'right';
   
+  // Calculate effective max based on fraction and reservation constraints
+  const fractionMax = Math.floor(totalPhotoCount * maxBesideFraction);
+  const reservedMax = totalPhotoCount - minContentPhotos - 1; // -1 for hero itself
+  
   // Determine row mode based on photo count and tuning threshold
   const useRowMode = rowMode === 'auto'
     ? (candidates.length >= threeRowThreshold ? '3-row' : '2-row')
     : rowMode;
+  
+  // Calculate effective max for each row mode (respects fraction and reservation)
+  const minPhotos3Row = 3;
+  const minPhotos2Row = 2;
+  const effectiveMax3Row = Math.min(maxBeside3Row, fractionMax, Math.max(minPhotos3Row, reservedMax));
+  const effectiveMax2Row = Math.min(maxBeside2Row, fractionMax, Math.max(minPhotos2Row, reservedMax));
+  
+  console.log('[Hero] Balance constraints', {
+    totalPhotoCount,
+    maxBesideFraction,
+    fractionMax,
+    minContentPhotos,
+    reservedMax,
+    effectiveMax3Row,
+    effectiveMax2Row,
+  });
   
   // Try to build with the selected row mode
   const result = tryBuildHeroUnit(
@@ -185,8 +214,8 @@ export function buildHeroUnitBlock(
     calculateOptimalHeroFraction,
     fixRowAlignment2Row,
     fixRowAlignment3Row,
-    maxBeside3Row,
-    maxBeside2Row,
+    useRowMode === '3-row' ? effectiveMax3Row : effectiveMax3Row, // Pass effective max
+    useRowMode === '3-row' ? effectiveMax2Row : effectiveMax2Row, // Pass effective max
     scaleToleranceLow,
     scaleToleranceHigh
   );
@@ -209,8 +238,8 @@ export function buildHeroUnitBlock(
       calculateOptimalHeroFraction,
       fixRowAlignment2Row,
       fixRowAlignment3Row,
-      maxBeside3Row,
-      maxBeside2Row,
+      effectiveMax3Row,
+      effectiveMax2Row,
       scaleToleranceLow,
       scaleToleranceHigh
     );

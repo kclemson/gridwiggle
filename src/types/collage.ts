@@ -101,6 +101,11 @@ export interface LayoutTuning {
   // Scale tolerance
   scaleToleranceLow: number;  // Reject configs that scale below this (default 0.75)
   scaleToleranceHigh: number; // Reject configs that scale above this (default 1.25)
+  
+  // Balance controls
+  maxBesideFraction: number;  // Hero beside can consume at most this % of total photos (default 0.6)
+  minContentPhotos: number;   // Reserve at least this many photos for content blocks (default 4)
+  minPhotosPerRow: number;    // Content rows must have at least this many photos (default 2)
 }
 
 export const DEFAULT_TUNING: LayoutTuning = {
@@ -112,4 +117,7 @@ export const DEFAULT_TUNING: LayoutTuning = {
   heroMaxFraction: 0.60,
   scaleToleranceLow: 0.75,
   scaleToleranceHigh: 1.25,
+  maxBesideFraction: 0.6,
+  minContentPhotos: 4,
+  minPhotosPerRow: 2,
 };

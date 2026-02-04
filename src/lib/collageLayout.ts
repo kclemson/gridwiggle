@@ -160,7 +160,8 @@ function scorePartition(
   partition: PhotoDimension[][],
   targetAspect: number,
   isLandscape: boolean,
-  baseWidth: number = 1200
+  baseWidth: number = 1200,
+  minPhotosPerRow: number = 2
 ): PartitionScore {
   if (partition.length === 0) {
     return { partition, areaCV: Infinity, heightCV: Infinity, aspectDiff: Infinity, totalScore: Infinity };
@@ -186,8 +187,14 @@ function scorePartition(
   const rowSizes = partition.map(r => r.length);
   const minRowSize = Math.min(...rowSizes);
   const maxRowSize = Math.max(...rowSizes);
+  
+  // Enhanced: penalize rows below minPhotosPerRow threshold
+  const sparsePenalty = minRowSize < minPhotosPerRow 
+    ? 0.5 * (minPhotosPerRow - minRowSize) 
+    : 0;
+  
   const rowBalancePenalty = 
-    (minRowSize === 1 && partition.length > 1 ? 0.3 : 0) + // Heavily penalize single-photo rows
+    sparsePenalty +                                        // Penalize sparse rows below threshold
     (maxRowSize > 6 ? 0.1 * (maxRowSize - 6) : 0);         // Penalize very long rows
   
   // Combined score (lower = better)

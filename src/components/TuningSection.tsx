@@ -124,13 +124,42 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
               max={1.0}
             />
             <TuningInput
-              label="Scale High"
+              label="Sc High"
               tooltip="Reject layouts where photos grow above this (1.25 = 125%)"
               value={tuning.scaleToleranceHigh}
               onChange={(v) => onTuningChange('scaleToleranceHigh', v)}
               step={0.05}
               min={1.0}
               max={2.0}
+            />
+          </div>
+          
+          {/* Row 3: Balance controls */}
+          <div className="grid grid-cols-3 gap-2">
+            <TuningInput
+              label="Max Beside %"
+              tooltip="Hero row can consume at most this fraction of total photos (0.6 = 60%)"
+              value={tuning.maxBesideFraction}
+              onChange={(v) => onTuningChange('maxBesideFraction', v)}
+              step={0.05}
+              min={0.3}
+              max={0.9}
+            />
+            <TuningInput
+              label="Min Content"
+              tooltip="Always reserve at least this many photos for content rows"
+              value={tuning.minContentPhotos}
+              onChange={(v) => onTuningChange('minContentPhotos', v)}
+              min={0}
+              max={10}
+            />
+            <TuningInput
+              label="Min/Row"
+              tooltip="Content rows must have at least this many photos"
+              value={tuning.minPhotosPerRow}
+              onChange={(v) => onTuningChange('minPhotosPerRow', v)}
+              min={1}
+              max={4}
             />
           </div>
           

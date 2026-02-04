@@ -83,6 +83,7 @@ function hydratePhotos(
 ): PhotoItem[] {
   const blobMap = new Map(storedPhotos.map((p) => [p.id, p]));
   const hydrated: PhotoItem[] = [];
+  const orphanedIds: string[] = [];
 
   for (const meta of metadata) {
     const stored = blobMap.get(meta.id);
@@ -97,10 +98,15 @@ function hydratePhotos(
         manualCrop: meta.manualCrop,
         isProcessing: false,
         error: null,
-        priority: meta.priority ?? 3, // Default to standard for existing photos
+        priority: meta.priority ?? 3,
       });
+    } else {
+      orphanedIds.push(meta.id);
     }
-    // If blob missing, silently skip (orphaned metadata)
+  }
+
+  if (orphanedIds.length > 0) {
+    console.warn('[hydratePhotos] Orphaned metadata (no blobs):', orphanedIds);
   }
 
   return hydrated;
@@ -135,12 +141,20 @@ export function useCollageState() {
         storedPhotos = await getAllPhotos();
       } catch (e) {
         console.error('Failed to load photos from IndexedDB:', e);
+        toast.error('Failed to load saved photos. Storage may be corrupted.');
       }
 
       if (!mounted) return;
 
       // Hydrate photos (merge metadata + blobs)
       const photos = hydratePhotos(persisted.photos, storedPhotos);
+      
+      // Single summary log for debugging (not per-photo spam)
+      console.log('[useCollageState] Hydrated', {
+        metadataCount: persisted.photos.length,
+        blobCount: storedPhotos.length,
+        hydratedCount: photos.length,
+      });
       
       // Track Object URLs for cleanup
       photos.forEach((p) => objectUrlsRef.current.add(p.objectUrl));

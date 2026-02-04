@@ -58,39 +58,120 @@ function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>
 
 /**
  * Calculate hero width as a fraction of canvas width.
- * The fraction adapts based on standard photo count.
+ * Reduced fractions since hero now spans 2 rows (taller).
  */
 function calculateHeroWidthFraction(standardCount: number): number {
-  if (standardCount <= 2) {
-    return 0.65; // Few standards → hero takes most of width
-  } else if (standardCount <= 5) {
-    return 0.55;
-  } else if (standardCount <= 10) {
-    return 0.48;
+  if (standardCount <= 4) {
+    return 0.55; // Reduced from 0.65 - hero is now 2-rows tall
+  } else if (standardCount <= 8) {
+    return 0.45; // Reduced from 0.55
+  } else if (standardCount <= 15) {
+    return 0.40; // Reduced from 0.48
   } else {
-    return 0.40; // Many standards → hero is smaller
+    return 0.35; // Reduced from 0.40
   }
 }
 
 // ============================================================================
-// Row-Based Beside Packing (Shared Height with Hero)
+// 2-Row Beside Packing (Hero Spans Both Rows)
 // ============================================================================
 
 /**
- * Pack photos beside the hero as a HORIZONTAL row sharing the hero's height.
- * Uses tolerance-based scaling to fill the available width exactly.
+ * Pack photos beside the hero into exactly 2 rows.
+ * The hero will span both rows (2× height of individual photos).
  * 
- * Key insight: All photos in the row share the same height (heroHeight).
- * Each photo's width = heroHeight × photoAspectRatio.
+ * This inverts the dependency:
+ * - Pack beside photos into 2 rows first (natural row heights)
+ * - Hero height = combined height of both rows
+ * - Hero width = heroHeight × heroAspect
  * 
- * If the natural total width is within tolerance of availableWidth,
- * we scale all widths to fit exactly (causing symmetric cropping ≤ 10%).
- * 
- * Returns the cells and which photos were used (rest go to below zone).
+ * Returns combined height so caller can size the hero accordingly.
  */
-function packBesideRowWithTolerance(
+function packBesideAs2Rows(
   photos: PhotoDimension[],
-  heroHeight: number,
+  targetWidth: number,
+  gap: number,
+  offsetX: number
+): { 
+  cells: CollageCell[]; 
+  combinedHeight: number; 
+  row1Height: number;
+  row2Height: number;
+  usedIds: Set<string>;
+} {
+  if (photos.length < 2) {
+    // Not enough for 2 rows - return empty
+    return { cells: [], combinedHeight: 0, row1Height: 0, row2Height: 0, usedIds: new Set() };
+  }
+
+  // Split photos roughly evenly between 2 rows
+  const midpoint = Math.ceil(photos.length / 2);
+  const row1Photos = photos.slice(0, midpoint);
+  const row2Photos = photos.slice(midpoint);
+
+  if (row2Photos.length === 0) {
+    // Only 1 photo - can't make 2 rows
+    return { cells: [], combinedHeight: 0, row1Height: 0, row2Height: 0, usedIds: new Set() };
+  }
+
+  // Calculate natural height for each row at targetWidth
+  const row1AspectSum = row1Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
+  const row2AspectSum = row2Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
+
+  const row1Gaps = gap * Math.max(0, row1Photos.length - 1);
+  const row2Gaps = gap * Math.max(0, row2Photos.length - 1);
+
+  const row1Height = (targetWidth - row1Gaps) / row1AspectSum;
+  const row2Height = (targetWidth - row2Gaps) / row2AspectSum;
+
+  const combinedHeight = row1Height + gap + row2Height;
+
+  // Build cells for row 1
+  const cells: CollageCell[] = [];
+  let x = offsetX;
+  
+  for (const photo of row1Photos) {
+    const photoWidth = row1Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x: Math.round(x),
+      y: 0, // Will be adjusted by caller
+      width: Math.round(photoWidth),
+      height: Math.round(row1Height),
+    });
+    x += photoWidth + gap;
+  }
+
+  // Build cells for row 2
+  x = offsetX;
+  for (const photo of row2Photos) {
+    const photoWidth = row2Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x: Math.round(x),
+      y: Math.round(row1Height + gap), // Below row 1
+      width: Math.round(photoWidth),
+      height: Math.round(row2Height),
+    });
+    x += photoWidth + gap;
+  }
+
+  return {
+    cells,
+    combinedHeight,
+    row1Height,
+    row2Height,
+    usedIds: new Set([...row1Photos, ...row2Photos].map(p => p.id)),
+  };
+}
+
+/**
+ * Fallback: Pack photos as a single row (for few photos or when 2-row doesn't fit).
+ * Uses tolerance-based scaling to fill available width.
+ */
+function packBesideAs1Row(
+  photos: PhotoDimension[],
+  targetHeight: number,
   availableWidth: number,
   gap: number,
   offsetX: number
@@ -99,68 +180,42 @@ function packBesideRowWithTolerance(
     return { cells: [], usedIds: new Set() };
   }
 
-  // Greedily add photos until we can't fit more within tolerance
-  const usedPhotos: PhotoDimension[] = [];
-  let remaining = [...photos];
+  // Calculate natural widths at target height
+  const naturalWidths = photos.map(p => targetHeight * p.aspectRatio);
+  const gapsTotal = gap * Math.max(0, photos.length - 1);
+  const naturalTotalWidth = naturalWidths.reduce((a, b) => a + b, 0) + gapsTotal;
 
-  while (remaining.length > 0) {
-    // Calculate natural widths for current selection + next candidate
-    const candidate = remaining[0];
-    const testPhotos = [...usedPhotos, candidate];
-    
-    const naturalWidths = testPhotos.map(p => heroHeight * p.aspectRatio);
-    const gapsTotal = gap * Math.max(0, testPhotos.length - 1);
-    const naturalTotalWidth = naturalWidths.reduce((a, b) => a + b, 0) + gapsTotal;
-    
-    // Check if this fits within tolerance
-    const scaleFactor = availableWidth / naturalTotalWidth;
-    
-    if (scaleFactor >= (1 - SCALE_TOLERANCE) && scaleFactor <= (1 + SCALE_TOLERANCE)) {
-      // Within tolerance - accept this photo
-      usedPhotos.push(candidate);
-      remaining = remaining.slice(1);
-    } else if (scaleFactor > (1 + SCALE_TOLERANCE)) {
-      // Too much space left - need more photos
-      usedPhotos.push(candidate);
-      remaining = remaining.slice(1);
-    } else {
-      // Would require too much scaling - stop here
-      break;
+  // Check if within tolerance
+  const scaleFactor = availableWidth / naturalTotalWidth;
+  
+  if (scaleFactor < (1 - SCALE_TOLERANCE) || scaleFactor > (1 + SCALE_TOLERANCE)) {
+    // Outside tolerance - can't pack all photos
+    // Try with fewer photos
+    if (photos.length > 1) {
+      return packBesideAs1Row(photos.slice(0, -1), targetHeight, availableWidth, gap, offsetX);
     }
-  }
-
-  if (usedPhotos.length === 0) {
     return { cells: [], usedIds: new Set() };
   }
 
-  // Calculate final scaled widths
-  const naturalWidths = usedPhotos.map(p => heroHeight * p.aspectRatio);
-  const gapsTotal = gap * Math.max(0, usedPhotos.length - 1);
-  const naturalTotalWidth = naturalWidths.reduce((a, b) => a + b, 0) + gapsTotal;
-  const scaleFactor = availableWidth / naturalTotalWidth;
-
-  // Build cells with scaled widths
+  // Scale widths to fit exactly
   const cells: CollageCell[] = [];
   let x = offsetX;
 
-  for (let i = 0; i < usedPhotos.length; i++) {
-    const photo = usedPhotos[i];
+  for (let i = 0; i < photos.length; i++) {
     const scaledWidth = naturalWidths[i] * scaleFactor;
-
     cells.push({
-      photoId: photo.id,
+      photoId: photos[i].id,
       x: Math.round(x),
-      y: 0, // Will be adjusted by caller
+      y: 0,
       width: Math.round(scaledWidth),
-      height: Math.round(heroHeight),
+      height: Math.round(targetHeight),
     });
-
     x += scaledWidth + gap;
   }
 
   return {
     cells,
-    usedIds: new Set(usedPhotos.map(p => p.id)),
+    usedIds: new Set(photos.map(p => p.id)),
   };
 }
 
@@ -195,14 +250,16 @@ function packRowsFullWidth(
 // ============================================================================
 
 /**
- * Generate layout with edge-anchored hero using row-based packing.
+ * Generate layout with edge-anchored hero using 2-row beside packing.
  * 
- * New approach:
- * 1. Hero width = fraction of canvas width (based on standard count)
- * 2. Hero height = heroWidth / heroAspectRatio (exact aspect preserved)
- * 3. Beside photos share heroHeight, packed as horizontal row
- * 4. Tolerance-based scaling ensures no blank rectangles (±10%)
+ * NEW APPROACH (2-row hero):
+ * 1. Pack beside photos into 2 rows first (natural row heights)
+ * 2. Hero height = combined height of both rows (hero spans 2 rows)
+ * 3. Hero width = heroHeight × heroAspect
+ * 4. Verify total width fits canvas; scale within tolerance
  * 5. Overflow goes to full-width rows below
+ * 
+ * This guarantees the hero is ~2× the size of any adjacent photo.
  */
 function generateEdgeAnchoredHeroLayout(
   hero: PhotoDimension,
@@ -211,33 +268,123 @@ function generateEdgeAnchoredHeroLayout(
   gap: number,
   randomize: boolean
 ): CollageLayout {
-  // 1. Calculate hero dimensions (width as fraction, height from aspect)
+  const shuffled = randomize ? shuffleArray(standards) : standards;
+  
+  // Determine anchor side
+  const anchorRight = randomize ? Math.random() < 0.5 : false;
+
+  // For < 4 standards, fall back to 1-row mode
+  if (standards.length < 4) {
+    return generateEdgeAnchoredHeroLayout1Row(hero, shuffled, canvasWidth, gap, anchorRight);
+  }
+
+  // Target: hero takes a fraction of width, beside photos get the rest
+  const widthFraction = calculateHeroWidthFraction(standards.length);
+  const targetBesideWidth = Math.round(canvasWidth * (1 - widthFraction)) - gap;
+  
+  // Determine how many photos to use beside (4-6 for 2 rows)
+  const besideCount = Math.min(6, Math.max(4, Math.ceil(standards.length * 0.4)));
+  const besidePhotos = shuffled.slice(0, besideCount);
+  const belowPhotos = shuffled.slice(besideCount);
+
+  // Pack beside photos into 2 rows
+  const besideStartX = anchorRight ? 0 : 0; // We'll adjust after calculating hero width
+  const { cells: rawBesideCells, combinedHeight, usedIds } = packBesideAs2Rows(
+    besidePhotos,
+    targetBesideWidth,
+    gap,
+    0 // Temporary offset, will adjust
+  );
+
+  if (combinedHeight === 0) {
+    // Fallback to 1-row if 2-row packing fails
+    return generateEdgeAnchoredHeroLayout1Row(hero, shuffled, canvasWidth, gap, anchorRight);
+  }
+
+  // Hero height = combined height of 2 beside rows
+  const heroHeight = combinedHeight;
+  const naturalHeroWidth = heroHeight * hero.aspectRatio;
+  
+  // Check if hero width + beside width fits canvas within tolerance
+  const totalNaturalWidth = naturalHeroWidth + gap + targetBesideWidth;
+  const scaleFactor = canvasWidth / totalNaturalWidth;
+  
+  if (scaleFactor < (1 - SCALE_TOLERANCE) || scaleFactor > (1 + SCALE_TOLERANCE)) {
+    // Outside tolerance - fall back to 1-row
+    return generateEdgeAnchoredHeroLayout1Row(hero, shuffled, canvasWidth, gap, anchorRight);
+  }
+
+  // Scale to fit canvas exactly
+  const heroWidth = Math.round(naturalHeroWidth * scaleFactor);
+  const actualBesideWidth = canvasWidth - heroWidth - gap;
+  const besideScaleFactor = actualBesideWidth / targetBesideWidth;
+
+  // Position hero
+  const heroX = anchorRight ? canvasWidth - heroWidth : 0;
+  const heroCell: CollageCell = {
+    photoId: hero.id,
+    x: heroX,
+    y: 0,
+    width: heroWidth,
+    height: Math.round(heroHeight * scaleFactor),
+  };
+
+  // Adjust beside cells with correct offset and scaling
+  const besideOffsetX = anchorRight ? 0 : heroWidth + gap;
+  const adjustedBesideCells = rawBesideCells.map(cell => ({
+    ...cell,
+    x: Math.round(besideOffsetX + (cell.x * besideScaleFactor)),
+    y: Math.round(cell.y * scaleFactor),
+    width: Math.round(cell.width * besideScaleFactor),
+    height: Math.round(cell.height * scaleFactor),
+  }));
+
+  // Pack below zone with remaining photos
+  const actualHeroHeight = Math.round(heroHeight * scaleFactor);
+  const belowY = actualHeroHeight + gap;
+  const allBelowPhotos = [...belowPhotos, ...besidePhotos.filter(p => !usedIds.has(p.id))];
+  const belowCells = packRowsFullWidth(allBelowPhotos, canvasWidth, gap, belowY);
+
+  // Assemble
+  const allCells = [heroCell, ...adjustedBesideCells, ...belowCells];
+  const finalHeight = allCells.length > 0
+    ? Math.max(...allCells.map(c => c.y + c.height))
+    : actualHeroHeight;
+
+  return {
+    width: canvasWidth,
+    height: Math.round(finalHeight),
+    cells: allCells,
+  };
+}
+
+/**
+ * 1-row fallback for edge-anchored hero (few photos).
+ */
+function generateEdgeAnchoredHeroLayout1Row(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  anchorRight: boolean
+): CollageLayout {
   const widthFraction = calculateHeroWidthFraction(standards.length);
   const heroWidth = Math.round(canvasWidth * widthFraction);
   const heroHeight = heroWidth / hero.aspectRatio;
 
-  // 2. Determine anchor side
-  const anchorRight = randomize ? Math.random() < 0.5 : false;
-
-  // 3. Calculate available width for beside photos
   const availableBesideWidth = canvasWidth - heroWidth - gap;
-
-  // 4. Pack beside photos using tolerance-based row packing
-  const shuffled = randomize ? shuffleArray(standards) : standards;
   const besideStartX = anchorRight ? 0 : heroWidth + gap;
   
-  const { cells: besideCells, usedIds } = packBesideRowWithTolerance(
-    shuffled,
+  const { cells: besideCells, usedIds } = packBesideAs1Row(
+    standards,
     heroHeight,
     availableBesideWidth,
     gap,
     besideStartX
   );
 
-  // 5. Remaining photos go to below zone
-  const belowPhotos = shuffled.filter(p => !usedIds.has(p.id));
+  const belowPhotos = standards.filter(p => !usedIds.has(p.id));
 
-  // 6. Create hero cell
   const heroX = anchorRight ? canvasWidth - heroWidth : 0;
   const heroCell: CollageCell = {
     photoId: hero.id,
@@ -247,18 +394,10 @@ function generateEdgeAnchoredHeroLayout(
     height: Math.round(heroHeight),
   };
 
-  // 7. Adjust beside cell Y positions (they were created at y=0)
-  const adjustedBesideCells = besideCells.map(cell => ({
-    ...cell,
-    y: 0, // Same row as hero
-  }));
-
-  // 8. Pack below zone
   const belowY = Math.round(heroHeight) + gap;
   const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
 
-  // 9. Assemble and calculate final height
-  const allCells = [heroCell, ...adjustedBesideCells, ...belowCells];
+  const allCells = [heroCell, ...besideCells, ...belowCells];
   const finalHeight = allCells.length > 0
     ? Math.max(...allCells.map(c => c.y + c.height))
     : heroHeight;
@@ -271,14 +410,14 @@ function generateEdgeAnchoredHeroLayout(
 }
 
 // ============================================================================
-// Floating Hero Layout (Row-Based, for Many Photos)
+// Floating Hero Layout (2-Row, for Many Photos)
 // ============================================================================
 
 /**
- * Generate layout with floating hero using row-based packing on both sides.
+ * Generate layout with floating hero using 2-row packing on both sides.
  * 
- * For many photos, hero can be positioned with photos on left and right.
- * Both sides use the same heroHeight, packed as horizontal rows.
+ * For many photos, hero is positioned between left and right zones.
+ * Each side uses 2-row packing, hero spans the combined height.
  */
 function generateFloatingHeroLayout(
   hero: PhotoDimension,
@@ -287,78 +426,106 @@ function generateFloatingHeroLayout(
   gap: number,
   randomize: boolean
 ): CollageLayout {
-  // 1. Calculate hero dimensions
-  const widthFraction = calculateHeroWidthFraction(standards.length);
-  const heroWidth = Math.round(canvasWidth * widthFraction);
-  const heroHeight = heroWidth / hero.aspectRatio;
-
-  // 2. Distribute photos to left/right/below
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
-  // Split roughly: 30% left, 30% right, 40% below
-  const leftTarget = Math.ceil(standards.length * 0.3);
-  const rightTarget = Math.ceil(standards.length * 0.3);
+  // Split: ~30% left, ~30% right, rest below
+  const leftCount = Math.min(4, Math.ceil(standards.length * 0.25));
+  const rightCount = Math.min(4, Math.ceil(standards.length * 0.25));
   
-  const leftCandidates = shuffled.slice(0, leftTarget);
-  const rightCandidates = shuffled.slice(leftTarget, leftTarget + rightTarget);
-  const initialBelowPhotos = shuffled.slice(leftTarget + rightTarget);
+  const leftCandidates = shuffled.slice(0, leftCount);
+  const rightCandidates = shuffled.slice(leftCount, leftCount + rightCount);
+  const initialBelowPhotos = shuffled.slice(leftCount + rightCount);
 
-  // 3. Calculate available width for each side
-  // Hero is centered, so each side gets equal space
-  const sideWidth = Math.floor((canvasWidth - heroWidth - 2 * gap) / 2);
+  // Target width fraction for hero
+  const widthFraction = calculateHeroWidthFraction(standards.length);
+  const targetHeroWidth = Math.round(canvasWidth * widthFraction);
+  const targetSideWidth = Math.floor((canvasWidth - targetHeroWidth - 2 * gap) / 2);
 
-  // 4. Pack left side
-  const { cells: leftCells, usedIds: leftUsed } = packBesideRowWithTolerance(
-    leftCandidates,
-    heroHeight,
-    sideWidth,
-    gap,
-    0
+  // Pack left side into 2 rows
+  const leftResult = packBesideAs2Rows(leftCandidates, targetSideWidth, gap, 0);
+  
+  // Pack right side into 2 rows
+  const rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
+
+  // Use the taller side to determine hero height
+  const maxSideHeight = Math.max(
+    leftResult.combinedHeight || 0,
+    rightResult.combinedHeight || 0
   );
 
-  // 5. Calculate hero X position based on actual left width used
-  const actualLeftWidth = leftCells.length > 0
-    ? Math.max(...leftCells.map(c => c.x + c.width))
+  if (maxSideHeight === 0) {
+    // Fallback if neither side could be packed
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
+  }
+
+  // Hero matches the combined height
+  const heroHeight = maxSideHeight;
+  const naturalHeroWidth = heroHeight * hero.aspectRatio;
+  
+  // Calculate actual widths
+  const actualLeftWidth = leftResult.cells.length > 0 ? targetSideWidth : 0;
+  const actualRightWidth = rightResult.cells.length > 0 ? targetSideWidth : 0;
+  const totalNaturalWidth = actualLeftWidth + (actualLeftWidth > 0 ? gap : 0) + 
+                            naturalHeroWidth + 
+                            (actualRightWidth > 0 ? gap : 0) + actualRightWidth;
+  
+  const scaleFactor = canvasWidth / totalNaturalWidth;
+  
+  if (scaleFactor < (1 - SCALE_TOLERANCE) || scaleFactor > (1 + SCALE_TOLERANCE)) {
+    // Outside tolerance - fall back to edge-anchored
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
+  }
+
+  // Scale everything
+  const heroWidth = Math.round(naturalHeroWidth * scaleFactor);
+  const heroX = actualLeftWidth > 0 
+    ? Math.round(actualLeftWidth * scaleFactor) + gap 
     : 0;
-  const heroX = actualLeftWidth > 0 ? actualLeftWidth + gap : 0;
-
-  // 6. Pack right side
-  const rightStartX = heroX + heroWidth + gap;
-  const availableRightWidth = canvasWidth - rightStartX;
   
-  const { cells: rightCells, usedIds: rightUsed } = packBesideRowWithTolerance(
-    rightCandidates,
-    heroHeight,
-    availableRightWidth,
-    gap,
-    rightStartX
-  );
-
-  // 7. Collect unused photos for below zone
-  const belowPhotos = [
-    ...leftCandidates.filter(p => !leftUsed.has(p.id)),
-    ...rightCandidates.filter(p => !rightUsed.has(p.id)),
-    ...initialBelowPhotos,
-  ];
-
-  // 8. Create hero cell
   const heroCell: CollageCell = {
     photoId: hero.id,
     x: heroX,
     y: 0,
     width: heroWidth,
-    height: Math.round(heroHeight),
+    height: Math.round(heroHeight * scaleFactor),
   };
 
-  // 9. Pack below zone
-  const belowY = Math.round(heroHeight) + gap;
+  // Adjust left cells
+  const leftCells = leftResult.cells.map(cell => ({
+    ...cell,
+    x: Math.round(cell.x * scaleFactor),
+    y: Math.round(cell.y * scaleFactor),
+    width: Math.round(cell.width * scaleFactor),
+    height: Math.round(cell.height * scaleFactor),
+  }));
+
+  // Adjust right cells
+  const rightStartX = heroX + heroWidth + gap;
+  const rightCells = rightResult.cells.map(cell => ({
+    ...cell,
+    x: rightStartX + Math.round(cell.x * scaleFactor),
+    y: Math.round(cell.y * scaleFactor),
+    width: Math.round(cell.width * scaleFactor),
+    height: Math.round(cell.height * scaleFactor),
+  }));
+
+  // Collect unused photos for below zone
+  const belowPhotos = [
+    ...leftCandidates.filter(p => !leftResult.usedIds.has(p.id)),
+    ...rightCandidates.filter(p => !rightResult.usedIds.has(p.id)),
+    ...initialBelowPhotos,
+  ];
+
+  // Pack below zone
+  const actualHeroHeight = Math.round(heroHeight * scaleFactor);
+  const belowY = actualHeroHeight + gap;
   const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
 
-  // 10. Assemble
+  // Assemble
   const allCells = [...leftCells, heroCell, ...rightCells, ...belowCells];
   const finalHeight = allCells.length > 0
     ? Math.max(...allCells.map(c => c.y + c.height))
-    : heroHeight;
+    : actualHeroHeight;
 
   return {
     width: canvasWidth,
@@ -400,6 +567,7 @@ function generateSingleHeroLayout(
 
 /**
  * Handle multiple heroes by processing them sequentially.
+ * Each hero uses 2-row beside packing.
  */
 function generateMultiHeroLayout(
   heroes: PhotoDimension[],
@@ -426,19 +594,81 @@ function generateMultiHeroLayout(
     const endIdx = isLast ? standards.length : startIdx + standardsPerHero;
     const heroStandards = shuffledStandards.slice(startIdx, endIdx);
 
-    // Calculate hero dimensions
+    // Determine anchor side (alternating)
+    const anchorRight = randomize ? Math.random() < 0.5 : (i % 2 === 1);
+
+    // Try 2-row packing if we have enough photos
+    if (heroStandards.length >= 4) {
+      const widthFraction = calculateHeroWidthFraction(heroStandards.length);
+      const targetBesideWidth = Math.round(canvasWidth * (1 - widthFraction)) - gap;
+      
+      const besideCount = Math.min(6, heroStandards.length);
+      const besidePhotos = heroStandards.slice(0, besideCount);
+      
+      const { cells: rawBesideCells, combinedHeight, usedIds } = packBesideAs2Rows(
+        besidePhotos,
+        targetBesideWidth,
+        gap,
+        0
+      );
+
+      if (combinedHeight > 0) {
+        // Hero height = combined height of 2 beside rows
+        const heroHeight = combinedHeight;
+        const naturalHeroWidth = heroHeight * hero.aspectRatio;
+        const totalNaturalWidth = naturalHeroWidth + gap + targetBesideWidth;
+        const scaleFactor = canvasWidth / totalNaturalWidth;
+
+        if (scaleFactor >= (1 - SCALE_TOLERANCE) && scaleFactor <= (1 + SCALE_TOLERANCE)) {
+          const heroWidth = Math.round(naturalHeroWidth * scaleFactor);
+          const heroX = anchorRight ? canvasWidth - heroWidth : 0;
+          const besideOffsetX = anchorRight ? 0 : heroWidth + gap;
+          const besideScaleFactor = (canvasWidth - heroWidth - gap) / targetBesideWidth;
+
+          // Add hero
+          allCells.push({
+            photoId: hero.id,
+            x: heroX,
+            y: currentY,
+            width: heroWidth,
+            height: Math.round(heroHeight * scaleFactor),
+          });
+
+          // Add beside cells
+          const adjustedBesideCells = rawBesideCells.map(cell => ({
+            ...cell,
+            x: Math.round(besideOffsetX + (cell.x * besideScaleFactor)),
+            y: currentY + Math.round(cell.y * scaleFactor),
+            width: Math.round(cell.width * besideScaleFactor),
+            height: Math.round(cell.height * scaleFactor),
+          }));
+          allCells.push(...adjustedBesideCells);
+
+          currentY += Math.round(heroHeight * scaleFactor) + gap;
+
+          // Pack remaining photos below
+          const belowPhotos = heroStandards.filter(p => !usedIds.has(p.id));
+          if (belowPhotos.length > 0) {
+            const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, currentY);
+            allCells.push(...belowCells);
+            if (belowCells.length > 0) {
+              currentY = Math.max(...belowCells.map(c => c.y + c.height)) + gap;
+            }
+          }
+          continue; // Next hero
+        }
+      }
+    }
+
+    // Fallback to 1-row for this hero
     const widthFraction = calculateHeroWidthFraction(heroStandards.length);
     const heroWidth = Math.round(canvasWidth * widthFraction);
     const heroHeight = heroWidth / hero.aspectRatio;
 
-    // Determine anchor side (alternating)
-    const anchorRight = randomize ? Math.random() < 0.5 : (i % 2 === 1);
-
-    // Pack beside photos using row-based approach
     const availableBesideWidth = canvasWidth - heroWidth - gap;
     const besideStartX = anchorRight ? 0 : heroWidth + gap;
     
-    const { cells: besideCells, usedIds } = packBesideRowWithTolerance(
+    const { cells: besideCells, usedIds } = packBesideAs1Row(
       heroStandards,
       heroHeight,
       availableBesideWidth,
@@ -446,16 +676,8 @@ function generateMultiHeroLayout(
       besideStartX
     );
 
-    // Calculate positions
     const heroX = anchorRight ? canvasWidth - heroWidth : 0;
 
-    // Adjust beside cell positions
-    const adjustedBesideCells = besideCells.map(cell => ({
-      ...cell,
-      y: cell.y + currentY,
-    }));
-
-    // Add hero
     allCells.push({
       photoId: hero.id,
       x: heroX,
@@ -464,6 +686,10 @@ function generateMultiHeroLayout(
       height: Math.round(heroHeight),
     });
 
+    const adjustedBesideCells = besideCells.map(cell => ({
+      ...cell,
+      y: currentY,
+    }));
     allCells.push(...adjustedBesideCells);
 
     currentY += Math.round(heroHeight) + gap;
@@ -473,7 +699,6 @@ function generateMultiHeroLayout(
     if (belowPhotos.length > 0) {
       const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, currentY);
       allCells.push(...belowCells);
-
       if (belowCells.length > 0) {
         currentY = Math.max(...belowCells.map(c => c.y + c.height)) + gap;
       }

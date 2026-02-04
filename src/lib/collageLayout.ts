@@ -551,10 +551,32 @@ export function generateCollageLayout(
   }
   
   const dims = getPhotoDimensions(photos, weights);
-  const isLandscape = settings.orientation === 'landscape';
   
-  // Target aspect ratio based on orientation
-  const targetAspect = isLandscape ? 1.5 : 0.75;
+  // Determine target aspect ratio and orientation mode
+  let targetAspect: number;
+  let isLandscape: boolean;
+  
+  switch (settings.orientation) {
+    case 'landscape':
+      targetAspect = 1.5;
+      isLandscape = true;
+      break;
+    case 'portrait':
+      targetAspect = 0.75;
+      isLandscape = false;
+      break;
+    case 'square':
+      targetAspect = 1.0;
+      isLandscape = true; // Use landscape-style row packing for square
+      break;
+    case 'auto':
+    default:
+      // Analyze photo aspects to pick best orientation
+      const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
+      isLandscape = avgAspect >= 1.0; // If photos are mostly landscape, use landscape layout
+      targetAspect = isLandscape ? 1.5 : 0.75;
+      break;
+  }
   
   // Pass randomize option for variety on regeneration
   const rows = findBestRowSplit(dims, targetAspect, isLandscape, options?.randomize ?? false);

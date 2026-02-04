@@ -42,7 +42,7 @@ export interface PhotoMetadata {
 }
 
 export interface CollageSettings {
-  orientation: 'portrait' | 'landscape';
+  orientation: 'auto' | 'landscape' | 'portrait' | 'square';
   gapColor: string;
   gapSize: number;
 }

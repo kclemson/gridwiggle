@@ -304,7 +304,7 @@ export default function Index() {
                 onPhotoClick={setEditingPhotoId}
                 showCropped
                 title="Smart Cropped"
-                hint="tap to adjust or mark heroes"
+                hint="tap to crop"
               />
             )}
 
@@ -339,27 +339,46 @@ export default function Index() {
 
             {/* Collage preview - appears below when layout exists */}
             {state.layout && (
-              <div className="space-y-4 pt-4 border-t border-border">
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                  <p className="text-sm text-muted-foreground">
-                    Drag to rearrange • Tap ★ for hero • Tap photo to crop
-                  </p>
-                  <Button
-                    size="sm"
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    className="gap-2"
-                  >
-                    {isExporting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
-                    Download PNG
-                  </Button>
+              <div className="space-y-2 pt-4 border-t border-border">
+                {/* Header row with title and action icons */}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+                    Collage
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8" 
+                      onClick={handleCreateCollage}
+                      title="Shuffle layout"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8" 
+                      onClick={handleExport}
+                      disabled={isExporting}
+                      title="Download PNG"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
+                
+                {/* Hint text */}
+                <p className="text-sm text-muted-foreground px-1">
+                  Drag to rearrange • Tap ★ to feature
+                </p>
+                
                 {exportError && (
-                  <p className="text-sm text-destructive flex items-center gap-1">
+                  <p className="text-sm text-destructive flex items-center gap-1 px-1">
                     <AlertCircle className="h-4 w-4" />
                     {exportError}
                   </p>

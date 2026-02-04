@@ -1,39 +1,23 @@
 
+# Move Debug Panel to Left of Collage
 
-# Always-Visible Hero Star for Screenshots
-
-## Overview
-
-Make the yellow hero star indicator always visible on the collage preview so it's obvious in screenshots which photo is the hero.
-
-## Current Behavior
-
+## Current State
+The debug panel is positioned to the **right** of the collage:
 ```typescript
-"opacity-70 md:opacity-0 md:group-hover:opacity-100"
+style={{ left: 'calc(100% + 24px)', width: '700px' }}
 ```
-
-- Mobile: Always 70% opacity
-- Desktop: Hidden until hover
 
 ## Proposed Change
-
+Move it to the **left** so it doesn't overlap with OS/system/browser notifications that typically appear in the top-right corner:
 ```typescript
-photo.priority === 1 
-  ? "opacity-100"  // Hero star always fully visible
-  : "opacity-70 md:opacity-0 md:group-hover:opacity-100"  // Non-hero stars keep hover behavior
+style={{ right: 'calc(100% + 24px)', width: '700px' }}
 ```
-
-This makes the filled yellow star (hero indicator) always visible, while the empty star toggle buttons remain hover-only on desktop.
 
 ## File Changes
 
 | File | Change |
 |------|--------|
-| `src/components/CollagePreview.tsx` | Update line 172 opacity classes to always show when photo is hero |
+| `src/pages/Index.tsx` | Line 432: Change `left` to `right` in the debug panel positioning |
 
 ## Result
-
-- Hero photos will have a permanently visible filled yellow star
-- Non-hero photos keep the hover-to-reveal behavior for toggling
-- Screenshots will clearly show which photo is the hero
-
+The Hero Layout Logs panel will appear to the left of the collage instead of the right, keeping the notification area clear for screenshots.

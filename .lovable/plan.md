@@ -1,50 +1,84 @@
 
 
-## Add Max Height Constraint to Collage Preview
+## Fix: Make Collage Preview Respect Max Height Constraint
 
 ### Problem
 
-Portrait collages scale to fill the full container width, resulting in excessively tall previews that push content off-screen and require significant scrolling.
+The `CollagePreview` component uses `aspect-ratio` CSS which calculates height from width. A parent's `max-h-[70vh]` doesn't constrain this because:
+
+```text
+Container width: ~480px
+Collage aspect ratio: 1:3 (portrait)
+Computed height: 480px × 3 = 1440px  ← Ignores max-height!
+```
+
+The `aspect-ratio` property prioritizes width-based sizing and doesn't respond to height constraints from parent containers.
+
+---
 
 ### Solution
 
-Add a `max-height` constraint to the collage wrapper. This is a CSS-only change that caps the preview height while maintaining the correct aspect ratio.
+Add conditional max-height constraint directly on the collage element that calculates the appropriate `maxWidth` when the collage would be too tall:
 
----
+**File: `src/components/CollagePreview.tsx`**
 
-### Design Decision: Where to Apply the Constraint
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **In `CollagePreview.tsx`** | Component self-contains its display logic | May not always want the constraint (e.g., export preview) |
-| **In `Index.tsx` wrapper** | Context-specific, collage component stays pure | Correct approach - UI context controls display |
-
-**Recommendation:** Apply in `Index.tsx` - the parent controls how the preview is displayed in this UI context.
-
----
-
-### Implementation
-
-**File: `src/pages/Index.tsx` (line 389)**
-
-Add `max-h-[70vh]` and adjust flex behavior to center the collage when it's constrained:
+Add a `maxHeight` prop that the parent can pass, and compute the appropriate max-width based on whichever constraint is more restrictive:
 
 ```tsx
-// Current
-<div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+interface CollagePreviewProps {
+  // ... existing props
+  maxHeight?: string; // e.g., "70vh"
+}
 
-// Updated
-<div className="rounded-xl overflow-hidden border border-border bg-surface p-4 max-h-[70vh] flex items-center justify-center">
+export function CollagePreview({ 
+  // ... existing props
+  maxHeight
+}: CollagePreviewProps) {
+  
+  return (
+    <div className="w-full overflow-hidden" ...>
+      <div
+        ref={collageRef}
+        className="relative mx-auto w-full"
+        style={{
+          maxWidth: layout.width,
+          maxHeight: maxHeight,  // NEW: Apply max-height constraint
+          aspectRatio: `${layout.width} / ${layout.height}`,
+          backgroundColor: gapColor,
+        }}
+      >
 ```
 
-The `CollagePreview` component already has `w-full` and uses `maxWidth` with `aspect-ratio`, so it will naturally scale down to fit within the height constraint while maintaining proportions.
+**File: `src/pages/Index.tsx`**
+
+Simplify the wrapper and pass the constraint to the component:
+
+```tsx
+<div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+  <CollagePreview
+    photos={state.photos}
+    layout={state.layout}
+    gapColor={state.settings.gapColor}
+    maxHeight="70vh"  // NEW: Pass constraint
+    // ... other props
+  />
+</div>
+```
 
 ---
 
-### Why 70vh?
+### Why This Works
 
-- Leaves room for header (~56px) and some breathing room
-- On mobile (812px height), this is ~568px max - reasonable for viewing
-- Tall portrait collages will scale to fit, wide landscape collages won't be affected
-- User can still export at full resolution - this is just the preview constraint
+When you set both `aspect-ratio` AND `max-height` on the **same element**, the browser respects both constraints - it will size to fit within whichever is more restrictive while maintaining the aspect ratio.
+
+The key insight is that the constraint must be on the element with `aspect-ratio`, not on a parent container.
+
+---
+
+### File Changes
+
+| File | Change |
+|------|--------|
+| `src/components/CollagePreview.tsx` | Add `maxHeight` prop, apply to style |
+| `src/pages/Index.tsx` | Remove flex centering from wrapper, pass `maxHeight="70vh"` to CollagePreview |
 

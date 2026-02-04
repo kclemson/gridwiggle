@@ -12,6 +12,7 @@ interface CollagePreviewProps {
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
+  maxHeight?: string;
 }
 
 /**
@@ -25,7 +26,8 @@ export function CollagePreview({
   gapColor, 
   onSwapPhotos,
   onCellClick,
-  onToggleHero
+  onToggleHero,
+  maxHeight
 }: CollagePreviewProps) {
   const collageRef = useRef<HTMLDivElement>(null); // Kept for potential future use (e.g., exporting)
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -112,6 +114,7 @@ export function CollagePreview({
         className="relative mx-auto w-full"
         style={{
           maxWidth: layout.width,
+          maxHeight: maxHeight,
           aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
         }}

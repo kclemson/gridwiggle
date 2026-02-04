@@ -135,7 +135,7 @@ export default function Index() {
         const smartCropToApply = result.skipCrop ? null : result.crop;
         
         console.log(
-          `Smart crop for ${photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
+          `Smart crop for ${photo.filename || photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
           `subjects="${result.subjects}", skipCrop=${result.skipCrop}`
         );
         

@@ -42,11 +42,54 @@ export default function Index() {
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
-  const [layoutStale, setLayoutStale] = useState(false);
+  
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
   photosRef.current = state.photos;
+
+  // Options for regenerating the collage layout
+  interface RegenerateOptions {
+    /** Use specific photos instead of current state (for removal before state updates) */
+    photos?: PhotoItem[];
+    /** Use specific settings instead of current state */
+    settings?: CollageSettingsType;
+    /** Override a single photo's priority before state updates */
+    priorityOverride?: { photoId: string; priority: PhotoPriority };
+    /** Shuffle for variety (refresh button) */
+    randomize?: boolean;
+  }
+
+  // Centralized collage regeneration - all triggers use this
+  const regenerateCollage = useCallback((options: RegenerateOptions = {}) => {
+    const {
+      photos = photosRef.current,
+      settings = state.settings,
+      priorityOverride,
+      randomize = false,
+    } = options;
+    
+    // Need at least 2 photos for a collage
+    if (photos.length < 2) {
+      setLayout(null);
+      return;
+    }
+    
+    // Build weights from priorities (with optional override for pending state updates)
+    const photoWeights: Record<string, number> = {};
+    for (const photo of photos) {
+      const effectivePriority = priorityOverride?.photoId === photo.id 
+        ? priorityOverride.priority 
+        : photo.priority;
+      photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
+    }
+    
+    const layout = generateCollageLayout(photos, settings, { 
+      photoWeights,
+      randomize,
+    });
+    setLayout(layout);
+  }, [state.settings, setLayout]);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -90,80 +133,45 @@ export default function Index() {
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
-    if (state.layout) setLayoutStale(true);
-  }, [removePhoto, state.layout]);
+    if (state.layout) {
+      const remainingPhotos = state.photos.filter(p => p.id !== photoId);
+      regenerateCollage({ photos: remainingPhotos });
+    }
+  }, [removePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
     setEditingPhotoId(null);
-    
-    // Auto-regenerate layout since priority affects weights
     if (state.layout) {
-      // Build weights with the updated priority for this photo
-      const photoWeights: Record<string, number> = {};
-      for (const photo of state.photos) {
-        const effectivePriority = photo.id === photoId ? priority : photo.priority;
-        photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
-      }
-      const newLayout = generateCollageLayout(state.photos, state.settings, { photoWeights });
-      setLayout(newLayout);
-      setLayoutStale(false);
+      regenerateCollage({ priorityOverride: { photoId, priority } });
     }
-  }, [updatePhoto, state.layout, state.photos, state.settings, setLayout]);
+  }, [updatePhoto, state.layout, regenerateCollage]);
 
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
     if (!photo) return;
     
-    // Toggle priority: 1 -> 3, 3 -> 1
-    const newPriority = photo.priority === 1 ? 3 : 1;
+    const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
     updatePhoto(photoId, { priority: newPriority });
     
-    // Auto-regenerate layout with new weights
     if (state.layout) {
-      const photoWeights: Record<string, number> = {};
-      for (const p of state.photos) {
-        const effectivePriority = p.id === photoId ? newPriority : p.priority;
-        photoWeights[p.id] = effectivePriority === 1 ? 2.0 : 1.0;
-      }
-      const newLayout = generateCollageLayout(state.photos, state.settings, { photoWeights });
-      setLayout(newLayout);
+      regenerateCollage({ priorityOverride: { photoId, priority: newPriority } });
     }
-  }, [state.photos, state.layout, state.settings, updatePhoto, setLayout]);
+  }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
 
   const handleCreateCollage = useCallback(() => {
-    // Use ref for latest photos (avoids stale closure in async callbacks)
-    const photos = photosRef.current;
-    
-    // Build weights from photo priorities
-    const photoWeights: Record<string, number> = {};
-    for (const photo of photos) {
-      photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
-    }
-    
-    // Randomize when regenerating (layout already exists) for variety
-    const shouldRandomize = state.layout !== null;
-    
-    const layout = generateCollageLayout(photos, state.settings, { 
-      photoWeights,
-      randomize: shouldRandomize 
-    });
-    setLayout(layout);
-    setLayoutStale(false);
-  }, [state.settings, state.layout, setLayout]);
+    regenerateCollage({ randomize: state.layout !== null });
+  }, [state.layout, regenerateCollage]);
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-    // Step 1: Wait for photos to be saved to storage
     const { succeeded } = await addPhotos(newPhotos);
     
     if (succeeded.length === 0) {
       return;
     }
 
-    // Remember if we should auto-generate (no layout before processing)
     const wasLayoutEmpty = state.layout === null;
 
-    // Step 2: Only process photos that were successfully saved
     try {
       await processSmartCrops(succeeded);
     } catch (error) {
@@ -171,26 +179,17 @@ export default function Index() {
       toast.error('AI processing failed. Please try again.');
     }
 
-    // Auto-generate collage after first batch, mark stale otherwise
-    if (wasLayoutEmpty) {
-      handleCreateCollage();
-    } else {
-      setLayoutStale(true);
-    }
-  }, [addPhotos, processSmartCrops, state.layout, handleCreateCollage]);
+    // Always regenerate - first batch without randomization, subsequent with
+    regenerateCollage({ randomize: !wasLayoutEmpty });
+  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
-    
-    // Auto-regenerate collage for layout-affecting settings
     if (state.layout && ('gapSize' in updates || 'orientation' in updates)) {
       const newSettings = { ...state.settings, ...updates };
-      const newLayout = generateCollageLayout(state.photos, newSettings);
-      setLayout(newLayout);
-      setLayoutStale(false);
+      regenerateCollage({ settings: newSettings });
     }
-    // gapColor updates don't need regeneration - CollagePreview uses it directly as CSS
-  }, [updateSettings, state.layout, state.settings, state.photos, setLayout]);
+  }, [updateSettings, state.layout, state.settings, regenerateCollage]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {

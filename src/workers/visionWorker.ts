@@ -42,8 +42,10 @@ function calculateOptimalCrop(
   processedWidth: number,
   processedHeight: number
 ): { x: number; y: number; width: number; height: number } {
-  // Filter by confidence > 0.4
-  const subjects = detections.filter(d => d.score > 0.4);
+  // Filter by confidence > 0.4, prioritize people if detected
+  const allSubjects = detections.filter(d => d.score > 0.4);
+  const people = allSubjects.filter(d => d.label === 'person');
+  const subjects = people.length > 0 ? people : allSubjects;
   
   if (subjects.length === 0) {
     // No subjects detected - use full image (no cropping)

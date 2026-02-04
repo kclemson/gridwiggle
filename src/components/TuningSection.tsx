@@ -13,6 +13,7 @@ interface TuningSectionProps {
 
 interface TuningInputProps {
   label: string;
+  tooltip: string;
   value: number;
   onChange: (value: number) => void;
   step?: number;
@@ -20,9 +21,9 @@ interface TuningInputProps {
   max?: number;
 }
 
-function TuningInput({ label, value, onChange, step = 1, min, max }: TuningInputProps) {
+function TuningInput({ label, tooltip, value, onChange, step = 1, min, max }: TuningInputProps) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" title={tooltip}>
       <Label className="text-[10px] text-muted-foreground font-normal">{label}</Label>
       <Input
         type="number"
@@ -61,6 +62,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
           <div className="grid grid-cols-4 gap-2">
             <TuningInput
               label="3-Row Max"
+              tooltip="Max photos packed beside hero when using 3-row mode"
               value={tuning.maxBeside3Row}
               onChange={(v) => onTuningChange('maxBeside3Row', v)}
               min={3}
@@ -68,6 +70,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="2-Row Max"
+              tooltip="Max photos packed beside hero when using 2-row mode"
               value={tuning.maxBeside2Row}
               onChange={(v) => onTuningChange('maxBeside2Row', v)}
               min={2}
@@ -75,6 +78,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="3-Row At"
+              tooltip="Use 3-row mode when this many photos are beside hero"
               value={tuning.threeRowThreshold}
               onChange={(v) => onTuningChange('threeRowThreshold', v)}
               min={2}
@@ -82,6 +86,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="Per Block"
+              tooltip="Photos per standard content row"
               value={tuning.contentPhotosPerBlock}
               onChange={(v) => onTuningChange('contentPhotosPerBlock', v)}
               min={1}
@@ -93,6 +98,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
           <div className="grid grid-cols-4 gap-2">
             <TuningInput
               label="Min Frac"
+              tooltip="Minimum hero width as fraction of canvas (0.3 = 30%)"
               value={tuning.heroMinFraction}
               onChange={(v) => onTuningChange('heroMinFraction', v)}
               step={0.05}
@@ -101,6 +107,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="Max Frac"
+              tooltip="Maximum hero width as fraction of canvas (0.6 = 60%)"
               value={tuning.heroMaxFraction}
               onChange={(v) => onTuningChange('heroMaxFraction', v)}
               step={0.05}
@@ -109,6 +116,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="Scale Low"
+              tooltip="Reject layouts where photos shrink below this (0.75 = 75%)"
               value={tuning.scaleToleranceLow}
               onChange={(v) => onTuningChange('scaleToleranceLow', v)}
               step={0.05}
@@ -117,6 +125,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
             />
             <TuningInput
               label="Scale High"
+              tooltip="Reject layouts where photos grow above this (1.25 = 125%)"
               value={tuning.scaleToleranceHigh}
               onChange={(v) => onTuningChange('scaleToleranceHigh', v)}
               step={0.05}

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
@@ -43,6 +43,10 @@ export default function Index() {
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [layoutStale, setLayoutStale] = useState(false);
+
+  // Ref to access latest photos (avoids stale closure in async callbacks)
+  const photosRef = useRef<PhotoItem[]>(state.photos);
+  photosRef.current = state.photos;
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -128,22 +132,25 @@ export default function Index() {
   }, [state.photos, state.layout, state.settings, updatePhoto, setLayout]);
 
   const handleCreateCollage = useCallback(() => {
+    // Use ref for latest photos (avoids stale closure in async callbacks)
+    const photos = photosRef.current;
+    
     // Build weights from photo priorities
     const photoWeights: Record<string, number> = {};
-    for (const photo of state.photos) {
+    for (const photo of photos) {
       photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
     }
     
     // Randomize when regenerating (layout already exists) for variety
     const shouldRandomize = state.layout !== null;
     
-    const layout = generateCollageLayout(state.photos, state.settings, { 
+    const layout = generateCollageLayout(photos, state.settings, { 
       photoWeights,
       randomize: shouldRandomize 
     });
     setLayout(layout);
     setLayoutStale(false);
-  }, [state.photos, state.settings, state.layout, setLayout]);
+  }, [state.settings, state.layout, setLayout]);
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
     // Step 1: Wait for photos to be saved to storage

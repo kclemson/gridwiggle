@@ -1,5 +1,6 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
+import { generateHeroLayout, hasHeroPhotos } from '@/lib/heroLayout';
 
 // ============================================================================
 // Types
@@ -578,7 +579,18 @@ export function generateCollageLayout(
       break;
   }
   
-  // Pass randomize option for variety on regeneration
+  // Check for heroes and route to hero layout
+  if (hasHeroPhotos(photos, weights)) {
+    return generateHeroLayout(
+      photos,
+      settings,
+      targetAspect,
+      weights,
+      options?.randomize ?? false
+    );
+  }
+  
+  // Standard path: no heroes
   const rows = findBestRowSplit(dims, targetAspect, isLandscape, options?.randomize ?? false);
   const layout = calculateLayout(rows, settings);
   

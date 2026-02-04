@@ -172,11 +172,11 @@ function scorePartition(
     (maxRowSize > 6 ? 0.1 * (maxRowSize - 6) : 0);         // Penalize very long rows
   
   // Combined score (lower = better)
-  // Orientation is primary constraint, then uniformity
+  // Uniformity is primary, orientation direction is hard gate
   const totalScore = 
-    aspectDiff * 2.0 +       // PRIMARY: match target aspect
+    aspectDiff * 0.5 +       // Relaxed: allow aspect flexibility
     directionPenalty +       // HARD: correct orientation direction
-    areaCV * 0.5 +           // Secondary: uniform cell sizes
+    areaCV * 1.0 +           // PRIMARY: uniform cell sizes
     heightCV * 0.2 +         // Light: uniform row heights
     rowBalancePenalty;       // Penalties for extreme rows
   

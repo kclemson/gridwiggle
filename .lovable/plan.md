@@ -1,28 +1,8 @@
 
 
-## Center Helper Text in Collage Header Row
+## Update Smart Cropped Section Title
 
-Move the "Drag to rearrange • Tap ★ to feature" text into the title row, horizontally centered between "COLLAGE" and the action icons.
-
----
-
-## Current Layout
-
-```text
-┌──────────────────────────────────────────────────┐
-│ COLLAGE                                    ↻  ↓  │
-├──────────────────────────────────────────────────┤
-│ Drag to rearrange • Tap ★ to feature             │
-└──────────────────────────────────────────────────┘
-```
-
-## New Layout
-
-```text
-┌──────────────────────────────────────────────────┐
-│ COLLAGE   Drag to rearrange • Tap ★ to feature  ↻  ↓ │
-└──────────────────────────────────────────────────┘
-```
+Change the title from "Smart Cropped" to "Smart Cropped Photos" to match the pattern of "Original Photos".
 
 ---
 
@@ -30,41 +10,19 @@ Move the "Drag to rearrange • Tap ★ to feature" text into the title row, hor
 
 ### `src/pages/Index.tsx`
 
-Update the header structure (lines 343-378):
+Update line 306:
 
 **From:**
 ```tsx
-{/* Header row with title and action icons */}
-<div className="flex items-center justify-between">
-  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-    Collage
-  </h3>
-  <div className="flex items-center gap-1">
-    {/* buttons */}
-  </div>
-</div>
-
-{/* Hint text */}
-<p className="text-sm text-muted-foreground px-1">
-  Drag to rearrange • Tap ★ to feature
-</p>
+title="Smart Cropped"
 ```
 
 **To:**
 ```tsx
-{/* Header row with title, centered hint, and action icons */}
-<div className="flex items-center justify-between">
-  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-    Collage
-  </h3>
-  <p className="text-sm text-muted-foreground">
-    Drag to rearrange • Tap ★ to feature
-  </p>
-  <div className="flex items-center gap-1">
-    {/* buttons */}
-  </div>
-</div>
+title="Smart Cropped Photos"
 ```
 
-This uses flex's `justify-between` with three children to naturally center the middle element.
+This makes both section headers consistent:
+- **ORIGINAL PHOTOS (3)**
+- **SMART CROPPED PHOTOS (3)** — *tap to crop*
 

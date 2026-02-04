@@ -1,90 +1,183 @@
 
 
-# Add Always-Visible Generate Button
+# Fix Smart Crop Reliability + Stale Crop Data on Regeneration
 
-## Problem
+## Two Bugs, One Fix
 
-The "Generate Collage" / "Shuffle" button is currently only visible when `state.layout` exists (line 326). If layout generation fails or returns null for any reason, the user is stuck with no way to retry.
+### Bug 1: Poor Smart Crops for Cartoons/Memes
+DETR returns confidence scores we're ignoring. For cartoon images (Shrek, pineapple house), the model often:
+- Misidentifies subjects ("person" for Shrek, "vase" for pineapple)
+- Returns low confidence scores (0.3-0.5 vs 0.8+ for real photos)
+- Produces bounding boxes that cut off important parts
 
-From the screenshot: 18 photos are loaded, settings are visible, but there's no collage and no button to generate one.
+**Fix:** Add a confidence threshold. If max confidence < 0.6, skip smart cropping and use full image.
 
-## Solution
+### Bug 2: Collage Uses Stale Crop After Manual Save
+When user saves a manual crop adjustment, the collage regenerates but shows the OLD crop:
 
-Add a "Generate Collage" button that appears when:
-- There are 2+ photos AND
-- No collage layout exists yet (or layout generation failed)
+```typescript
+// Current code in handleSaveCrop (line 148-154)
+updatePhoto(photoId, { manualCrop: crop, priority });  // Async state update
+regenerateCollage({ priorityOverride: { photoId, priority } });  // Runs before state updates!
+```
 
-This gives users a way to manually trigger collage generation as a recovery mechanism.
+The `priorityOverride` pattern exists but there's no equivalent for crops.
+
+**Fix:** Add `cropOverride` to `RegenerateOptions` so the new crop is used immediately.
+
+---
 
 ## Technical Changes
 
-### File: `src/pages/Index.tsx`
+### File 1: `src/workers/visionWorker.ts`
 
-Move the generate button outside the `{state.layout && ...}` conditional, with logic to show either:
-1. **"Generate Collage"** - when there's no layout but 2+ photos
-2. **"Shuffle"** - when layout already exists (current behavior)
+Add `skipCrop` flag to result based on confidence threshold:
 
-```tsx
-{/* Generate/Shuffle button - ALWAYS visible when 2+ photos */}
-{state.photos.length >= 2 && (
-  <div className="pt-4 border-t border-border">
-    {!state.layout ? (
-      // No layout yet - show Generate button
-      <Button 
-        onClick={handleCreateCollage}
-        className="w-full"
-      >
-        <Grid3X3 className="h-4 w-4 mr-2" />
-        Generate Collage
-      </Button>
-    ) : (
-      // Layout exists - show collage preview with shuffle/download
-      <div className="space-y-2">
-        {/* ...existing header row with Shuffle + Download buttons... */}
-        {/* ...existing CollagePreview... */}
-      </div>
-    )}
-  </div>
-)}
+```typescript
+// Around line 135-140, update the result message
+const maxConfidence = subjects.length > 0 
+  ? Math.max(...results.filter(r => r.score > 0.4).map(r => r.score)) 
+  : 0;
+
+self.postMessage({
+  type: 'result',
+  crop,
+  confidence: maxConfidence,
+  subjects: subjectDescription,
+  skipCrop: maxConfidence < 0.6,  // NEW: flag to skip unreliable crops
+});
 ```
 
-### Button States
+### File 2: `src/services/smartCropService.ts`
 
-| Condition | Button Shown |
-|-----------|--------------|
-| 0-1 photos | No button (need 2+ for collage) |
-| 2+ photos, no layout | "Generate Collage" button (full-width) |
-| 2+ photos, layout exists | Shuffle icon + Download icon (current UI) |
+Update interface to include `skipCrop`:
 
-## Visual Placement
+```typescript
+interface SmartCropResult {
+  crop: CropRegion;
+  confidence: number;
+  subjects: string;
+  skipCrop: boolean;  // NEW
+}
 
-The button will appear below the Configure section, in the same position where the collage preview normally shows. This keeps the UI consistent - there's always something actionable in that spot when conditions are met.
+// In handleMessage, pass through the flag
+resolve({
+  crop: e.data.crop,
+  confidence: e.data.confidence,
+  subjects: e.data.subjects,
+  skipCrop: e.data.skipCrop ?? false,  // NEW
+});
+```
 
-## Edge Case: Error Recovery
+### File 3: `src/pages/Index.tsx`
 
-If `generateCollageLayout` throws an error, wrap it in try/catch to show a toast and keep the button visible:
+**Change 1:** Only apply smart crop when model is confident:
 
-```tsx
+```typescript
+// In processSmartCrops (around line 112-123)
+const result = await getSmartCrop(...);
+
+// Only apply smart crop if model is confident
+const smartCropToApply = result.skipCrop ? null : result.crop;
+
+updatePhoto(photo.id, {
+  smartCrop: smartCropToApply,
+  isProcessing: false,
+});
+```
+
+**Change 2:** Add `cropOverride` to `RegenerateOptions`:
+
+```typescript
+interface RegenerateOptions {
+  photos?: PhotoItem[];
+  settings?: CollageSettingsType;
+  priorityOverride?: { photoId: string; priority: PhotoPriority };
+  cropOverride?: { photoId: string; crop: CropRegion };  // NEW
+  randomize?: boolean;
+}
+```
+
+**Change 3:** Apply crop override in `regenerateCollage`:
+
+```typescript
 const regenerateCollage = useCallback((options: RegenerateOptions = {}) => {
-  // ... existing setup ...
+  const {
+    photos = photosRef.current,
+    settings = state.settings,
+    priorityOverride,
+    cropOverride,  // NEW
+    randomize = false,
+  } = options;
   
-  try {
-    const layout = generateCollageLayout(photos, settings, { 
-      photoWeights,
-      randomize,
-    });
-    setLayout(layout);
-  } catch (error) {
-    console.error('Layout generation failed:', error);
-    toast.error('Failed to generate collage. Try again.');
-    // Don't call setLayout(null) - keep button visible
+  // Apply crop override to get correct dimensions immediately
+  let photosToUse = photos;
+  if (cropOverride) {
+    photosToUse = photos.map(p => 
+      p.id === cropOverride.photoId 
+        ? { ...p, manualCrop: cropOverride.crop }
+        : p
+    );
   }
-}, [state.settings, setLayout]);
+  
+  if (photosToUse.length < 2) {
+    setLayout(null);
+    return;
+  }
+  
+  // Use photosToUse for the rest of the function...
+}, [...]);
 ```
+
+**Change 4:** Pass crop override from `handleSaveCrop`:
+
+```typescript
+const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
+  updatePhoto(photoId, { manualCrop: crop, priority });
+  setEditingPhotoId(null);
+  if (state.layout) {
+    regenerateCollage({ 
+      priorityOverride: { photoId, priority },
+      cropOverride: { photoId, crop },  // NEW - pass crop immediately
+    });
+  }
+}, [updatePhoto, state.layout, regenerateCollage]);
+```
+
+---
+
+## Confidence Threshold Behavior
+
+| Confidence | Typical Content | Action |
+|------------|-----------------|--------|
+| 0.7 - 0.95 | Real photos (faces, people, objects) | Apply smart crop |
+| 0.6 - 0.7 | Mixed/borderline | Apply smart crop |
+| < 0.6 | Cartoons, memes, screenshots, graphics | Skip - use full image |
+
+The 0.6 threshold is based on DETR being trained on real-world COCO images. For stylized content, its confidence drops significantly.
+
+---
 
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `src/pages/Index.tsx` | Restructure JSX to show Generate button when no layout exists; add try/catch to `regenerateCollage` |
+| `src/workers/visionWorker.ts` | Add `skipCrop` flag to result when confidence < 0.6 |
+| `src/services/smartCropService.ts` | Add `skipCrop` to interface and pass through |
+| `src/pages/Index.tsx` | Only apply smart crop when not skipped; add `cropOverride` to fix stale data bug |
+
+---
+
+## Expected Results
+
+**Cartoon/meme images:**
+- DETR confidence low (0.3-0.5) → `skipCrop: true` → full image used
+- No more cut-off Shrek or pineapple houses
+
+**Real photos:**
+- DETR confidence high (0.7+) → `skipCrop: false` → smart crop applied as before
+
+**Manual crop adjustment:**
+- Saving crop immediately updates collage preview
+- No need to click "Shuffle" to see the change
 

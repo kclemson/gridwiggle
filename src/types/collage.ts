@@ -80,3 +80,36 @@ export interface PersistedCollageState {
   settings: CollageSettings;
   layout: CollageLayout | null;
 }
+
+/**
+ * Layout tuning parameters for real-time experimentation.
+ * DEV-only feature for debugging and tuning the layout algorithm.
+ */
+export interface LayoutTuning {
+  // Hero beside packing
+  maxBeside3Row: number;      // Max photos beside hero in 3-row mode (default 12)
+  maxBeside2Row: number;      // Max photos beside hero in 2-row mode (default 6)
+  threeRowThreshold: number;  // Candidates count that triggers 3-row mode (default 6)
+  
+  // Content blocks
+  contentPhotosPerBlock: number;  // Photos per full-width content row block (default 4)
+  
+  // Hero fraction bounds
+  heroMinFraction: number;    // Minimum hero width fraction (default 0.30)
+  heroMaxFraction: number;    // Maximum hero width fraction (default 0.60)
+  
+  // Scale tolerance
+  scaleToleranceLow: number;  // Reject configs that scale below this (default 0.75)
+  scaleToleranceHigh: number; // Reject configs that scale above this (default 1.25)
+}
+
+export const DEFAULT_TUNING: LayoutTuning = {
+  maxBeside3Row: 12,
+  maxBeside2Row: 6,
+  threeRowThreshold: 6,
+  contentPhotosPerBlock: 4,
+  heroMinFraction: 0.30,
+  heroMaxFraction: 0.60,
+  scaleToleranceLow: 0.75,
+  scaleToleranceHigh: 1.25,
+};

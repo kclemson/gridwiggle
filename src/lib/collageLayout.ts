@@ -1,4 +1,4 @@
-import { PhotoItem, CollageLayout, CollageCell, CollageSettings } from '@/types/collage';
+import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { generateHeroLayout, hasHeroPhotos } from '@/lib/heroLayout';
 
@@ -60,6 +60,8 @@ export interface LayoutOptions {
   photoWeights?: Record<string, number>;
   /** When true, shuffle photo order and pick from top-N layouts for variety */
   randomize?: boolean;
+  /** Layout tuning parameters (for real-time experimentation) */
+  tuning?: LayoutTuning;
 }
 
 // ============================================================================
@@ -592,7 +594,8 @@ export function generateCollageLayout(
       settings,
       heroTargetAspect,
       weights,
-      options?.randomize ?? false
+      options?.randomize ?? false,
+      options?.tuning
     );
   }
   

@@ -1,9 +1,13 @@
 import { HeroLogEntry } from '@/lib/debugLogger';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
+import { LayoutTuning } from '@/types/collage';
+import { TuningSection } from '@/components/TuningSection';
 
 interface DebugPanelProps {
   logs: HeroLogEntry[];
+  tuning: LayoutTuning;
+  onTuningChange: (key: keyof LayoutTuning, value: number) => void;
 }
 
 function getLogIcon(label: string, data: Record<string, unknown>) {
@@ -84,7 +88,7 @@ function LogEntry({ entry }: { entry: HeroLogEntry }) {
   );
 }
 
-export function DebugPanel({ logs }: DebugPanelProps) {
+export function DebugPanel({ logs, tuning, onTuningChange }: DebugPanelProps) {
   const timestamp = logs.length > 0 
     ? new Date(logs[0].timestamp).toLocaleTimeString() 
     : null;
@@ -93,6 +97,16 @@ export function DebugPanel({ logs }: DebugPanelProps) {
   const midpoint = Math.ceil(logs.length / 2);
   const leftLogs = logs.slice(0, midpoint);
   const rightLogs = logs.slice(midpoint);
+
+  // Extract hero percentage from logs
+  const heroPct = (() => {
+    for (const log of logs) {
+      if (log.data.heroPctOfCanvas) {
+        return String(log.data.heroPctOfCanvas);
+      }
+    }
+    return null;
+  })();
 
   return (
     <div className="max-h-[600px]">
@@ -109,8 +123,11 @@ export function DebugPanel({ logs }: DebugPanelProps) {
           )}
         </div>
         
+        {/* Tuning controls */}
+        <TuningSection tuning={tuning} onTuningChange={onTuningChange} heroPct={heroPct} />
+        
         {/* Log entries - two columns */}
-        <ScrollArea className="max-h-[calc(100vh-140px)]">
+        <ScrollArea className="max-h-[calc(100vh-280px)]">
           {logs.length === 0 ? (
             <div className="p-4 text-center text-xs text-muted-foreground">
               Generate a collage to see logs

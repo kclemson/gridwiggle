@@ -339,6 +339,42 @@ function placeHeroes(
 // Pack Standards into Remaining Regions
 // ============================================================================
 
+/**
+ * If cells exceed region bounds, scale them proportionally to fit.
+ * This ensures no overlap with hero or other regions.
+ */
+function scaleToFitRegion(cells: CollageCell[], region: Region): CollageCell[] {
+  if (cells.length === 0) return cells;
+  
+  // Find actual bounds of packed cells
+  const minX = Math.min(...cells.map(c => c.x));
+  const minY = Math.min(...cells.map(c => c.y));
+  const maxX = Math.max(...cells.map(c => c.x + c.width));
+  const maxY = Math.max(...cells.map(c => c.y + c.height));
+  
+  const packedWidth = maxX - minX;
+  const packedHeight = maxY - minY;
+  
+  // If within bounds, no scaling needed
+  if (packedHeight <= region.height && packedWidth <= region.width) {
+    return cells;
+  }
+  
+  // Calculate scale factor to fit (maintain aspect ratio)
+  const scaleX = region.width / packedWidth;
+  const scaleY = region.height / packedHeight;
+  const scale = Math.min(scaleX, scaleY);
+  
+  // Scale and re-position cells within region
+  return cells.map(cell => ({
+    photoId: cell.photoId,
+    x: Math.round(region.x + (cell.x - minX) * scale),
+    y: Math.round(region.y + (cell.y - minY) * scale),
+    width: Math.round(cell.width * scale),
+    height: Math.round(cell.height * scale),
+  }));
+}
+
 function packLShape(
   standards: PhotoDimension[],
   regions: Region[],
@@ -362,17 +398,19 @@ function packLShape(
   const largerStandards = standards.slice(0, largerCount);
   const smallerStandards = standards.slice(largerCount);
   
-  // Pack larger region
+  // Pack larger region - CONSTRAIN TO REGION HEIGHT
   const largerPacked = packPhotosIntoRegion(largerStandards, {
     width: larger.width,
     gap,
     offsetX: larger.x,
     offsetY: larger.y,
     isLandscape: largerIsWide,
+    targetHeight: larger.height,
   });
-  allCells.push(...largerPacked.cells);
+  // Scale cells if packing exceeded region bounds
+  allCells.push(...scaleToFitRegion(largerPacked.cells, larger));
   
-  // Pack smaller region
+  // Pack smaller region - CONSTRAIN TO REGION HEIGHT
   if (smallerStandards.length > 0) {
     const smallerPacked = packPhotosIntoRegion(smallerStandards, {
       width: smaller.width,
@@ -380,8 +418,10 @@ function packLShape(
       offsetX: smaller.x,
       offsetY: smaller.y,
       isLandscape: smallerIsWide,
+      targetHeight: smaller.height,
     });
-    allCells.push(...smallerPacked.cells);
+    // Scale to fit if needed
+    allCells.push(...scaleToFitRegion(smallerPacked.cells, smaller));
   }
   
   return allCells;
@@ -421,9 +461,11 @@ function packMultipleRegions(
       offsetX: region.x,
       offsetY: region.y,
       isLandscape: region.width > region.height,
+      targetHeight: region.height,
     });
     
-    allCells.push(...packed.cells);
+    // Scale to fit if needed
+    allCells.push(...scaleToFitRegion(packed.cells, region));
   }
   
   return allCells;

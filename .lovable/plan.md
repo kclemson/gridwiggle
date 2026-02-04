@@ -1,95 +1,102 @@
 
 
-# Add Comprehensive Logging to Floating Strategy
+# Two-Column Layout for Debug Panel
 
-## Problem Analysis
+## Overview
 
-The debug panel screenshots reveal a strong correlation:
-- **Collages with only "Strategy" logs** → Using "floating" strategy → **Black bars/dead space**
-- **Collages with full logs** → Using "edge-anchored" strategy → **Clean, tight layouts**
+Restructure the debug panel to display log entries in two columns side-by-side, making the panel shorter and better suited for screenshots that capture both the collage and its associated logs.
 
-The "floating" strategy code path (lines 958-1191 in `heroLayout.ts`) has **zero** `[Hero]` prefixed console.log statements, while the "edge-anchored" path has comprehensive logging at every decision point.
+## Current Layout
 
-## Root Causes
-
-1. **Missing diagnostic logging** - Can't see what the floating algorithm is computing
-2. **Possible layout bugs** - The black bars suggest width calculations aren't filling the canvas
-3. **Silent fallback** - When floating falls back to edge-anchored, there's no logging about why
-
-## Solution
-
-Add comprehensive `[Hero]` logging to the floating strategy at these points:
-
-### 1. Configuration Entry (after line 969)
-```typescript
-console.log('[Hero] Floating config', {
-  useIntroRows,
-  introPhotoCount: introPhotos.length,
-  leftCount,
-  rightCount,
-  belowCount: initialBelowPhotos.length,
-});
+```text
+┌─ HERO LAYOUT LOGS ─────────────────┐
+│ ▸ Strategy                         │
+│   strategy: floating               │
+│   standardCount: 19                │
+│ ▸ Floating config                  │
+│   useIntroRows: false              │
+│   ...                              │
+│ ▸ Side packing                     │
+│   ...                              │
+│ ✗ Trying config                    │
+│   ...                              │
+│ ⚠ Fallback triggered               │
+│   ...                              │
+│ ▸ Edge-anchored config             │
+│   ...                              │
+│ ✓ Trying config                    │
+│   ...                              │
+│ ✓ Layout complete                  │
+│   ...                              │
+└────────────────────────────────────┘
+       360px × ~900px tall
 ```
 
-### 2. Side Packing Results (after line 1031)
-```typescript
-console.log('[Hero] Side packing', {
-  leftRows: 'row3Height' in leftResult ? 3 : 2,
-  leftHeight: leftResult.combinedHeight.toFixed(0),
-  leftWidth: leftResult.naturalTotalWidth.toFixed(0),
-  rightRows: 'row3Height' in rightResult ? 3 : 2,
-  rightHeight: rightResult.combinedHeight.toFixed(0),
-  rightWidth: rightResult.naturalTotalWidth.toFixed(0),
-});
+## Proposed Layout
+
+Split the log entries across two columns:
+
+```text
+┌─ HERO LAYOUT LOGS ─────────────────────────────────────────────────────────┐
+│ ▸ Strategy              │ ⚠ Fallback triggered                            │
+│   strategy: floating    │   reason: scale-out-of-tolerance                │
+│   standardCount: 19     │   scaleFactor: 0.74                             │
+│ ▸ Floating config       │ ▸ Edge-anchored config                          │
+│   useIntroRows: false   │   useIntroRows: true                            │
+│   introPhotoCount: 0    │   introPhotoCount: 6                            │
+│   leftCount: 6          │   remainingPhotos: 13                           │
+│   rightCount: 6         │   anchorSide: left                              │
+│   belowCount: 7         │ ✓ Trying config                                 │
+│ ▸ Side packing          │   rowMode: 3-row                                │
+│   leftRows: 3           │   besideCount: 12                               │
+│   leftHeight: 534       │   optimalFraction: 0.47                         │
+│   ...                   │   ...                                           │
+│ ✗ Trying config         │ ✓ Layout complete                               │
+│   rowMode: floating     │   finalAspect: 0.56                             │
+│   ...                   │   ...                                           │
+└─────────────────────────┴───────────────────────────────────────────────────┘
+                       ~700px wide × ~450px tall
 ```
 
-### 3. Scale Factor Decision (after line 1055)
+## Implementation
+
+### File: `src/components/DebugPanel.tsx`
+
+Change the log entries container from a single column to a CSS grid with two columns:
+
 ```typescript
-console.log('[Hero] Trying config', {
-  rowMode: 'floating',
-  heroWidth: heroWidth.toFixed(0),
-  totalNaturalWidth: totalNaturalWidth.toFixed(0),
-  scaleFactor: scaleFactor.toFixed(2),
-  accepted: scaleFactor >= 0.80 && scaleFactor <= 1.20,
-});
+// Replace the single-column log list with a two-column grid
+<div className="grid grid-cols-2 divide-x divide-border/50">
+  {/* Left column */}
+  <div>
+    {logs.slice(0, midpoint).map(...)}
+  </div>
+  {/* Right column */}
+  <div>
+    {logs.slice(midpoint).map(...)}
+  </div>
+</div>
 ```
 
-### 4. Fallback Trigger (before lines 1041 and 1060)
+Key changes:
+- Calculate `midpoint = Math.ceil(logs.length / 2)` to split logs evenly
+- Use `grid grid-cols-2` for the two-column layout
+- Add `divide-x divide-border/50` for a subtle vertical separator
+- Reduce individual entry padding slightly to keep things compact
+
+### File: `src/pages/Index.tsx`
+
+Increase the debug panel width to accommodate two columns:
+
 ```typescript
-console.log('[Hero] Fallback triggered', {
-  reason: maxSideHeight === 0 ? 'no-side-packing' : 'scale-out-of-tolerance',
-  scaleFactor: scaleFactor?.toFixed(2) ?? 'n/a',
-  fallbackTo: 'edge-anchored',
-});
+// Change width from 360px to 700px
+style={{ left: 'calc(100% + 24px)', width: '700px' }}
 ```
 
-### 5. Layout Complete (before return at line 1186)
-```typescript
-console.log('[Hero] Layout complete', {
-  finalAspect: (canvasWidth / finalHeight).toFixed(2),
-  heroCell: { width: heroCell.width, height: heroCell.height },
-  heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
-  leftCells: leftCells.length,
-  rightCells: rightCells.length,
-  belowCells: belowCells.length,
-  totalCells: allCells.length,
-});
-```
-
-## Files to Modify
+## Files Modified
 
 | File | Changes |
 |------|---------|
-| `src/lib/heroLayout.ts` | Add 5 `[Hero]` log statements to `generateFloatingHeroLayout` function |
-
-## Expected Outcome
-
-After this change, the debug panel will show complete logging for ALL layouts, making it immediately visible when:
-- The floating strategy is being used
-- What side widths are being calculated
-- Whether scale factors are in tolerance
-- Why fallbacks are triggered
-- Final layout metrics
-
-This will help diagnose and fix the black bar issue in subsequent work.
+| `src/components/DebugPanel.tsx` | Split log entries into two-column grid layout |
+| `src/pages/Index.tsx` | Increase debug panel width from 360px to 700px |
 

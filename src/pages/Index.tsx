@@ -6,11 +6,13 @@ import { PhotoGrid } from '@/components/PhotoGrid';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
+import { DebugPanel } from '@/components/DebugPanel';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
+import { captureHeroLogs, HeroLogEntry } from '@/lib/debugLogger';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
@@ -42,7 +44,7 @@ export default function Index() {
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
-  
+  const [debugLogs, setDebugLogs] = useState<HeroLogEntry[]>([]);
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -98,10 +100,13 @@ export default function Index() {
     }
     
     try {
-      const layout = generateCollageLayout(photosToUse, settings, { 
-        photoWeights,
-        randomize,
-      });
+      const { result: layout, logs } = captureHeroLogs(() => 
+        generateCollageLayout(photosToUse, settings, { 
+          photoWeights,
+          randomize,
+        })
+      );
+      setDebugLogs(logs);
       setLayout(layout);
     } catch (error) {
       console.error('Layout generation failed:', error);
@@ -432,6 +437,9 @@ export default function Index() {
           onSave={handleSaveCrop}
         />
       )}
+
+      {/* Dev-only Debug Panel */}
+      {import.meta.env.DEV && <DebugPanel logs={debugLogs} />}
     </div>
   );
 }

@@ -1,15 +1,24 @@
 
 
-# Improve Hero Layout: 3-Row Option + Landscape Bias + Fix Remaining Gaps
+# Hero Layout Improvements - IMPLEMENTED ✅
 
-## Overview
+## Completed
 
-This plan addresses three issues:
-1. **Blank rectangles** still appearing under one of the hero's adjacent rows
-2. **Square bias** in Auto mode limiting variety  
-3. **Propose 3-row hero option** to give the algorithm more flexibility
+### Fix 1: Independent Row Scaling ✅
+- Each beside row now fills `targetWidth` exactly
+- No more blank rectangles from mismatched row widths
+- Both 2-row and 3-row packing use this approach
 
----
+### Fix 2: Landscape Bias for Auto Mode ✅
+- Applied 1.3× bias to average aspect ratio
+- Clamped to 0.8-2.2 range (wider than before)
+- Results in more landscape-oriented collages for social media
+
+### Fix 3: 3-Row Hero Packing ✅
+- Added `packBesideAs3Rows` function
+- Used adaptively for larger photosets (8+ standard photos)
+- Hero now spans 3 rows for stronger visual hierarchy
+- Iterative approach: tries 3-row first, falls back to 2-row, then 1-row
 
 ## Problem Analysis
 

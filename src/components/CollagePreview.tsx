@@ -109,9 +109,11 @@ export function CollagePreview({
       {/* CSS handles responsive scaling via max-width and aspect-ratio */}
       <div
         ref={collageRef}
-        className="relative mx-auto w-full"
+        className="relative mx-auto"
         style={{
           maxWidth: layout.width,
+          maxHeight: 500,
+          width: '100%',
           aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
         }}

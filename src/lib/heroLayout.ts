@@ -1,6 +1,15 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { packPhotosIntoRegion } from '@/lib/collageLayout';
+import {
+  buildHeroUnitBlock,
+  buildContentRowsBlock,
+  stackBlocks,
+  splitPhotosForBlocks,
+  shuffleArray as blockShuffleArray,
+  type PhotoDimension as BlockPhotoDimension,
+  type LayoutBlock,
+} from '@/lib/layoutBlocks';
 
 // ============================================================================
 // Constants
@@ -1236,15 +1245,109 @@ function generateFloatingHeroLayout(
 }
 
 // ============================================================================
+// Block-Based Layout Generator (New Architecture)
+// ============================================================================
+
+/**
+ * Generate layout using the block-based architecture.
+ * 
+ * Algorithm:
+ * 1. Build hero unit block (consumes hero + N beside photos)
+ * 2. Split remaining photos into content row blocks
+ * 3. Shuffle blocks for variety (if randomize=true)
+ * 4. Stack and return
+ * 
+ * Benefits:
+ * - Hero can appear anywhere (top, middle, bottom)
+ * - No single photo can dominate by being in the "below zone"
+ * - Infinite visual variety through block shuffling
+ */
+function generateBlockBasedHeroLayout(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  randomize: boolean
+): CollageLayout | null {
+  // Shuffle candidates if randomizing
+  const candidates = randomize ? shuffleArray(standards) : standards;
+  
+  // 1. Build hero unit block
+  const heroBlock = buildHeroUnitBlock(
+    hero as BlockPhotoDimension,
+    candidates as BlockPhotoDimension[],
+    canvasWidth,
+    gap,
+    packBesideAs2Rows,
+    packBesideAs3Rows,
+    calculateOptimalHeroFraction,
+    fixRowAlignment2Row,
+    fixRowAlignment3Row,
+    { anchorSide: randomize ? 'random' : 'left' }
+  );
+  
+  if (!heroBlock) {
+    console.log('[Hero] Block-based failed', { reason: 'could-not-build-hero-unit' });
+    return null;
+  }
+  
+  // 2. Get remaining photos (not used in hero block)
+  const remaining = candidates.filter(p => !heroBlock.photoIds.has(p.id));
+  
+  // 3. Split remaining into content row blocks (each block = ~3-4 photos)
+  const photoChunks = splitPhotosForBlocks(remaining as BlockPhotoDimension[], 4);
+  const contentBlocks: LayoutBlock[] = [];
+  
+  for (const chunk of photoChunks) {
+    const block = buildContentRowsBlock(
+      chunk,
+      canvasWidth,
+      gap,
+      packPhotosIntoRegion
+    );
+    if (block) {
+      contentBlocks.push(block);
+    }
+  }
+  
+  // 4. Combine all blocks
+  let allBlocks: LayoutBlock[] = [heroBlock, ...contentBlocks];
+  
+  // 5. Shuffle if randomizing (hero can end up anywhere!)
+  if (randomize && allBlocks.length > 1) {
+    allBlocks = blockShuffleArray(allBlocks);
+  }
+  
+  // 6. Stack blocks vertically
+  const layout = stackBlocks(allBlocks, canvasWidth, gap);
+  
+  // Find hero position for logging
+  const heroIndex = allBlocks.findIndex(b => b.type === 'hero-unit');
+  const heroPosition = heroIndex === 0 ? 'top' : 
+                       heroIndex === allBlocks.length - 1 ? 'bottom' : 'middle';
+  
+  console.log('[Hero] Block-based layout complete', {
+    blockCount: allBlocks.length,
+    heroPosition,
+    heroBlockIndex: heroIndex,
+    finalAspect: (layout.width / layout.height).toFixed(2),
+    heroPctOfCanvas: ((heroBlock.heroCell.width * heroBlock.heroCell.height) / (layout.width * layout.height) * 100).toFixed(1) + '%',
+  });
+  
+  return layout;
+}
+
+// ============================================================================
 // Main Entry Points
 // ============================================================================
 
 // Thresholds for adaptive strategy based on photo count
 const FEW_PHOTOS_THRESHOLD = 8;
+const BLOCK_BASED_MIN_PHOTOS = 6; // Minimum photos to try block-based approach
 
 /**
  * Generate layout for a single hero photo.
- * Uses adaptive strategy based on standard photo count.
+ * Uses block-based architecture for variety, with fallbacks.
  */
 function generateSingleHeroLayout(
   hero: PhotoDimension,
@@ -1254,6 +1357,26 @@ function generateSingleHeroLayout(
   randomize: boolean,
   targetAspect: number | undefined
 ): CollageLayout {
+  // Try block-based layout for larger photosets (provides shuffled variety)
+  if (standards.length >= BLOCK_BASED_MIN_PHOTOS) {
+    console.log('[Hero] Strategy', {
+      strategy: 'block-based',
+      standardCount: standards.length,
+      threshold: BLOCK_BASED_MIN_PHOTOS,
+    });
+    
+    const blockLayout = generateBlockBasedHeroLayout(
+      hero, standards, canvasWidth, gap, randomize
+    );
+    
+    if (blockLayout) {
+      return blockLayout;
+    }
+    
+    console.log('[Hero] Block-based fallback', { reason: 'block-based-failed', fallbackTo: 'floating' });
+  }
+  
+  // Fallback to legacy strategies
   const strategy = standards.length < FEW_PHOTOS_THRESHOLD ? 'edge-anchored' : 'floating';
   
   console.log('[Hero] Strategy', {

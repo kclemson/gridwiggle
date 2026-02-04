@@ -572,10 +572,11 @@ export function generateCollageLayout(
       break;
     case 'auto':
     default:
-      // Analyze photo aspects to pick best orientation
+      // Use actual average aspect ratio, clamped to reasonable range
       const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-      isLandscape = avgAspect >= 1.0; // If photos are mostly landscape, use landscape layout
-      targetAspect = isLandscape ? 1.5 : 0.75;
+      // Clamp between 0.6 (tall portrait) and 2.0 (wide landscape)
+      targetAspect = Math.max(0.6, Math.min(2.0, avgAspect));
+      isLandscape = targetAspect >= 1.0;
       break;
   }
   

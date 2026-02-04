@@ -1,196 +1,160 @@
 
-# Algebraic Hero Width Fraction Calculation
+
+# Debug Panel for Hero Layout Logs (Dev Mode Only)
 
 ## Overview
 
-Replace the random `heroWidthFraction` selection with a calculated value derived from the specific aspect ratios of the hero and beside photos. This guarantees near-optimal layouts without tolerance failures.
-
-## Core Insight
-
-The current algorithm picks a random fraction, builds the layout, then checks if it fits. But since `packBesideAs2Rows` already makes each row fill `targetWidth` exactly, we can work backwards:
-
-**Given the beside photos' aspect ratios, calculate the `heroWidthFraction` that produces `scaleFactor = 1.0`**
-
-## Mathematical Derivation
-
-For 2-row beside packing:
-
-```text
-Let:
-  f = heroWidthFraction (what we want)
-  W = canvasWidth  
-  g = gap
-  heroAR = hero aspect ratio
-  R1 = row 1 aspect sum
-  R2 = row 2 aspect sum
-  n1, n2 = photos per row
-
-besideWidth = W × (1 - f) - g
-
-Row heights (to fill besideWidth):
-  h1 = (besideWidth - (n1-1) × g) / R1
-  h2 = (besideWidth - (n2-1) × g) / R2
-  
-Combined beside height:
-  H = h1 + g + h2
-
-Hero dimensions (matching beside height):
-  heroWidth = H × heroAR
-
-For perfect fit (scaleFactor = 1.0):
-  heroWidth + g + besideWidth = W
-  
-Substituting and solving for f gives us the optimal fraction.
-```
-
-The key simplification: Since we already know the row aspect sums, we can express `H` as a function of `besideWidth`, then solve for the `f` that makes everything fit.
+Add a floating debug panel positioned to the right of the centered 512px app container that displays the `[Hero]` console logs from collage generation. The panel will only be visible in development mode using Vite's `import.meta.env.DEV` flag.
 
 ## Implementation
 
-### New Function: `calculateOptimalHeroFraction`
+### 1. Create Log Capture Utility
+
+**File: `src/lib/debugLogger.ts`** (new file)
+
+A utility that wraps function execution and captures `[Hero]` console logs:
 
 ```typescript
-/**
- * Calculate the heroWidthFraction that makes scaleFactor ≈ 1.0
- * given the specific beside photos and hero aspect ratio.
- */
-function calculateOptimalHeroFraction(
-  heroAspect: number,
-  besidePhotos: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  rowCount: 2 | 3
-): number {
-  // Calculate aspect sums per row (same split logic as packing functions)
-  const { row1AspectSum, row2AspectSum, row3AspectSum, n1, n2, n3 } = 
-    getRowAspectSums(besidePhotos, rowCount);
+export interface HeroLogEntry {
+  timestamp: number;
+  label: string;
+  data: Record<string, unknown>;
+}
+
+export function captureHeroLogs<T>(fn: () => T): { result: T; logs: HeroLogEntry[] } {
+  // Only capture in dev mode
+  if (!import.meta.env.DEV) {
+    return { result: fn(), logs: [] };
+  }
   
-  // Derive optimal fraction algebraically
-  // (detailed math in implementation)
+  const logs: HeroLogEntry[] = [];
+  const originalLog = console.log;
   
-  // Clamp to reasonable range [0.30, 0.60]
-  return clamp(optimalFraction, 0.30, 0.60);
+  console.log = (...args) => {
+    originalLog.apply(console, args);
+    
+    if (typeof args[0] === 'string' && args[0].startsWith('[Hero]')) {
+      logs.push({
+        timestamp: Date.now(),
+        label: args[0].replace('[Hero] ', ''),
+        data: args[1] || {},
+      });
+    }
+  };
+  
+  try {
+    const result = fn();
+    return { result, logs };
+  } finally {
+    console.log = originalLog;
+  }
 }
 ```
 
-### Refactored 2-Row Loop (lines 654-746)
+### 2. Create DebugPanel Component
 
-**Before:**
-```typescript
-const widthFraction = calculateHeroWidthFraction(...); // Random
-const targetBesideWidth = canvasWidth * (1 - widthFraction) - gap;
+**File: `src/components/DebugPanel.tsx`** (new file)
 
-for (let besideCount = ...) {
-  const packResult = packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0);
-  
-  // Check tolerance - often fails!
-  const scaleFactor = canvasWidth / totalNaturalWidth;
-  if (scaleFactor < 0.85 || scaleFactor > 1.15) continue;
-}
-```
+A fixed-position panel that displays captured logs:
 
-**After:**
-```typescript
-for (let besideCount = ...) {
-  const besidePhotos = remainingPhotos.slice(0, besideCount);
-  
-  // Calculate optimal fraction for THESE specific photos
-  const optimalFraction = calculateOptimalHeroFraction(
-    hero.aspectRatio,
-    besidePhotos,
-    canvasWidth,
-    gap,
-    2
-  );
-  
-  const targetBesideWidth = canvasWidth * (1 - optimalFraction) - gap;
-  const packResult = packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0);
-  
-  // scaleFactor will now be ≈ 1.0 (unless clamping applied)
-  // No tolerance check needed - just build the layout
-}
-```
+- **Positioning**: Fixed to right of the 512px container using `left: calc(50% + 256px + 24px)`
+- **Visibility**: Only renders when `import.meta.env.DEV` is true
+- **Responsive**: Hidden on screens narrower than 1280px (xl breakpoint)
+- **Layout**: Scrollable, monospace text with visual indicators for log types
 
-### Apply Same Pattern to 3-Row Loop (lines 554-650)
-
-## Detailed Math for 2-Row Case
-
+Visual design:
 ```text
-Given:
-  W = canvasWidth, g = gap, heroAR = hero aspect ratio
-  R1, R2 = row aspect sums
-  n1, n2 = photos per row
-
-Let besideWidth = B
-
-Row heights:
-  h1 = (B - (n1-1)g) / R1
-  h2 = (B - (n2-1)g) / R2
-
-Combined height:
-  H = h1 + g + h2
-    = (B - (n1-1)g) / R1 + g + (B - (n2-1)g) / R2
-    = B/R1 + B/R2 + g - (n1-1)g/R1 - (n2-1)g/R2
-    = B × (1/R1 + 1/R2) + g × (1 - (n1-1)/R1 - (n2-1)/R2)
-
-Hero width:
-  heroWidth = H × heroAR
-
-Perfect fit constraint:
-  heroWidth + g + B = W
-  H × heroAR + g + B = W
-
-Substitute H:
-  [B × (1/R1 + 1/R2) + g × (1 - (n1-1)/R1 - (n2-1)/R2)] × heroAR + g + B = W
-
-Solve for B:
-  B × [heroAR × (1/R1 + 1/R2) + 1] = W - g - g × heroAR × (1 - (n1-1)/R1 - (n2-1)/R2)
-
-Let:
-  k1 = heroAR × (1/R1 + 1/R2) + 1
-  k2 = 1 - (n1-1)/R1 - (n2-1)/R2
-
-Then:
-  B = (W - g - g × heroAR × k2) / k1
-
-Finally:
-  f = 1 - (B + g) / W = heroWidthFraction
+┌─ Hero Layout Logs ────────────────┐
+│ 2:34:15 PM                        │
+├───────────────────────────────────┤
+│ ▸ Strategy                        │
+│   strategy: edge-anchored         │
+│   standardCount: 5                │
+│   heroAspect: 0.75                │
+├───────────────────────────────────┤
+│ ✓ Trying config (2-row)           │
+│   besideCount: 4                  │
+│   optimalFraction: 0.42           │
+│   scaleFactor: 1.00               │
+│   clamped: false                  │
+├───────────────────────────────────┤
+│ ✓ Layout complete                 │
+│   finalAspect: 0.85               │
+│   heroPctOfCanvas: 48.2%          │
+└───────────────────────────────────┘
 ```
 
-## Clamping Strategy
+Log entry styling:
+- **Strategy/Config logs**: Blue arrow indicator
+- **Accepted configs**: Green checkmark
+- **Rejected configs**: Red X
+- **Fallbacks**: Orange warning icon
+- **Layout complete**: Green checkmark
 
-| Calculated f | Action | Expected scaleFactor |
-|-------------|--------|---------------------|
-| f < 0.30 | Clamp to 0.30 | Slightly > 1.0 |
-| 0.30 ≤ f ≤ 0.60 | Use as-is | ≈ 1.0 |
-| f > 0.60 | Clamp to 0.60 | Slightly < 1.0 |
+### 3. Integrate into Index.tsx
 
-When clamping occurs, the layout is still valid - just not perfectly optimized. The hero remains appropriately sized.
+**File: `src/pages/Index.tsx`** (modify)
 
-## Files Modified
+Add state for debug logs and wrap layout generation:
 
-| File | Changes |
-|------|---------|
-| `src/lib/heroLayout.ts` | Add `calculateOptimalHeroFraction()`, refactor 2-row and 3-row loops to use it |
+```typescript
+// New state (only used in dev)
+const [debugLogs, setDebugLogs] = useState<HeroLogEntry[]>([]);
 
-## Expected Log Output After Change
+// In regenerateCollage, wrap the layout generation:
+const { result: layout, logs } = captureHeroLogs(() => 
+  generateCollageLayout(photosToUse, settings, { 
+    photoWeights,
+    randomize,
+  })
+);
+setDebugLogs(logs);
+setLayout(layout);
 
-```text
-[Hero] Trying config {rowMode: "2-row", besideCount: 4, optimalFraction: "0.42", clamped: false, scaleFactor: "1.00", accepted: true}
-[Hero] Layout complete {finalAspect: "0.85", heroCell: {...}, heroPctOfCanvas: "48.2%", ...}
+// Render DebugPanel outside the 512px container:
+{import.meta.env.DEV && (
+  <DebugPanel logs={debugLogs} />
+)}
 ```
 
-## Future Considerations (Noted for Later)
+## Dev Mode Detection
 
-1. **Multi-hero feasibility detection**: The algorithm could report whether the photo set can support multiple hero zones based on total count and aspect ratio distribution.
+Vite provides `import.meta.env.DEV` which is:
+- `true` during `vite dev` (development server)
+- `false` during `vite build` (production build)
 
-2. **Photo selection strategy**: Currently takes first N photos; could later consider aspect ratio variety or color tone alignment for beside zone selection.
+This ensures:
+- Zero bundle size impact in production (tree-shaken)
+- No console.log patching in production
+- Panel never renders for end users
 
-3. **Tolerance as crop flexibility**: Rather than rejecting configurations, future versions could apply slight crops to achieve perfect fit.
+## Files to Create/Modify
 
-## Testing Validation
+| File | Action |
+|------|--------|
+| `src/lib/debugLogger.ts` | Create - log capture utility |
+| `src/components/DebugPanel.tsx` | Create - visual log display |
+| `src/pages/Index.tsx` | Modify - integrate capture and panel |
 
-After implementation, test with the same 6-photo set that previously triggered 1-row fallbacks. Expected behavior:
-- No more "Fallback triggered: no-valid-config" logs
-- `scaleFactor` consistently between 0.95-1.05
-- Hero takes 40-55% of canvas area
+## Technical Details
+
+### Panel Positioning CSS
+
+```css
+.debug-panel {
+  position: fixed;
+  top: 64px; /* below sticky header */
+  left: calc(50% + 256px + 24px); /* 256px = half of 512px container, 24px gap */
+  width: 400px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+```
+
+### Log Data Formatting
+
+The component will format nested objects nicely:
+- Numbers: fixed to 2 decimal places where appropriate
+- Booleans: displayed as `true`/`false` with color coding
+- Nested objects: indented and expandable
+

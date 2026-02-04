@@ -9,7 +9,7 @@ import { CollagePreview } from '@/components/CollagePreview';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
-import { generateCollageLayout, swapPhotosInLayout } from '@/lib/collageLayout';
+import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { cn } from '@/lib/utils';
@@ -179,10 +179,16 @@ export default function Index() {
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {
-      const newLayout = swapPhotosInLayout(state.layout, photoId1, photoId2);
+      const newLayout = reflowAfterSwap(
+        state.layout,
+        state.photos,
+        photoId1,
+        photoId2,
+        state.settings.gapSize
+      );
       setLayout(newLayout);
     }
-  }, [state.layout, setLayout]);
+  }, [state.layout, state.photos, state.settings.gapSize, setLayout]);
 
   const handleExport = useCallback(async () => {
     if (!state.layout) return;

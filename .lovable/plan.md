@@ -1,74 +1,88 @@
 
 
-## Fix: Scale Collage Preview to Fit (Not Clip)
+## Fix: Properly Scale Collage Preview to Fit
 
-### The Problem
+### Root Cause
 
-Currently the wrapper has `max-h-[400px]` + `overflow-hidden`, which clips the bottom of tall collages instead of scaling them down to fit.
+CSS `aspect-ratio` + `max-height` on the same element does **not** scale proportionally. The browser:
+1. Calculates height from width based on aspect-ratio
+2. Caps height at max-height
+3. **Keeps width unchanged** → causes clipping
 
-### The Solution
-
-Apply `max-height` directly on the element with `aspect-ratio` so CSS can calculate the appropriate width. The browser will respect both constraints and scale proportionally.
+This is why every photo appears cut off in the screenshot.
 
 ---
 
-### Changes
+### The Correct Solution
 
-**File: `src/pages/Index.tsx` (line 389)**
+Use **computed scaling** - calculate the appropriate max-width based on the max-height constraint:
 
-Remove the max-height from the wrapper - it shouldn't constrain content:
-
-```tsx
-// Current
-<div className="rounded-xl overflow-hidden border border-border bg-surface p-4 max-h-[400px]">
-
-// Updated
-<div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+```text
+If collage at full preview width would be taller than 500px:
+  → Calculate what width would give exactly 500px height
+  → Use that as maxWidth instead
 ```
 
-**File: `src/components/CollagePreview.tsx` (lines 110-118)**
+This ensures the collage scales down proportionally when it would exceed the height limit.
 
-Add `max-height` on the same element as `aspect-ratio`:
+---
+
+### Implementation
+
+**File: `src/components/CollagePreview.tsx`**
+
+Remove the `maxHeight: 500` that doesn't work, and instead compute a width-based constraint:
 
 ```tsx
-// Current
-<div
-  ref={collageRef}
-  className="relative mx-auto w-full"
-  style={{
-    maxWidth: layout.width,
-    aspectRatio: `${layout.width} / ${layout.height}`,
-    backgroundColor: gapColor,
-  }}
->
+// Current (broken):
+style={{
+  maxWidth: layout.width,
+  maxHeight: 500,  // ← This clips, doesn't scale
+  width: '100%',
+  aspectRatio: `${layout.width} / ${layout.height}`,
+  ...
+}}
 
-// Updated
-<div
-  ref={collageRef}
-  className="relative mx-auto"
-  style={{
-    maxWidth: layout.width,
-    maxHeight: 500,  // NEW: Cap height at 500px
-    width: '100%',
-    aspectRatio: `${layout.width} / ${layout.height}`,
-    backgroundColor: gapColor,
-  }}
->
+// Fixed:
+// Calculate max width that ensures height stays ≤ 500px
+const maxPreviewHeight = 500;
+const aspectRatio = layout.width / layout.height;
+// If aspect ratio is 0.5 (portrait), width = 500 * 0.5 = 250px max
+const heightConstrainedWidth = maxPreviewHeight * aspectRatio;
+const effectiveMaxWidth = Math.min(layout.width, heightConstrainedWidth);
+
+style={{
+  maxWidth: effectiveMaxWidth,  // ← Width constrained by height limit
+  width: '100%',
+  aspectRatio: `${layout.width} / ${layout.height}`,
+  ...
+}}
 ```
 
 ---
 
 ### Why This Works
 
-When CSS has both `aspect-ratio` and `max-height` on the **same element**, it calculates:
-- If the natural height > 500px, cap at 500px and shrink width proportionally
-- If the natural height <= 500px, use full width
+```text
+Example: Portrait collage 1200×2400 (0.5 aspect ratio)
+  
+Container width: 480px (from parent)
+Natural height: 480 / 0.5 = 960px (too tall!)
 
-This scales the collage down rather than clipping it.
+With fix:
+  heightConstrainedWidth = 500 × 0.5 = 250px
+  effectiveMaxWidth = min(1200, 250) = 250px
+  Actual width: min(480, 250) = 250px
+  Actual height: 250 / 0.5 = 500px ✓
+```
+
+The collage scales to fit within the height limit while maintaining its aspect ratio.
 
 ---
 
-### Important: Export Is Unaffected
+### File Changes
 
-The `exportCollageAsPng` function draws directly from `layout.width` and `layout.height` - it doesn't reference the preview's CSS. The export will always be full resolution regardless of the preview constraint.
+| File | Change |
+|------|--------|
+| `src/components/CollagePreview.tsx` | Compute `effectiveMaxWidth` from aspect ratio and height limit, remove broken `maxHeight` |
 

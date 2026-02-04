@@ -1,157 +1,74 @@
 
+## Unify Photo Grid: Show All Photos in Single Grid
 
-# Fix: Eliminate Base64 Conversion - Pass Blobs Directly to Vision Worker
+### Current Architecture (Already Good)
 
-## Problem
+`PhotoThumbnail` already handles all photo states correctly:
+- **Processing** → Shows original image with spinner overlay (lines 54-58)
+- **Error** → Shows original image with error icon overlay (lines 62-66)  
+- **Completed** → Shows cropped image when `showCropped=true`
 
-The current smart crop implementation converts Blobs to base64 data URLs before sending to the vision worker:
+The component uses `getDisplayCrop(photo)` which returns `null` if no crop exists yet, and `CroppedImage` gracefully falls back to showing the original image.
 
-```typescript
-// Current flow in smartCropService.ts
-const dataUrl = await blobToDataUrl(blob);  // ← Memory explosion here
-const scaled = await scaleImageForProcessing(dataUrl, width, height);
-currentWorker.postMessage({ imageDataUrl: scaled.dataUrl, ... });
+### The Problem
+
+`Index.tsx` filters photos before passing to the grid:
+```tsx
+const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
 ```
 
-A 3MB JPEG becomes a ~4MB base64 string in memory. When processing 10+ photos, these accumulate and crash the browser tab.
+This excludes processing/pending photos from the "smart cropped" grid entirely.
 
-## Solution
+### The Fix
 
-**Blobs are structured-cloneable** - they can be passed directly to web workers via `postMessage`. Transformers.js provides `RawImage.fromBlob(blob)` to load images directly from Blobs.
+Pass ALL photos to a single grid with `showCropped`. The existing component logic handles the rest:
 
-New flow:
-```text
-Blob → postMessage(blob) → worker → RawImage.fromBlob(blob) → resize → pipeline(rawImage)
+| Photo State | `getDisplayCrop()` returns | `CroppedImage` shows | Overlay |
+|-------------|---------------------------|---------------------|---------|
+| Processing | `null` | Original image | Spinner |
+| Error | `null` | Original image | Error icon |
+| Completed | Crop region | Cropped image | None |
+
+### Changes
+
+**File: `src/pages/Index.tsx`**
+
+1. Remove the "Original Photos" grid entirely (lines 292-297)
+
+2. Change the smart crop grid condition from `photosWithSmartCrop.length > 0` to `state.photos.length > 0` (but this is already covered by the parent condition on line 282)
+
+3. Pass `state.photos` instead of `photosWithSmartCrop`:
+```tsx
+<PhotoGrid
+  photos={state.photos}  // ALL photos, not filtered
+  onRemove={handleRemovePhoto}
+  onPhotoClick={setEditingPhotoId}
+  showCropped
+  title="Photos"
+  hint="tap to adjust crop"
+/>
 ```
 
----
-
-## Technical Changes
-
-### 1. Update Vision Worker (`src/workers/visionWorker.ts`)
-
-Change the worker to accept a Blob instead of a data URL:
-
-```typescript
-import { pipeline, RawImage } from "@huggingface/transformers";
-
-interface WorkerMessage {
-  type: 'detect';
-  imageBlob: Blob;  // ← Changed from imageDataUrl: string
-  originalWidth: number;
-  originalHeight: number;
-}
-
-self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
-  if (e.data.type !== 'detect') return;
-  
-  try {
-    const model = await loadModel();
-    
-    self.postMessage({ type: 'status', message: 'Loading image...' });
-    
-    // Load image directly from blob - no base64 conversion needed
-    let image = await RawImage.fromBlob(e.data.imageBlob);
-    
-    // Scale down to max 640px for performance (using RawImage.resize)
-    const maxSize = 640;
-    const { width: origW, height: origH } = image.size;
-    if (origW > maxSize || origH > maxSize) {
-      const scale = Math.min(maxSize / origW, maxSize / origH);
-      const newWidth = Math.round(origW * scale);
-      const newHeight = Math.round(origH * scale);
-      image = await image.resize(newWidth, newHeight);
-    }
-    
-    self.postMessage({ type: 'status', message: 'Detecting subjects...' });
-    const results = await model(image);
-    
-    // Calculate crop using processed vs original dimensions
-    const processedWidth = image.width;
-    const processedHeight = image.height;
-    const crop = calculateOptimalCrop(
-      results,
-      e.data.originalWidth,
-      e.data.originalHeight,
-      processedWidth,
-      processedHeight
-    );
-    
-    // ... rest of result handling unchanged
-  } catch (error) {
-    // ... error handling unchanged
+4. Update the `onPhotoClick` handler to only open crop editor for photos that have a crop (can't edit what doesn't exist yet):
+```tsx
+onPhotoClick={(photoId) => {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (photo && (photo.smartCrop || photo.manualCrop)) {
+    setEditingPhotoId(photoId);
   }
-};
+}}
 ```
 
-### 2. Simplify Smart Crop Service (`src/services/smartCropService.ts`)
+### Result
 
-Remove all the base64 conversion and canvas-based scaling - just pass the Blob:
+Single unified grid where:
+- Photos appear immediately when uploaded (showing original with spinner)
+- Spinner disappears and cropped version appears when processing completes
+- Failed photos show error indicator but remain visible and removable
+- Tapping only opens crop editor for completed photos (no-op for processing/failed)
 
-```typescript
-export async function getSmartCrop(
-  objectUrl: string,
-  blob: Blob,
-  width: number,
-  height: number,
-  onStatus?: WorkerStatusCallback
-): Promise<SmartCropResult> {
-  const currentWorker = getWorker();
-  if (!currentWorker) {
-    onStatus?.('Using full image (AI unavailable)');
-    return {
-      crop: { x: 0, y: 0, width, height },
-      confidence: 0,
-      subjects: 'AI unavailable'
-    };
-  }
+### No Changes Needed
 
-  // No more blobToDataUrl() or scaleImageForProcessing()
-  // Just send the blob directly
-  
-  return new Promise((resolve, reject) => {
-    // ... timeout and cleanup handlers unchanged ...
-    
-    currentWorker.postMessage({
-      type: 'detect',
-      imageBlob: blob,  // ← Send blob directly
-      originalWidth: width,
-      originalHeight: height,
-    });
-  });
-}
-```
-
-### 3. Remove Unused Code (`src/lib/imageUtils.ts`)
-
-The `blobToDataUrl` function is now only used for export (if at all). We can either:
-- Keep it for export functionality
-- Remove it if not used elsewhere
-
-The `scaleImageForProcessing` function in `smartCropService.ts` can be deleted entirely.
-
----
-
-## Memory Impact
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Memory per 3MB photo | ~7MB (blob + base64) | ~3MB (blob only) |
-| Memory for 10 photos | ~70MB strings + blobs | ~30MB blobs only |
-| Crash threshold | ~8-10 photos | ~20+ photos |
-| Base64 encoding time | ~50-100ms/photo | 0ms |
-
-## Why This Works
-
-1. **Blobs are references** - Passing a Blob to `postMessage` creates a structured clone, but the actual binary data is shared efficiently by the browser
-2. **RawImage.fromBlob is native** - Transformers.js decodes directly from the Blob without intermediate string representations
-3. **Resize happens in worker** - The heavy image manipulation stays in the worker thread, keeping the main thread responsive
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `src/workers/visionWorker.ts` | Accept Blob, use RawImage.fromBlob, move resizing into worker |
-| `src/services/smartCropService.ts` | Remove base64 conversion, remove scaling, just pass blob |
-| `src/lib/imageUtils.ts` | Keep for now (used in export), but `blobToDataUrl` no longer called for smart crop |
-
+- `PhotoThumbnail` - already handles all states
+- `PhotoGrid` - just renders what it's given
+- `CroppedImage` - already handles null crops gracefully

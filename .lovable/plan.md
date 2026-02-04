@@ -1,160 +1,103 @@
 
 
-# Debug Panel for Hero Layout Logs (Dev Mode Only)
+# Reposition Debug Panel Next to Collage Section
 
 ## Overview
 
-Add a floating debug panel positioned to the right of the centered 512px app container that displays the `[Hero]` console logs from collage generation. The panel will only be visible in development mode using Vite's `import.meta.env.DEV` flag.
+Move the debug panel from its current fixed position at the top of the page to align vertically with the collage preview section. This allows capturing both the collage and its associated layout logs in a single screenshot.
+
+## Current Behavior
+
+The debug panel uses `fixed top-16` positioning, which places it at the top of the viewport regardless of scroll position. As shown in your screenshot, this means the logs appear next to the photo grid rather than next to the collage output.
+
+## Proposed Solution
+
+Instead of a fixed-position panel at the document level, we'll render the debug panel **inline with the collage section** using a relative positioning approach:
+
+1. Create a wrapper around the collage preview section
+2. Position the debug panel absolutely relative to that wrapper
+3. This keeps the panel anchored to the collage visually while allowing the rest of the UI to scroll normally
 
 ## Implementation
 
-### 1. Create Log Capture Utility
+### File: `src/components/DebugPanel.tsx`
 
-**File: `src/lib/debugLogger.ts`** (new file)
+Remove the fixed positioning and change to a simpler relative design:
 
-A utility that wraps function execution and captures `[Hero]` console logs:
-
-```typescript
-export interface HeroLogEntry {
-  timestamp: number;
-  label: string;
-  data: Record<string, unknown>;
-}
-
-export function captureHeroLogs<T>(fn: () => T): { result: T; logs: HeroLogEntry[] } {
-  // Only capture in dev mode
-  if (!import.meta.env.DEV) {
-    return { result: fn(), logs: [] };
-  }
-  
-  const logs: HeroLogEntry[] = [];
-  const originalLog = console.log;
-  
-  console.log = (...args) => {
-    originalLog.apply(console, args);
-    
-    if (typeof args[0] === 'string' && args[0].startsWith('[Hero]')) {
-      logs.push({
-        timestamp: Date.now(),
-        label: args[0].replace('[Hero] ', ''),
-        data: args[1] || {},
-      });
-    }
-  };
-  
-  try {
-    const result = fn();
-    return { result, logs };
-  } finally {
-    console.log = originalLog;
-  }
-}
-```
-
-### 2. Create DebugPanel Component
-
-**File: `src/components/DebugPanel.tsx`** (new file)
-
-A fixed-position panel that displays captured logs:
-
-- **Positioning**: Fixed to right of the 512px container using `left: calc(50% + 256px + 24px)`
-- **Visibility**: Only renders when `import.meta.env.DEV` is true
-- **Responsive**: Hidden on screens narrower than 1280px (xl breakpoint)
-- **Layout**: Scrollable, monospace text with visual indicators for log types
-
-Visual design:
 ```text
-┌─ Hero Layout Logs ────────────────┐
-│ 2:34:15 PM                        │
-├───────────────────────────────────┤
-│ ▸ Strategy                        │
-│   strategy: edge-anchored         │
-│   standardCount: 5                │
-│   heroAspect: 0.75                │
-├───────────────────────────────────┤
-│ ✓ Trying config (2-row)           │
-│   besideCount: 4                  │
-│   optimalFraction: 0.42           │
-│   scaleFactor: 1.00               │
-│   clamped: false                  │
-├───────────────────────────────────┤
-│ ✓ Layout complete                 │
-│   finalAspect: 0.85               │
-│   heroPctOfCanvas: 48.2%          │
-└───────────────────────────────────┘
+Before:
+  className="fixed top-16 hidden xl:block z-50"
+  style={{ left: 'calc(50% + 256px + 24px)', ... }}
+
+After:
+  className="hidden xl:block"
+  (no inline positioning styles - will be positioned by parent)
 ```
 
-Log entry styling:
-- **Strategy/Config logs**: Blue arrow indicator
-- **Accepted configs**: Green checkmark
-- **Rejected configs**: Red X
-- **Fallbacks**: Orange warning icon
-- **Layout complete**: Green checkmark
+The component will just render the panel UI without positioning itself.
 
-### 3. Integrate into Index.tsx
+### File: `src/pages/Index.tsx`
 
-**File: `src/pages/Index.tsx`** (modify)
+Wrap the collage section in a relative container and position the debug panel:
 
-Add state for debug logs and wrap layout generation:
+```text
+Before (lines 357-426):
+  <div className="space-y-2 pt-4 border-t border-border">
+    {/* collage content */}
+  </div>
 
-```typescript
-// New state (only used in dev)
-const [debugLogs, setDebugLogs] = useState<HeroLogEntry[]>([]);
+  {/* Debug panel rendered separately at end of component */}
 
-// In regenerateCollage, wrap the layout generation:
-const { result: layout, logs } = captureHeroLogs(() => 
-  generateCollageLayout(photosToUse, settings, { 
-    photoWeights,
-    randomize,
-  })
-);
-setDebugLogs(logs);
-setLayout(layout);
-
-// Render DebugPanel outside the 512px container:
-{import.meta.env.DEV && (
-  <DebugPanel logs={debugLogs} />
-)}
+After:
+  <div className="relative">
+    <div className="space-y-2 pt-4 border-t border-border">
+      {/* collage content */}
+    </div>
+    
+    {/* Debug panel positioned to the right of this section */}
+    {import.meta.env.DEV && (
+      <div 
+        className="absolute top-0 hidden xl:block"
+        style={{ left: 'calc(100% + 24px)', width: '360px' }}
+      >
+        <DebugPanel logs={debugLogs} />
+      </div>
+    )}
+  </div>
 ```
 
-## Dev Mode Detection
+This positions the panel:
+- `top-0`: Aligned with the top of the collage section
+- `left: calc(100% + 24px)`: 24px to the right of the 512px container
 
-Vite provides `import.meta.env.DEV` which is:
-- `true` during `vite dev` (development server)
-- `false` during `vite build` (production build)
+## Visual Result
 
-This ensures:
-- Zero bundle size impact in production (tree-shaken)
-- No console.log patching in production
-- Panel never renders for end users
-
-## Files to Create/Modify
-
-| File | Action |
-|------|--------|
-| `src/lib/debugLogger.ts` | Create - log capture utility |
-| `src/components/DebugPanel.tsx` | Create - visual log display |
-| `src/pages/Index.tsx` | Modify - integrate capture and panel |
-
-## Technical Details
-
-### Panel Positioning CSS
-
-```css
-.debug-panel {
-  position: fixed;
-  top: 64px; /* below sticky header */
-  left: calc(50% + 256px + 24px); /* 256px = half of 512px container, 24px gap */
-  width: 400px;
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
-}
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              viewport                                        │
+│                                                                              │
+│              ┌──────────────────┐                                            │
+│              │  Photos grid     │                                            │
+│              │  (no panel here) │                                            │
+│              └──────────────────┘                                            │
+│                                                                              │
+│              ┌──────────────────┐     ┌─────────────────────┐                │
+│              │  COLLAGE         │     │ HERO LAYOUT LOGS    │                │
+│              │  header row      │     │                     │                │
+│              ├──────────────────┤     │ ▸ Strategy          │                │
+│              │                  │     │   strategy: floating│                │
+│              │  Collage         │     │   standardCount: 19 │                │
+│              │  Preview         │     │                     │                │
+│              │                  │     │ ✓ Layout complete   │                │
+│              └──────────────────┘     └─────────────────────┘                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Log Data Formatting
+## Files Modified
 
-The component will format nested objects nicely:
-- Numbers: fixed to 2 decimal places where appropriate
-- Booleans: displayed as `true`/`false` with color coding
-- Nested objects: indented and expandable
+| File | Changes |
+|------|---------|
+| `src/components/DebugPanel.tsx` | Remove fixed positioning, simplify to just the panel UI |
+| `src/pages/Index.tsx` | Move debug panel rendering into the collage section with relative positioning |
 

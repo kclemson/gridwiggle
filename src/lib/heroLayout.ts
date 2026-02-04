@@ -64,6 +64,8 @@ function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>
  * - Portrait (< 0.9): narrower hero → taller layout
  * - Square (0.9-1.1): slightly narrower hero
  * - Landscape (> 1.1): base fraction (already produces landscape)
+ * 
+ * @deprecated Use calculateOptimalHeroFraction for edge-anchored layouts
  */
 function calculateHeroWidthFraction(
   standardCount: number,
@@ -94,6 +96,117 @@ function calculateHeroWidthFraction(
   }
   
   return baseFraction;
+}
+
+// ============================================================================
+// Algebraic Hero Fraction Calculation
+// ============================================================================
+
+interface RowAspectInfo {
+  aspectSums: number[];    // Aspect sum for each row
+  photoCounts: number[];   // Photo count per row
+}
+
+/**
+ * Calculate aspect sums for each row using the same split logic as packing functions.
+ */
+function getRowAspectInfo(photos: PhotoDimension[], rowCount: 2 | 3): RowAspectInfo {
+  if (rowCount === 2) {
+    const midpoint = Math.ceil(photos.length / 2);
+    const row1Photos = photos.slice(0, midpoint);
+    const row2Photos = photos.slice(midpoint);
+    
+    return {
+      aspectSums: [
+        row1Photos.reduce((sum, p) => sum + p.aspectRatio, 0),
+        row2Photos.reduce((sum, p) => sum + p.aspectRatio, 0),
+      ],
+      photoCounts: [row1Photos.length, row2Photos.length],
+    };
+  }
+  
+  // 3-row split (same logic as packBesideAs3Rows)
+  const basePerRow = Math.floor(photos.length / 3);
+  const remainder = photos.length % 3;
+  
+  const row1Count = basePerRow + (remainder >= 1 ? 1 : 0);
+  const row2Count = basePerRow + (remainder >= 2 ? 1 : 0);
+  const row3Count = basePerRow;
+  
+  const row1Photos = photos.slice(0, row1Count);
+  const row2Photos = photos.slice(row1Count, row1Count + row2Count);
+  const row3Photos = photos.slice(row1Count + row2Count);
+  
+  return {
+    aspectSums: [
+      row1Photos.reduce((sum, p) => sum + p.aspectRatio, 0),
+      row2Photos.reduce((sum, p) => sum + p.aspectRatio, 0),
+      row3Photos.reduce((sum, p) => sum + p.aspectRatio, 0),
+    ],
+    photoCounts: [row1Photos.length, row2Photos.length, row3Photos.length],
+  };
+}
+
+/**
+ * Calculate the heroWidthFraction that produces scaleFactor ≈ 1.0
+ * given the specific beside photos and hero aspect ratio.
+ * 
+ * Mathematical derivation (2-row case):
+ * 
+ * Let B = besideWidth, W = canvasWidth, g = gap, heroAR = hero aspect ratio
+ * R1, R2 = row aspect sums, n1, n2 = photos per row
+ * 
+ * Row heights: h1 = (B - (n1-1)g) / R1, h2 = (B - (n2-1)g) / R2
+ * Combined height: H = h1 + g + h2 = B × (1/R1 + 1/R2) + g × (1 - (n1-1)/R1 - (n2-1)/R2)
+ * 
+ * For perfect fit: heroWidth + g + B = W
+ *   → H × heroAR + g + B = W
+ *   → B × [heroAR × (1/R1 + 1/R2) + 1] = W - g - g × heroAR × (1 - (n1-1)/R1 - (n2-1)/R2)
+ * 
+ * Solving for B, then: f = 1 - (B + g) / W
+ */
+function calculateOptimalHeroFraction(
+  heroAspect: number,
+  besidePhotos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  rowCount: 2 | 3
+): { fraction: number; clamped: boolean } {
+  const MIN_FRACTION = 0.30;
+  const MAX_FRACTION = 0.60;
+  
+  const { aspectSums, photoCounts } = getRowAspectInfo(besidePhotos, rowCount);
+  
+  // Validate we have valid rows
+  if (aspectSums.some(s => s <= 0) || photoCounts.some(c => c <= 0)) {
+    return { fraction: 0.45, clamped: true }; // Fallback to middle value
+  }
+  
+  // Calculate k1 = heroAR × sum(1/Ri) + 1
+  const inverseAspectSum = aspectSums.reduce((sum, R) => sum + 1 / R, 0);
+  const k1 = heroAspect * inverseAspectSum + 1;
+  
+  // Calculate k2 = 1 - sum((ni-1)/Ri) for gap contribution to height
+  // This accounts for how gaps between photos in each row affect combined height
+  let gapContribution = 1;
+  for (let i = 0; i < rowCount; i++) {
+    gapContribution -= (photoCounts[i] - 1) / aspectSums[i];
+  }
+  // Add (rowCount - 1) for gaps between rows
+  gapContribution += (rowCount - 1);
+  
+  // B = (W - g - g × heroAR × k2) / k1
+  const numerator = canvasWidth - gap - gap * heroAspect * gapContribution;
+  const optimalBesideWidth = numerator / k1;
+  
+  // f = 1 - (B + g) / W = heroWidthFraction
+  const optimalFraction = 1 - (optimalBesideWidth + gap) / canvasWidth;
+  
+  // Clamp to reasonable range
+  const clamped = optimalFraction < MIN_FRACTION || optimalFraction > MAX_FRACTION;
+  const clampedFraction = Math.max(MIN_FRACTION, Math.min(MAX_FRACTION, optimalFraction));
+  
+  return { fraction: clampedFraction, clamped };
 }
 
 // ============================================================================
@@ -502,14 +615,11 @@ function generateEdgeAnchoredHeroLayout(
   const introPhotos = shuffled.slice(0, introRowCount * photosPerIntroRow);
   const remainingPhotos = shuffled.slice(introRowCount * photosPerIntroRow);
   
-  const widthFraction = calculateHeroWidthFraction(remainingPhotos.length, targetAspect);
-  
   console.log('[Hero] Edge-anchored config', {
     useIntroRows,
     introPhotoCount: introPhotos.length,
     remainingPhotos: remainingPhotos.length,
     anchorSide: anchorRight ? 'right' : 'left',
-    heroWidthFraction: widthFraction.toFixed(2),
   });
   
   // Pack intro rows first
@@ -545,12 +655,10 @@ function generateEdgeAnchoredHeroLayout(
     };
   }
 
-  const targetBesideWidth = Math.round(canvasWidth * (1 - widthFraction)) - gap;
-
   // ADAPTIVE APPROACH: Try 3-row first for large sets, then 2-row
+  // Now using ALGEBRAIC FRACTION CALCULATION per configuration
   
   // Try 3-row packing for larger photosets (8+ photos)
-  // FIXED: Relaxed tolerance to ±20%, try counts from 12 down to 3
   if (remainingPhotos.length >= 8) {
     for (let besideCount = Math.min(12, remainingPhotos.length); besideCount >= 3; besideCount--) {
       const besidePhotos = remainingPhotos.slice(0, besideCount);
@@ -558,6 +666,16 @@ function generateEdgeAnchoredHeroLayout(
       // Need at least 3 photos for valid 3-row split
       if (besidePhotos.length < 3) continue;
       
+      // ALGEBRAIC: Calculate optimal fraction for THESE specific photos
+      const { fraction: optimalFraction, clamped } = calculateOptimalHeroFraction(
+        hero.aspectRatio,
+        besidePhotos,
+        canvasWidth,
+        gap,
+        3
+      );
+      
+      const targetBesideWidth = Math.round(canvasWidth * (1 - optimalFraction)) - gap;
       const packResult = packBesideAs3Rows(besidePhotos, targetBesideWidth, gap, 0);
       
       if (packResult.combinedHeight === 0) continue;
@@ -566,14 +684,17 @@ function generateEdgeAnchoredHeroLayout(
       const heroHeight = packResult.combinedHeight;
       const heroWidth = heroHeight * hero.aspectRatio;
       
-      // FIXED: Relaxed tolerance to ±20% for 3-row
+      // Calculate actual scale factor (should be ≈1.0 unless clamped)
       const totalNaturalWidth = heroWidth + gap + packResult.naturalTotalWidth;
       const scaleFactor = canvasWidth / totalNaturalWidth;
       
-      const accepted = scaleFactor >= 0.80 && scaleFactor <= 1.20;
+      // When using algebraic fraction, we accept a wider range (clamping already applied)
+      const accepted = scaleFactor >= 0.75 && scaleFactor <= 1.25;
       console.log('[Hero] Trying config', {
         rowMode: '3-row',
         besideCount,
+        optimalFraction: optimalFraction.toFixed(2),
+        clamped,
         scaleFactor: scaleFactor.toFixed(2),
         accepted,
       });
@@ -654,6 +775,17 @@ function generateEdgeAnchoredHeroLayout(
   for (let besideCount = Math.min(6, remainingPhotos.length); besideCount >= 4; besideCount--) {
     const besidePhotos = remainingPhotos.slice(0, besideCount);
     
+    // ALGEBRAIC: Calculate optimal fraction for THESE specific photos
+    const { fraction: optimalFraction, clamped } = calculateOptimalHeroFraction(
+      hero.aspectRatio,
+      besidePhotos,
+      canvasWidth,
+      gap,
+      2
+    );
+    
+    const targetBesideWidth = Math.round(canvasWidth * (1 - optimalFraction)) - gap;
+    
     // Pack beside photos into 2 rows (get their natural dimensions)
     const packResult = packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0);
     
@@ -663,14 +795,17 @@ function generateEdgeAnchoredHeroLayout(
     const heroHeight = packResult.combinedHeight;
     const heroWidth = heroHeight * hero.aspectRatio;
     
-    // Check if total fits within relaxed tolerance (±15%)
+    // Calculate actual scale factor (should be ≈1.0 unless clamped)
     const totalNaturalWidth = heroWidth + gap + packResult.naturalTotalWidth;
     const scaleFactor = canvasWidth / totalNaturalWidth;
     
-    const accepted = scaleFactor >= 0.85 && scaleFactor <= 1.15;
+    // When using algebraic fraction, we accept a wider range (clamping already applied)
+    const accepted = scaleFactor >= 0.75 && scaleFactor <= 1.25;
     console.log('[Hero] Trying config', {
       rowMode: '2-row',
       besideCount,
+      optimalFraction: optimalFraction.toFixed(2),
+      clamped,
       scaleFactor: scaleFactor.toFixed(2),
       accepted,
     });

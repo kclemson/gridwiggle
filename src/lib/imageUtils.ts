@@ -51,13 +51,6 @@ export function getCroppedImageDataUrl(
   });
 }
 
-/**
- * @deprecated Use getDisplayCrop from '@/lib/cropUtils' instead.
- * This function lacks validation and clamping.
- */
-export function getActiveCrop(photo: { smartCrop: CropRegion | null; manualCrop: CropRegion | null }): CropRegion | null {
-  return photo.manualCrop || photo.smartCrop;
-}
 
 /**
  * Convert a Blob to a base64 data URL.

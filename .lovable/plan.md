@@ -1,77 +1,82 @@
 
 
-## Smart Crop: People Priority
+## Fix: Make "Regenerate Collage" Actually Regenerate
 
-Simplify the algorithm to focus on people when detected, otherwise use all detections.
-
----
-
-## Logic
-
-```text
-calculateOptimalCrop(detections):
-
-  1. Filter by confidence > 0.4 (unchanged)
-  
-  2. Find people:
-     peopleDetections = detections where label === 'person'
-  
-  3. Choose which set defines the crop:
-     - If peopleDetections.length > 0 → use peopleDetections only
-     - Else → use all detections (current behavior)
-  
-  4. Calculate bounding box (unchanged math)
-```
+The plan accounts for your preference: first creation respects upload order (deterministic), while regeneration introduces variety through shuffling and top-N selection.
 
 ---
 
-## Your Photo Example
+## How It Works
 
-```text
-Detected:
-  - person (child 1) → label === 'person' ✓
-  - person (child 2) → label === 'person' ✓
-  - person (child 3) → label === 'person' ✓
-  - potted plant     → not a person, ignored
-  - bench            → not a person, ignored
-
-Result: Crop focuses on the 3 children
-```
-
----
-
-## Other Scenarios
-
-| Photo Type | People Detected? | Behavior |
-|------------|------------------|----------|
-| Family with dog | Yes | Focus on people (dog likely in frame anyway) |
-| Just a dog | No | Fallback: all detections → dog included |
-| Landscape | No | Fallback: all detections → current behavior |
-| Group selfie | Yes | Focus on people |
+| Action | `state.layout` | `randomize` | Result |
+|--------|----------------|-------------|--------|
+| First "Create Collage" | `null` | `false` | Deterministic best layout, respects upload order |
+| "Regenerate Collage" | exists | `true` | Shuffled order + random pick from top 5 layouts |
 
 ---
 
 ## File Changes
 
-| File | Change |
-|------|--------|
-| `src/workers/visionWorker.ts` | Update `calculateOptimalCrop` to filter for `'person'` label before bounding box calculation |
+### 1. `src/lib/collageLayout.ts`
+
+**Add `randomize` option to interface:**
+```typescript
+export interface LayoutOptions {
+  photoWeights?: Record<string, number>;
+  randomize?: boolean;  // NEW
+}
+```
+
+**Add Fisher-Yates shuffle helper:**
+```typescript
+function shuffleArray<T>(arr: T[]): T[] {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+```
+
+**Update `findBestRowSplit` signature and logic:**
+- Accept new `randomize` parameter
+- Shuffle photo order when randomizing
+- Collect top 5 scoring partitions instead of just best
+- Pick randomly from top 5 when randomizing
+
+**Update `generateCollageLayout`:**
+- Pass `options?.randomize` through to `findBestRowSplit`
 
 ---
 
-## Code Change
+### 2. `src/pages/Index.tsx`
 
-In `calculateOptimalCrop`, after the confidence filter:
-
+**Update `handleCreateCollage`:**
 ```typescript
-// Current: uses all subjects with confidence > 0.4
-const subjects = detections.filter(d => d.score > 0.4);
-
-// New: prioritize people if detected
-const allSubjects = detections.filter(d => d.score > 0.4);
-const people = allSubjects.filter(d => d.label === 'person');
-const subjects = people.length > 0 ? people : allSubjects;
+const handleCreateCollage = useCallback(() => {
+  const photoWeights: Record<string, number> = {};
+  for (const photo of state.photos) {
+    photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
+  }
+  
+  // Randomize when regenerating (layout already exists)
+  const shouldRandomize = state.layout !== null;
+  
+  const layout = generateCollageLayout(state.photos, state.settings, { 
+    photoWeights,
+    randomize: shouldRandomize 
+  });
+  setLayout(layout);
+  setLayoutStale(false);
+}, [state.photos, state.settings, state.layout, setLayout]);
 ```
 
-Three lines. No config objects. No category lists.
+---
+
+## Behavior Summary
+
+- **First create**: Uses original upload order, picks the single best layout
+- **Regenerate**: Shuffles photos + picks randomly from top 5 good layouts = different result each click
+- **Auto-regenerate (settings/hero changes)**: Stays deterministic (those code paths don't pass `randomize: true`)
 

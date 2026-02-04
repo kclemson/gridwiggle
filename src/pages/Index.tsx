@@ -314,27 +314,31 @@ export default function Index() {
               onUpdate={handleUpdateSettings}
             />
 
-            {/* Create/Regenerate collage button */}
-            <div className="flex justify-center">
-              <Button
-                size="default"
-                className={cn("gap-2", layoutStale && "ring-2 ring-primary ring-offset-2 ring-offset-background")}
-                disabled={!canCreateCollage}
-                onClick={handleCreateCollage}
-              >
-                {state.layout ? <RefreshCw className="h-5 w-5" /> : <Wand2 className="h-5 w-5" />}
-                {state.layout ? "Regenerate Collage" : "Create Collage"}
-                {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-              </Button>
-            </div>
+            {/* Create collage button - only show before first creation */}
+            {!state.layout && (
+              <>
+                <div className="flex justify-center">
+                  <Button
+                    size="default"
+                    className="gap-2"
+                    disabled={!canCreateCollage}
+                    onClick={handleCreateCollage}
+                  >
+                    <Wand2 className="h-5 w-5" />
+                    Create Collage
+                    {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+                  </Button>
+                </div>
 
-            {!canCreateCollage && state.photos.length > 0 && (
-              <p className="text-center text-sm text-muted-foreground">
-                {isProcessing 
-                  ? 'Please wait while AI analyzes your photos...'
-                  : 'Add at least 2 photos to create a collage'
-                }
-              </p>
+                {!canCreateCollage && state.photos.length > 0 && (
+                  <p className="text-center text-sm text-muted-foreground">
+                    {isProcessing 
+                      ? 'Please wait while AI analyzes your photos...'
+                      : 'Add at least 2 photos to create a collage'
+                    }
+                  </p>
+                )}
+              </>
             )}
 
             {/* Collage preview - appears below when layout exists */}

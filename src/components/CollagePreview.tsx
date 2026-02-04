@@ -169,8 +169,10 @@ export function CollagePreview({
                   className={cn(
                     "absolute top-2 right-2 z-10 p-1.5 rounded-full transition-all",
                     "bg-background/60 hover:bg-background/80",
-                    "opacity-70 md:opacity-0 md:group-hover:opacity-100", // Visible on mobile, hover on desktop
-                    "touch-manipulation" // Better touch handling on mobile
+                    photo.priority === 1 
+                      ? "opacity-100"  // Hero star always fully visible for screenshots
+                      : "opacity-70 md:opacity-0 md:group-hover:opacity-100",  // Non-hero: hover on desktop
+                    "touch-manipulation"
                   )}
                   onClick={(e) => {
                     e.stopPropagation();

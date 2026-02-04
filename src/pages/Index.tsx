@@ -134,9 +134,10 @@ export default function Index() {
         // Low confidence (< 0.6) typically means cartoons, memes, screenshots
         const smartCropToApply = result.skipCrop ? null : result.crop;
         
-        if (result.skipCrop) {
-          console.log(`Skipping smart crop for ${photo.id}: low confidence (${result.confidence.toFixed(2)}), subjects: ${result.subjects}`);
-        }
+        console.log(
+          `Smart crop for ${photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
+          `subjects="${result.subjects}", skipCrop=${result.skipCrop}`
+        );
         
         updatePhoto(photo.id, {
           smartCrop: smartCropToApply,

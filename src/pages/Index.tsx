@@ -303,7 +303,7 @@ export default function Index() {
                 onRemove={handleRemovePhoto}
                 onPhotoClick={setEditingPhotoId}
                 showCropped
-                title="Smart Cropped"
+                title="Smart Cropped Photos"
                 hint="tap to crop"
               />
             )}

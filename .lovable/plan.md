@@ -1,237 +1,219 @@
 
+# Fix Hero Layout: Root Cause Analysis and Solution
 
-# Fix Hero Layout: Eliminate Black Rectangles (Revised)
+## Problems Identified
 
-## Core Insight
+### Problem 1: Photo Clipping (Critical)
 
-The row-packing algorithm works because height is the **free variable**. When we constrain both width AND height for sub-regions, we remove that flexibility and get gaps.
+**Root Cause**: The `packVerticalStrip` function scales cell heights to match the hero's height, but keeps cell widths unchanged. This breaks the photo's aspect ratio.
 
-**Solution**: Integrate hero positioning INTO the row/column packing flow, not as a pre-carved hole.
+```typescript
+// Current code (lines 304-309)
+return cells.map(cell => ({
+  photoId: cell.photoId,
+  x: cell.x,
+  y: Math.round(offsetY + (cell.y - minY) * scale),
+  width: cell.width,        // ← Width unchanged
+  height: Math.round(cell.height * scale),  // ← Height scaled
+}));
+```
+
+When a cell's aspect ratio differs from the photo's crop aspect ratio, `CroppedImage` with `fit="cover"` clips parts of the photo to fill the mismatched cell.
+
+**Example**: 
+- Photo crop: 400x300 (4:3 aspect = 1.33)
+- Cell after scaling: 400x200 (4:2 aspect = 2.0)
+- Result: Top and bottom of photo get clipped to fit the wider cell
+
+### Problem 2: Portrait Bias with Auto Orientation
+
+**Root Cause**: The zone-based layout stacks content vertically by design:
+1. Above zone (full-width rows)
+2. Hero zone with side strips  
+3. Below zone (full-width rows)
+
+This vertical stacking naturally creates tall layouts regardless of the `targetAspect`. The algorithm doesn't constrain total height to match the target aspect ratio.
+
+### Problem 3: Few Photos + Floating Hero = Blank Rectangles
+
+With only 5 standard photos and 1 hero:
+- Zone distribution might put 1-2 photos in each zone
+- Side strips with 1-2 photos can't fill the hero's full height without extreme distortion
+- Result: Gaps or heavy clipping
 
 ---
 
-## Algorithm: "Hero-Integrated Flow Packing"
+## Solution
 
-### Step 1: Determine Hero Size and Position
+### Fix 1: Uniform Scaling (Preserves Aspect Ratios)
 
-```typescript
-// Size based on area budget (scales with hero/standard ratio)
-const heroSize = calculateHeroSize(hero, canvas, budget);
-
-// Position chosen from valid anchors (100px grid, any position)
-const heroPos = chooseHeroPosition(heroSize, canvas, gap, randomize);
-```
-
-### Step 2: Define Three Vertical Zones
-
-```text
-┌─────────────────────────────────┐
-│         ABOVE ZONE              │  Full width rows
-│         (y < heroTop)           │
-├───────┬─────────────┬───────────┤
-│ LEFT  │             │  RIGHT    │
-│ STRIP │    HERO     │  STRIP    │  Two vertical columns
-│       │             │           │
-├───────┴─────────────┴───────────┤
-│         BELOW ZONE              │  Full width rows
-│         (y > heroBottom)        │
-└─────────────────────────────────┘
-```
-
-- **Above Zone**: y from 0 to `hero.y - gap` → Pack with ROWS at full canvas width
-- **Hero Zone**: y from `hero.y` to `hero.y + hero.height` → Pack with COLUMNS in left/right strips
-- **Below Zone**: y from `hero.y + hero.height + gap` to canvas bottom → Pack with ROWS at full canvas width
-
-### Step 3: Distribute Standards to Zones
-
-Based on area proportions:
+When scaling cells to match target height, scale **both width and height** uniformly:
 
 ```typescript
-function distributeToZones(standards, zones) {
-  const totalArea = zones.above.area + zones.left.area + zones.right.area + zones.below.area;
-  
-  // Calculate proportional counts
-  const aboveCount = Math.round(standards.length * (zones.above.area / totalArea));
-  const leftCount = Math.round(standards.length * (zones.left.area / totalArea));
-  const rightCount = Math.round(standards.length * (zones.right.area / totalArea));
-  const belowCount = standards.length - aboveCount - leftCount - rightCount;
-  
-  return {
-    abovePhotos: standards.slice(0, aboveCount),
-    leftPhotos: standards.slice(aboveCount, aboveCount + leftCount),
-    rightPhotos: standards.slice(aboveCount + leftCount, aboveCount + leftCount + rightCount),
-    belowPhotos: standards.slice(aboveCount + leftCount + rightCount),
-  };
-}
-```
-
-### Step 4: Pack Each Zone with Appropriate Method
-
-```typescript
-// ABOVE: Row packing at full width
-const aboveCells = packRowsFullWidth(abovePhotos, canvasWidth, gap, offsetY: 0);
-const aboveHeight = getPackedHeight(aboveCells);
-
-// HERO ZONE: Column packing on left and right strips
-const heroY = aboveHeight + gap;
-const heroZoneHeight = hero.height;
-
-// Left strip (may be empty if hero touches left edge)
-const leftWidth = hero.x - gap;
-const leftCells = leftWidth > MIN_DIMENSION 
-  ? packColumn(leftPhotos, leftWidth, heroZoneHeight, offsetY: heroY)
-  : [];
-
-// Right strip (may be empty if hero touches right edge)  
-const rightX = hero.x + hero.width + gap;
-const rightWidth = canvasWidth - rightX;
-const rightCells = rightWidth > MIN_DIMENSION
-  ? packColumn(rightPhotos, rightWidth, heroZoneHeight, offsetX: rightX, offsetY: heroY)
-  : [];
-
-// BELOW: Row packing at full width
-const belowY = heroY + hero.height + gap;
-const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, offsetY: belowY);
-```
-
-### Step 5: Assemble Final Layout
-
-```typescript
-const heroCell = {
-  photoId: hero.id,
-  x: hero.x,
-  y: heroY,
-  width: hero.width,
-  height: hero.height,
-};
-
-return {
-  width: canvasWidth,
-  height: belowY + getPackedHeight(belowCells),
-  cells: [...aboveCells, ...leftCells, heroCell, ...rightCells, ...belowCells]
-};
-```
-
----
-
-## Why This Eliminates Black Rectangles
-
-| Zone | Packing Method | Free Variable | Result |
-|------|----------------|---------------|--------|
-| Above | Row packing | Height | Rows expand to fill width perfectly |
-| Left Strip | Column packing | Width | Columns expand to fill height perfectly |
-| Right Strip | Column packing | Width | Columns expand to fill height perfectly |
-| Below | Row packing | Height | Rows expand to fill width perfectly |
-
-Every zone uses its natural free variable, so no gaps.
-
----
-
-## Handling All Hero Positions
-
-### Edge-Anchored (Left)
-```text
-Hero.x = 0, leftWidth = 0
-→ All "beside" photos go to right strip
-→ Right strip: single column at full zone height
-```
-
-### Edge-Anchored (Right)
-```text
-Hero.x + Hero.width = canvasWidth, rightWidth = 0
-→ All "beside" photos go to left strip
-→ Left strip: single column at full zone height
-```
-
-### Floating (Middle)
-```text
-Hero.x > 0 AND Hero.x + Hero.width < canvasWidth
-→ Both strips get photos proportionally
-→ Left strip: column packing (leftWidth × heroZoneHeight)
-→ Right strip: column packing (rightWidth × heroZoneHeight)
-```
-
-### Edge-Anchored (Top)
-```text
-Hero.y = 0, aboveHeight = 0
-→ All "above" photos go to below zone instead
-→ Left/right strips still work beside hero
-```
-
-### Edge-Anchored (Bottom)
-```text
-Hero.y + Hero.height = canvasHeight, belowHeight = 0
-→ All "below" photos go to above zone instead
-→ Left/right strips still work beside hero
-```
-
----
-
-## Column Packing (New Function)
-
-Row packing arranges photos horizontally with variable row height. Column packing is the inverse - arrange photos vertically with variable column width:
-
-```typescript
-function packColumn(
+function packVerticalStrip(
   photos: PhotoDimension[],
-  targetWidth: number,
-  maxHeight: number,
+  stripWidth: number,
+  targetHeight: number,
   offsetX: number,
   offsetY: number,
   gap: number
 ): CollageCell[] {
-  // Similar to row packing but rotated 90°
-  // Each "column" is actually a vertical stack
-  // Width is the free variable that adjusts to fill height
+  if (photos.length === 0 || stripWidth < MIN_DIMENSION) return [];
   
-  // For simplicity, we can use existing packPhotosIntoRegion
-  // with isLandscape=false (portrait orientation preference)
-  // and targetHeight = maxHeight
-  
-  return packPhotosIntoRegion(photos, {
-    width: targetWidth,
+  const result = packPhotosIntoRegion(photos, {
+    width: stripWidth,
     gap,
     offsetX,
     offsetY,
-    isLandscape: false,  // Prefer vertical arrangement
-    targetHeight: maxHeight,
-  }).cells;
+    isLandscape: false,
+    targetHeight,
+  });
+  
+  const cells = result.cells;
+  if (cells.length === 0) return [];
+  
+  const packedHeight = getCellsHeight(cells);
+  
+  // If significantly off from target, scale UNIFORMLY
+  if (Math.abs(packedHeight - targetHeight) > gap) {
+    const scale = targetHeight / packedHeight;
+    const minY = Math.min(...cells.map(c => c.y));
+    const minX = Math.min(...cells.map(c => c.x));
+    
+    return cells.map(cell => ({
+      photoId: cell.photoId,
+      // Scale width too to preserve aspect ratio
+      x: Math.round(offsetX + (cell.x - minX) * scale),
+      y: Math.round(offsetY + (cell.y - minY) * scale),
+      width: Math.round(cell.width * scale),
+      height: Math.round(cell.height * scale),
+    }));
+  }
+  
+  return cells;
 }
 ```
 
----
+**However**, this creates a new problem: The scaled strip will be **narrower** than the allocated width, creating gaps.
 
-## Auto Orientation Fix
+### Fix 2: Fundamental Algorithm Change - Constrained Column Packing
 
-Also update Auto mode to use actual photo aspect ratios:
+The real solution is to make the side strips work like the row packing does - where the cells fill their region **exactly** without scaling.
+
+**Key insight**: Row packing works because:
+- Width is fixed → heights adjust naturally
+- Each photo's height = width / aspectRatio
+- Total height is whatever it needs to be
+
+For vertical strips beside the hero, we need the inverse:
+- Height is fixed (match hero)
+- Widths adjust naturally
+- Total width is whatever it needs to be
+
+But we can't have "whatever width" - we have a specific strip width. This is the constraint conflict.
+
+### Fix 3: Adaptive Strategy Based on Photo Count
+
+Introduce constraints based on photo count:
+
+| Photo Count | Strategy |
+|-------------|----------|
+| < 8 standards | Anchor hero to edge (left or right), no side strips on the anchored side |
+| 8-15 standards | Allow center positioning but prefer edge anchors |
+| > 15 standards | Full flexibility including floating center |
+
+This reduces the number of zones that need filling when there aren't enough photos.
+
+### Fix 4: Hero Size Constraints by Photo Count
+
+Limit hero size based on available standards:
 
 ```typescript
-case 'auto':
-default:
-  const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-  // Use actual average, clamped to reasonable range
-  targetAspect = Math.max(0.6, Math.min(2.0, avgAspect));
-  isLandscape = targetAspect >= 1.0;
-  break;
+function calculateHeroSize(hero, canvasWidth, canvasHeight, heroCount, standardCount) {
+  // Reduce hero budget when few standards available
+  let maxBudget = standardCount < 5 ? 0.35 : 
+                  standardCount < 10 ? 0.45 : 
+                  0.60;
+  
+  const perHeroBudget = Math.min(maxBudget / heroCount, ...);
+  // ...rest of calculation
+}
 ```
 
+### Fix 5: Zone-Based Width Allocation Instead of Height Scaling
+
+Instead of packing into a strip and then scaling height (which breaks aspect ratios), calculate how much width the side photos **actually need** to fill the hero's height naturally:
+
+```typescript
+function calculateStripWidth(
+  photos: PhotoDimension[],
+  targetHeight: number,
+  gap: number
+): number {
+  // Given these photos need to stack vertically to exactly targetHeight,
+  // what width would let them do that with correct aspect ratios?
+  
+  // For a single column: sum of (width/aspect) = targetHeight
+  // So: width * sum(1/aspect) = targetHeight  
+  // width = targetHeight / sum(1/aspect)
+  
+  const inverseAspectSum = photos.reduce((sum, p) => sum + 1/p.aspectRatio, 0);
+  const gapTotal = gap * (photos.length - 1);
+  const photoHeightTotal = targetHeight - gapTotal;
+  
+  return photoHeightTotal / inverseAspectSum;
+}
+```
+
+Then use this calculated width for the strip, adjusting the hero's X position to accommodate.
+
 ---
 
-## File Changes
+## Recommended Approach: Simplified Edge-Anchored Layout
 
-| File | Change |
-|------|--------|
-| `src/lib/heroLayout.ts` | Replace region-based with zone-based flow packing |
-| `src/lib/heroLayout.ts` | Add column packing for left/right strips |
-| `src/lib/heroLayout.ts` | Simplify to 4 zones: above, left, right, below |
-| `src/lib/collageLayout.ts` | Update Auto orientation to use actual aspect ratio |
+Given the complexity of making floating heroes work with all photo counts, implement a simpler approach for the first iteration:
+
+1. **Always anchor hero to an edge** (left or right)
+2. **Two zones only**: Hero-level (single column beside hero) + Below (full-width rows)
+3. **No height scaling** - pack the beside column at natural width, hero adjusts position
+4. **Automatic hero sizing** based on standard count
+
+This eliminates the blank rectangle problem entirely because:
+- No "above" zone splitting
+- Only one side strip (not two)
+- Below zone can absorb any number of remaining photos
 
 ---
+
+## Implementation Plan
+
+### Phase 1: Fix the Clipping (Immediate)
+- Remove the height-only scaling in `packVerticalStrip`
+- Either scale uniformly (accepting narrower strips) or remove scaling entirely
+
+### Phase 2: Simplify Hero Positioning
+- Anchor hero to left or right edge
+- Single side strip beside hero (not both sides)
+- All remaining photos go to "below" zone
+
+### Phase 3: Add Photo-Count Awareness
+- Adjust hero size budget based on standard count
+- Larger hero only when many standards available to fill remaining space
+
+---
+
+## Technical Changes Summary
+
+| File | Function | Change |
+|------|----------|--------|
+| `heroLayout.ts` | `packVerticalStrip` | Remove height-only scaling (causes clipping) |
+| `heroLayout.ts` | `chooseHeroX` | Bias toward edge positions (0 or rightX) |
+| `heroLayout.ts` | `calculateHeroSize` | Scale budget by standard count |
+| `heroLayout.ts` | `generateSingleHeroLayout` | Simplify to 2 zones: beside + below |
 
 ## Expected Results
 
-1. **No black rectangles** - Each zone fills completely using its natural flexibility
-2. **Hero can float anywhere** - Left/right strips handle any X position
-3. **Maintains variety** - Hero position still chosen from valid 100px grid anchors
-4. **Simpler mental model** - Four zones instead of complex L-shape logic
-
+1. **No clipping** - All cells match their photos' aspect ratios exactly
+2. **No blank rectangles** - Simplified zone structure fills naturally
+3. **Better orientation matching** - Reduced vertical stacking improves aspect adherence
+4. **Works with few photos** - Edge-anchored hero doesn't create unfillable regions

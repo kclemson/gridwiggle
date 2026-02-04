@@ -582,10 +582,13 @@ export function generateCollageLayout(
   
   // Check for heroes and route to hero layout
   if (hasHeroPhotos(photos, weights)) {
+    // For Auto mode with heroes: let the layout height emerge naturally
+    // Pass undefined targetAspect so hero layout doesn't get pulled toward a square
+    const heroTargetAspect = settings.orientation === 'auto' ? undefined : targetAspect;
     return generateHeroLayout(
       photos,
       settings,
-      targetAspect,
+      heroTargetAspect,
       weights,
       options?.randomize ?? false
     );

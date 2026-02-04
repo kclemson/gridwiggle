@@ -999,6 +999,14 @@ function generateFloatingHeroLayout(
   const rightCandidates = remainingPhotos.slice(leftCount, leftCount + rightCount);
   const initialBelowPhotos = remainingPhotos.slice(leftCount + rightCount);
 
+  console.log('[Hero] Floating config', {
+    useIntroRows,
+    introPhotoCount: introPhotos.length,
+    leftCount,
+    rightCount,
+    belowCount: initialBelowPhotos.length,
+  });
+
   // Target width fraction for hero
   const widthFraction = calculateHeroWidthFraction(standards.length, targetAspect);
   const targetHeroWidth = Math.round(canvasWidth * widthFraction);
@@ -1030,6 +1038,15 @@ function generateFloatingHeroLayout(
     rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
   }
 
+  console.log('[Hero] Side packing', {
+    leftRows: 'row3Height' in leftResult ? 3 : 2,
+    leftHeight: leftResult.combinedHeight.toFixed(0),
+    leftWidth: leftResult.naturalTotalWidth.toFixed(0),
+    rightRows: 'row3Height' in rightResult ? 3 : 2,
+    rightHeight: rightResult.combinedHeight.toFixed(0),
+    rightWidth: rightResult.naturalTotalWidth.toFixed(0),
+  });
+
   // Use the taller side to determine hero height
   const maxSideHeight = Math.max(
     leftResult.combinedHeight || 0,
@@ -1037,6 +1054,10 @@ function generateFloatingHeroLayout(
   );
 
   if (maxSideHeight === 0) {
+    console.log('[Hero] Fallback triggered', {
+      reason: 'no-side-packing',
+      fallbackTo: 'edge-anchored',
+    });
     // Fallback if neither side could be packed
     return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, targetAspect);
   }
@@ -1054,8 +1075,22 @@ function generateFloatingHeroLayout(
   
   const scaleFactor = canvasWidth / totalNaturalWidth;
   
+  const accepted = scaleFactor >= 0.80 && scaleFactor <= 1.20;
+  console.log('[Hero] Trying config', {
+    rowMode: 'floating',
+    heroWidth: heroWidth.toFixed(0),
+    totalNaturalWidth: totalNaturalWidth.toFixed(0),
+    scaleFactor: scaleFactor.toFixed(2),
+    accepted,
+  });
+  
   // RELAXED: ±20% tolerance for floating layout with 3-row options
-  if (scaleFactor < 0.80 || scaleFactor > 1.20) {
+  if (!accepted) {
+    console.log('[Hero] Fallback triggered', {
+      reason: 'scale-out-of-tolerance',
+      scaleFactor: scaleFactor.toFixed(2),
+      fallbackTo: 'edge-anchored',
+    });
     // Outside tolerance - fall back to edge-anchored
     return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, targetAspect);
   }
@@ -1182,6 +1217,16 @@ function generateFloatingHeroLayout(
   const finalHeight = allCells.length > 0
     ? Math.max(...allCells.map(c => c.y + c.height))
     : scaledHeroHeight;
+
+  console.log('[Hero] Layout complete', {
+    finalAspect: (canvasWidth / finalHeight).toFixed(2),
+    heroCell: { width: heroCell.width, height: heroCell.height },
+    heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
+    leftCells: leftCells.length,
+    rightCells: rightCells.length,
+    belowCells: belowCells.length,
+    totalCells: allCells.length,
+  });
 
   return {
     width: canvasWidth,

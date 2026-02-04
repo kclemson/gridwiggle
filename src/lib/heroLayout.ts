@@ -121,11 +121,15 @@ function calculateHeroDimensions(
   const x = Math.min(anchor.x, canvasWidth - width);
   const y = Math.min(anchor.y, canvasHeight - height);
   
+  // Round width first, then derive height to preserve exact aspect ratio
+  const roundedWidth = Math.round(width);
+  const roundedHeight = Math.round(roundedWidth / heroAspect);
+  
   return { 
     x: Math.round(x), 
     y: Math.round(y), 
-    width: Math.round(width), 
-    height: Math.round(height) 
+    width: roundedWidth,
+    height: roundedHeight
   };
 }
 
@@ -335,6 +339,96 @@ function placeHeroes(
 // Pack Standards into Remaining Regions
 // ============================================================================
 
+function packLShape(
+  standards: PhotoDimension[],
+  regions: Region[],
+  gap: number
+): CollageCell[] {
+  const [larger, smaller] = regions;
+  const allCells: CollageCell[] = [];
+  
+  // Determine orientation of each region
+  const largerIsWide = larger.width > larger.height;
+  const smallerIsWide = smaller.width > smaller.height;
+  
+  // Estimate photos per region based on area ratio
+  const totalArea = larger.width * larger.height + smaller.width * smaller.height;
+  const largerProportion = (larger.width * larger.height) / totalArea;
+  
+  // Distribute photos, ensuring each region gets at least 1 if possible
+  let largerCount = Math.round(standards.length * largerProportion);
+  largerCount = Math.max(1, Math.min(largerCount, standards.length - 1));
+  
+  const largerStandards = standards.slice(0, largerCount);
+  const smallerStandards = standards.slice(largerCount);
+  
+  // Pack larger region
+  const largerPacked = packPhotosIntoRegion(largerStandards, {
+    width: larger.width,
+    gap,
+    offsetX: larger.x,
+    offsetY: larger.y,
+    isLandscape: largerIsWide,
+  });
+  allCells.push(...largerPacked.cells);
+  
+  // Pack smaller region
+  if (smallerStandards.length > 0) {
+    const smallerPacked = packPhotosIntoRegion(smallerStandards, {
+      width: smaller.width,
+      gap,
+      offsetX: smaller.x,
+      offsetY: smaller.y,
+      isLandscape: smallerIsWide,
+    });
+    allCells.push(...smallerPacked.cells);
+  }
+  
+  return allCells;
+}
+
+function packMultipleRegions(
+  standards: PhotoDimension[],
+  sortedRegions: Region[],
+  gap: number
+): CollageCell[] {
+  const totalArea = sortedRegions.reduce((sum, r) => sum + r.width * r.height, 0);
+  const allCells: CollageCell[] = [];
+  let standardIndex = 0;
+  
+  for (let i = 0; i < sortedRegions.length; i++) {
+    const region = sortedRegions[i];
+    if (standardIndex >= standards.length) break;
+    
+    // How many standards for this region (proportional to area)
+    const regionArea = region.width * region.height;
+    const proportion = regionArea / totalArea;
+    
+    // For last region, take all remaining
+    const isLastRegion = i === sortedRegions.length - 1;
+    const countForRegion = isLastRegion 
+      ? standards.length - standardIndex
+      : Math.max(1, Math.round(standards.length * proportion));
+    
+    const regionStandards = standards.slice(standardIndex, standardIndex + countForRegion);
+    standardIndex += regionStandards.length;
+    
+    if (regionStandards.length === 0) continue;
+    
+    const packed = packPhotosIntoRegion(regionStandards, {
+      width: region.width,
+      gap,
+      offsetX: region.x,
+      offsetY: region.y,
+      isLandscape: region.width > region.height,
+    });
+    
+    allCells.push(...packed.cells);
+  }
+  
+  return allCells;
+}
+
 function packStandardsIntoRegions(
   standards: PhotoDimension[],
   regions: Region[],
@@ -349,61 +443,13 @@ function packStandardsIntoRegions(
     (b.width * b.height) - (a.width * a.height)
   );
   
-  // Distribute standards across regions proportionally to area
-  const totalArea = sortedRegions.reduce((sum, r) => sum + r.width * r.height, 0);
-  const allCells: CollageCell[] = [];
-  let standardIndex = 0;
-  
-  for (const region of sortedRegions) {
-    if (standardIndex >= standards.length) break;
-    
-    // How many standards for this region (proportional to area)
-    const regionArea = region.width * region.height;
-    const proportion = regionArea / totalArea;
-    const countForRegion = Math.max(1, Math.round(standards.length * proportion));
-    
-    const regionStandards = standards.slice(standardIndex, standardIndex + countForRegion);
-    standardIndex += regionStandards.length;
-    
-    if (regionStandards.length === 0) continue;
-    
-    // Use existing packPhotosIntoRegion
-    const packed = packPhotosIntoRegion(regionStandards, {
-      width: region.width,
-      gap,
-      offsetX: region.x,
-      offsetY: region.y,
-      isLandscape: region.width > region.height,
-    });
-    
-    allCells.push(...packed.cells);
+  // For 2 regions (L-shape from corner hero): use specialized packing
+  if (sortedRegions.length === 2) {
+    return packLShape(standards, sortedRegions, gap);
   }
   
-  // Handle any remaining standards (put in largest region)
-  if (standardIndex < standards.length && sortedRegions.length > 0) {
-    const remaining = standards.slice(standardIndex);
-    const region = sortedRegions[0];
-    
-    // Find max Y already used in this region
-    const regionCells = allCells.filter(c => 
-      c.x >= region.x && c.x < region.x + region.width
-    );
-    const maxUsedY = regionCells.length > 0 
-      ? Math.max(...regionCells.map(c => c.y + c.height)) + gap
-      : region.y;
-    
-    const packed = packPhotosIntoRegion(remaining, {
-      width: region.width,
-      gap,
-      offsetX: region.x,
-      offsetY: maxUsedY,
-      isLandscape: region.width > region.height,
-    });
-    
-    allCells.push(...packed.cells);
-  }
-  
-  return allCells;
+  // For 3+ regions, use proportional distribution
+  return packMultipleRegions(standards, sortedRegions, gap);
 }
 
 // ============================================================================

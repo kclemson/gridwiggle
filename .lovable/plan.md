@@ -1,47 +1,77 @@
 
 
-# Add Debug Logging for All Smart Crop Results
+# Add Filename to Smart Crop Logging
 
 ## Goal
 
-Log detection results for **every** photo (not just skipped ones) so we can see the actual confidence scores DETR returns for the cartoon images.
+Include the original filename in the console logs so you can identify which image is which when debugging smart crop detection.
 
-## Change
+## Current Situation
 
-**File: `src/pages/Index.tsx`** (lines 137-139)
+- `PhotoItem` only has `id` (generated UUID), no filename
+- The filename is available in `PhotoUploader` when files are selected (`file.name`)
+- But it's not being stored in the photo object
 
-Move the console.log outside the `if (result.skipCrop)` block so it logs for all photos:
+## Changes Required
 
-**Current code:**
+### File 1: `src/types/collage.ts`
+
+Add optional `filename` field to both `PhotoItem` and `PhotoMetadata`:
+
 ```typescript
-if (result.skipCrop) {
-  console.log(`Skipping smart crop for ${photo.id}: low confidence (${result.confidence.toFixed(2)}), subjects: ${result.subjects}`);
+export interface PhotoItem {
+  id: string;
+  filename?: string;           // NEW: Original filename for debugging
+  objectUrl: string;
+  // ... rest unchanged
+}
+
+export interface PhotoMetadata {
+  id: string;
+  filename?: string;           // NEW: Persist for debugging
+  // ... rest unchanged
 }
 ```
 
-**New code:**
+### File 2: `src/components/PhotoUploader.tsx`
+
+Capture the filename when creating the PhotoItem:
+
+```typescript
+return {
+  id: generateId(),
+  filename: file.name,         // NEW: Store original filename
+  objectUrl,
+  blob,
+  // ... rest unchanged
+};
+```
+
+### File 3: `src/pages/Index.tsx`
+
+Update the logging to show filename (fallback to ID if not available):
+
 ```typescript
 console.log(
-  `Smart crop for ${photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
+  `Smart crop for ${photo.filename || photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
   `subjects="${result.subjects}", skipCrop=${result.skipCrop}`
 );
 ```
 
-## Expected Console Output
+## Expected Console Output After Fix
 
-After this change, uploading the 4 test images will show:
 ```
-Smart crop for abc123: confidence=0.85, subjects="person", skipCrop=false
-Smart crop for def456: confidence=0.63, subjects="person", skipCrop=false  ← Shrek?
-Smart crop for ghi789: confidence=0.00, subjects="No subjects detected", skipCrop=true
-Smart crop for jkl012: confidence=0.58, subjects="vase", skipCrop=true
+Smart crop for shrek.jpg: confidence=0.94, subjects="banana", skipCrop=false
+Smart crop for lisa-simpson.png: confidence=0.00, subjects="No subjects detected", skipCrop=true
+Smart crop for pineapple-house.jpg: confidence=0.96, subjects="banana", skipCrop=false
+Smart crop for picard.jpg: confidence=1.00, subjects="person", skipCrop=false
 ```
-
-This will reveal the actual confidence values for Shrek and the pineapple house, helping us pick the right threshold.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Log all detection results, not just skipped ones |
+| `src/types/collage.ts` | Add optional `filename` field to `PhotoItem` and `PhotoMetadata` |
+| `src/components/PhotoUploader.tsx` | Capture `file.name` when creating photo object |
+| `src/pages/Index.tsx` | Show filename in log output |
 

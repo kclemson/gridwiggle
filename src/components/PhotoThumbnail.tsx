@@ -36,7 +36,7 @@ export function PhotoThumbnail({
   return (
     <div
       className={cn(
-        "relative group rounded-lg overflow-hidden bg-surface-elevated shrink-0",
+        "relative group overflow-hidden bg-surface-elevated shrink-0",
         onClick && "cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
         className
       )}

@@ -84,25 +84,6 @@ export default function Index() {
     setSmartCropProgress(0);
   }, [updatePhoto]);
 
-  const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-    // Step 1: Wait for photos to be saved to storage
-    const { succeeded } = await addPhotos(newPhotos);
-    
-    if (succeeded.length === 0) {
-      return;
-    }
-
-    // Step 2: Only process photos that were successfully saved
-    try {
-      await processSmartCrops(succeeded);
-    } catch (error) {
-      console.error('Smart crop processing failed:', error);
-      toast.error('AI processing failed. Please try again.');
-    }
-
-    if (state.layout) setLayoutStale(true);
-  }, [addPhotos, processSmartCrops, state.layout]);
-
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
     if (state.layout) setLayoutStale(true);
@@ -163,6 +144,33 @@ export default function Index() {
     setLayout(layout);
     setLayoutStale(false);
   }, [state.photos, state.settings, state.layout, setLayout]);
+
+  const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+    // Step 1: Wait for photos to be saved to storage
+    const { succeeded } = await addPhotos(newPhotos);
+    
+    if (succeeded.length === 0) {
+      return;
+    }
+
+    // Remember if we should auto-generate (no layout before processing)
+    const wasLayoutEmpty = state.layout === null;
+
+    // Step 2: Only process photos that were successfully saved
+    try {
+      await processSmartCrops(succeeded);
+    } catch (error) {
+      console.error('Smart crop processing failed:', error);
+      toast.error('AI processing failed. Please try again.');
+    }
+
+    // Auto-generate collage after first batch, mark stale otherwise
+    if (wasLayoutEmpty) {
+      handleCreateCollage();
+    } else {
+      setLayoutStale(true);
+    }
+  }, [addPhotos, processSmartCrops, state.layout, handleCreateCollage]);
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);

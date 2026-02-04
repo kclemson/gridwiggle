@@ -1,182 +1,76 @@
 
+## Fix: Auto-Generated Collage Shows Empty (Stale Closure Issue)
 
-## Auto-Generate Collage After Processing
+### Root Cause
 
-### Goal
-
-When the last photo finishes smart crop processing, automatically generate the collage with default settings - eliminating the need for users to click "Create Collage".
-
-### Current Flow
+The collage generation reads `state.photos` from a closure that's stale by the time processing completes:
 
 ```text
-Upload Photos → Save to IndexedDB → Process Smart Crops → [User clicks "Create Collage"] → Show Preview
+Timeline:
+1. handlePhotosAdded captures handleCreateCollage (which has state.photos = [])
+2. processSmartCrops updates photos one by one via updatePhoto
+3. After await, handleCreateCollage() is called
+4. But handleCreateCollage still sees state.photos = [] from step 1
+5. generateCollageLayout receives empty array → empty layout
 ```
 
-### New Flow
+When you click the refresh button, React has re-rendered and created a new `handleCreateCollage` with the current photos, so it works.
 
-```text
-Upload Photos → Save to IndexedDB → Process Smart Crops → Auto-generate Collage → Show Preview
-```
+### Solution
 
-### Technical Approach
+Use a **ref** to always access the latest photos when generating the collage. This bypasses the stale closure problem since refs hold mutable values.
 
-The `processSmartCrops` function already has the perfect trigger point: after the processing loop completes (lines 82-84). At this point:
-- All photos have been processed (success or error)
-- State has been updated with smart crops
-- We can check if conditions for collage creation are met
-
-**Why not useEffect?** Per the project's guidelines, effects should not be used for internal state synchronization. Since we already have an event handler (`processSmartCrops`) that knows exactly when processing finishes, we trigger the collage generation directly from there.
-
-### Changes
+### Technical Changes
 
 **File: `src/pages/Index.tsx`**
 
-Modify `processSmartCrops` to accept a callback that runs after all processing completes:
-
+1. **Add a ref to track current photos**:
 ```tsx
-const processSmartCrops = useCallback(async (photos: PhotoItem[], onComplete?: () => void) => {
-  if (photos.length === 0) return;
-  
-  setIsProcessingSmartCrop(true);
-  setSmartCropProgress(0);
-  
-  let completed = 0;
-  const total = photos.length;
+const photosRef = useRef<PhotoItem[]>(state.photos);
 
+// Keep ref in sync with state (simple assignment, no useEffect needed)
+photosRef.current = state.photos;
+```
+
+2. **Update `handleCreateCollage` to use the ref**:
+```tsx
+const handleCreateCollage = useCallback(() => {
+  // Use ref for latest photos (avoids stale closure)
+  const photos = photosRef.current;
+  
+  // Build weights from photo priorities
+  const photoWeights: Record<string, number> = {};
   for (const photo of photos) {
-    // ... existing processing logic ...
-    completed++;
-    setSmartCropProgress((completed / total) * 100);
+    photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
   }
   
-  setIsProcessingSmartCrop(false);
-  setSmartCropProgress(0);
+  // Randomize when regenerating (layout already exists) for variety
+  const shouldRandomize = state.layout !== null;
   
-  // Call completion callback if provided
-  onComplete?.();
-}, [updatePhoto]);
+  const layout = generateCollageLayout(photos, state.settings, { 
+    photoWeights,
+    randomize: shouldRandomize 
+  });
+  setLayout(layout);
+  setLayoutStale(false);
+}, [state.settings, state.layout, setLayout]); // Note: state.photos removed from deps
 ```
 
-Then in `handlePhotosAdded`, pass a callback that generates the collage:
+This way, `handleCreateCollage` always reads from `photosRef.current` which is updated on every render.
 
-```tsx
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
-  
-  if (succeeded.length === 0) {
-    return;
-  }
+### Why This Works
 
-  try {
-    await processSmartCrops(succeeded, () => {
-      // Auto-generate collage if we have enough photos and no layout yet
-      // Note: state.photos may be stale here, so we need to access current count
-      // The callback runs after state updates, so we check conditions then generate
-    });
-  } catch (error) {
-    console.error('Smart crop processing failed:', error);
-    toast.error('AI processing failed. Please try again.');
-  }
-}, [addPhotos, processSmartCrops]);
-```
+| Before | After |
+|--------|-------|
+| `handleCreateCollage` captures `state.photos` at creation time | `handleCreateCollage` reads `photosRef.current` at call time |
+| Stale after async operations update state | Always gets latest value regardless of when function was created |
 
-**Challenge: Stale Closure**
+### Alternative Considered
 
-The callback in `handlePhotosAdded` captures `state` at call time, but `processSmartCrops` updates state during iteration. By the time the callback runs, `state.photos` in the closure is stale.
+Another approach would be to pass photos directly as a parameter to `handleCreateCollage`, but the ref pattern is cleaner since the function is also used by the refresh button and crop save handler.
 
-**Solution: Use a ref to track whether to auto-generate**
+### Files Changed
 
-```tsx
-const shouldAutoGenerateRef = useRef(false);
-```
-
-Set this flag before processing starts (if no layout exists), then check it in the callback:
-
-```tsx
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
-  
-  if (succeeded.length === 0) return;
-
-  // Mark that we should auto-generate if this is the first batch
-  shouldAutoGenerateRef.current = state.layout === null;
-
-  try {
-    await processSmartCrops(succeeded);
-  } catch (error) {
-    console.error('Smart crop processing failed:', error);
-    toast.error('AI processing failed. Please try again.');
-  }
-
-  // After processing, check if we should auto-generate
-  if (shouldAutoGenerateRef.current) {
-    // Trigger collage generation - need to use latest state
-    handleCreateCollage();
-    shouldAutoGenerateRef.current = false;
-  }
-}, [addPhotos, processSmartCrops, state.layout, handleCreateCollage]);
-```
-
-**Actually simpler**: Since `handlePhotosAdded` is async and `await processSmartCrops(succeeded)` blocks until complete, we can just call `handleCreateCollage` after the await, checking conditions at that point. But we still face the stale closure issue with `state`.
-
-**Cleanest Solution: Move the logic into processSmartCrops with access to current state**
-
-Actually, the cleanest approach is to:
-1. Check if layout is `null` before starting processing
-2. After processing completes, call `handleCreateCollage` if we started with no layout
-
-```tsx
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
-  
-  if (succeeded.length === 0) return;
-
-  // Remember if we should auto-generate (no layout before processing)
-  const wasLayoutEmpty = state.layout === null;
-
-  try {
-    await processSmartCrops(succeeded);
-  } catch (error) {
-    console.error('Smart crop processing failed:', error);
-    toast.error('AI processing failed. Please try again.');
-  }
-
-  // Auto-generate collage after first batch processing
-  if (wasLayoutEmpty) {
-    handleCreateCollage();
-  } else {
-    setLayoutStale(true);
-  }
-}, [addPhotos, processSmartCrops, state.layout, handleCreateCollage]);
-```
-
-This works because:
-- `wasLayoutEmpty` is captured at the start of the function
-- `handleCreateCollage` accesses `state.photos` from its own closure, which will be up-to-date since it's called after `processSmartCrops` completes and React has batched the state updates
-
-**One edge case**: `handleCreateCollage` checks `photosWithSmartCrop.length >= 2` internally. Actually, looking at the code, `handleCreateCollage` doesn't check this - it just generates. The check is only in the JSX for the button disabled state. We should add a check:
-
-```tsx
-if (wasLayoutEmpty) {
-  // Only auto-generate if we have at least 2 photos with crops
-  // handleCreateCollage will use current state.photos
-  handleCreateCollage();
-}
-```
-
-Since `handleCreateCollage` reads from `state.photos` which is updated during processing, and React batches these updates, by the time we call it after the `await`, the state should be current.
-
-### Summary of Changes
-
-| Location | Change |
-|----------|--------|
-| `handlePhotosAdded` | Capture `wasLayoutEmpty` before processing, call `handleCreateCollage()` after if true |
-| Remove `setLayoutStale(true)` line | Replace with conditional: stale if layout existed, auto-generate if not |
-
-### Result
-
-- First batch of photos uploaded → processing → collage auto-generated
-- Adding more photos to existing collage → processing → layout marked stale (shuffle icon visible)
-- No useEffect needed - logic stays in event handlers
-- Button still available for regenerating/shuffling
-
+| File | Change |
+|------|--------|
+| `src/pages/Index.tsx` | Add `photosRef`, update `handleCreateCollage` to use ref |

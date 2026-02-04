@@ -1,4 +1,4 @@
-import { PhotoItem, CollageLayout, CollageCell, CollageSettings } from '@/types/collage';
+import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { packPhotosIntoRegion } from '@/lib/collageLayout';
 import {
@@ -179,10 +179,12 @@ function calculateOptimalHeroFraction(
   besidePhotos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  rowCount: 2 | 3
+  rowCount: 2 | 3,
+  minFraction: number = 0.30,
+  maxFraction: number = 0.60
 ): { fraction: number; clamped: boolean } {
-  const MIN_FRACTION = 0.30;
-  const MAX_FRACTION = 0.60;
+  const MIN_FRACTION = minFraction;
+  const MAX_FRACTION = maxFraction;
   
   const { aspectSums, photoCounts } = getRowAspectInfo(besidePhotos, rowCount);
   
@@ -1267,10 +1269,23 @@ function generateBlockBasedHeroLayout(
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean
+  randomize: boolean,
+  tuning: LayoutTuning
 ): CollageLayout | null {
   // Shuffle candidates if randomizing
   const candidates = randomize ? shuffleArray(standards) : standards;
+  
+  // Wrapper to inject tuning into calculateOptimalHeroFraction
+  const calculateOptimalHeroFractionWithTuning = (
+    heroAspect: number,
+    besidePhotos: PhotoDimension[],
+    cw: number,
+    g: number,
+    rowCount: 2 | 3
+  ) => calculateOptimalHeroFraction(
+    heroAspect, besidePhotos, cw, g, rowCount,
+    tuning.heroMinFraction, tuning.heroMaxFraction
+  );
   
   // 1. Build hero unit block
   const heroBlock = buildHeroUnitBlock(
@@ -1280,10 +1295,17 @@ function generateBlockBasedHeroLayout(
     gap,
     packBesideAs2Rows,
     packBesideAs3Rows,
-    calculateOptimalHeroFraction,
+    calculateOptimalHeroFractionWithTuning,
     fixRowAlignment2Row,
     fixRowAlignment3Row,
-    { anchorSide: randomize ? 'random' : 'left' }
+    { 
+      anchorSide: randomize ? 'random' : 'left',
+      maxBeside3Row: tuning.maxBeside3Row,
+      maxBeside2Row: tuning.maxBeside2Row,
+      threeRowThreshold: tuning.threeRowThreshold,
+      scaleToleranceLow: tuning.scaleToleranceLow,
+      scaleToleranceHigh: tuning.scaleToleranceHigh,
+    }
   );
   
   if (!heroBlock) {
@@ -1295,7 +1317,7 @@ function generateBlockBasedHeroLayout(
   const remaining = candidates.filter(p => !heroBlock.photoIds.has(p.id));
   
   // 3. Split remaining into content row blocks (each block = ~3-4 photos)
-  const photoChunks = splitPhotosForBlocks(remaining as BlockPhotoDimension[], 4);
+  const photoChunks = splitPhotosForBlocks(remaining as BlockPhotoDimension[], tuning.contentPhotosPerBlock);
   const contentBlocks: LayoutBlock[] = [];
   
   for (const chunk of photoChunks) {
@@ -1355,7 +1377,8 @@ function generateSingleHeroLayout(
   canvasWidth: number,
   gap: number,
   randomize: boolean,
-  targetAspect: number | undefined
+  targetAspect: number | undefined,
+  tuning: LayoutTuning
 ): CollageLayout {
   // Try block-based layout for larger photosets (provides shuffled variety)
   if (standards.length >= BLOCK_BASED_MIN_PHOTOS) {
@@ -1366,7 +1389,7 @@ function generateSingleHeroLayout(
     });
     
     const blockLayout = generateBlockBasedHeroLayout(
-      hero, standards, canvasWidth, gap, randomize
+      hero, standards, canvasWidth, gap, randomize, tuning
     );
     
     if (blockLayout) {
@@ -1563,9 +1586,11 @@ export function generateHeroLayout(
   settings: CollageSettings,
   targetAspect: number | undefined,
   weights: Record<string, number>,
-  randomize: boolean
+  randomize: boolean,
+  tuning?: LayoutTuning
 ): CollageLayout {
   const gap = settings.gapSize;
+  const effectiveTuning = tuning ?? DEFAULT_TUNING;
 
   const dims = getPhotoDimensions(photos, weights);
   const heroes = dims.filter(d => d.weight >= 2.0);
@@ -1599,7 +1624,8 @@ export function generateHeroLayout(
       BASE_WIDTH,
       gap,
       randomize,
-      effectiveTarget
+      effectiveTarget,
+      effectiveTuning
     );
   }
 

@@ -73,6 +73,16 @@ export interface HeroUnitOptions {
   anchorSide?: 'left' | 'right' | 'random';
   /** Whether to use 2-row or 3-row packing */
   rowMode?: '2-row' | '3-row' | 'auto';
+  /** Max photos beside hero in 3-row mode (default 12) */
+  maxBeside3Row?: number;
+  /** Max photos beside hero in 2-row mode (default 6) */
+  maxBeside2Row?: number;
+  /** Photo count threshold to trigger 3-row mode (default 6) */
+  threeRowThreshold?: number;
+  /** Minimum scale tolerance (default 0.75) */
+  scaleToleranceLow?: number;
+  /** Maximum scale tolerance (default 1.25) */
+  scaleToleranceHigh?: number;
 }
 
 // ============================================================================
@@ -144,14 +154,22 @@ export function buildHeroUnitBlock(
   fixRowAlignment3Row: (cells: CollageCell[], row1Height: number, row2Height: number, row3Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
   options: HeroUnitOptions = {}
 ): HeroUnitBlock | null {
-  const { anchorSide = 'random', rowMode = 'auto' } = options;
+  const { 
+    anchorSide = 'random', 
+    rowMode = 'auto',
+    maxBeside3Row = 12,
+    maxBeside2Row = 6,
+    threeRowThreshold = 6,
+    scaleToleranceLow = 0.75,
+    scaleToleranceHigh = 1.25,
+  } = options;
   
   // Determine anchor side
   const anchorRight = anchorSide === 'random' ? Math.random() < 0.5 : anchorSide === 'right';
   
-  // Determine row mode based on photo count
+  // Determine row mode based on photo count and tuning threshold
   const useRowMode = rowMode === 'auto'
-    ? (candidates.length >= 6 ? '3-row' : '2-row')
+    ? (candidates.length >= threeRowThreshold ? '3-row' : '2-row')
     : rowMode;
   
   // Try to build with the selected row mode
@@ -166,7 +184,11 @@ export function buildHeroUnitBlock(
     packBesideAs3Rows,
     calculateOptimalHeroFraction,
     fixRowAlignment2Row,
-    fixRowAlignment3Row
+    fixRowAlignment3Row,
+    maxBeside3Row,
+    maxBeside2Row,
+    scaleToleranceLow,
+    scaleToleranceHigh
   );
   
   if (result) {
@@ -186,7 +208,11 @@ export function buildHeroUnitBlock(
       packBesideAs3Rows,
       calculateOptimalHeroFraction,
       fixRowAlignment2Row,
-      fixRowAlignment3Row
+      fixRowAlignment3Row,
+      maxBeside3Row,
+      maxBeside2Row,
+      scaleToleranceLow,
+      scaleToleranceHigh
     );
   }
   
@@ -207,10 +233,14 @@ function tryBuildHeroUnit(
   packBesideAs3Rows: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult3Row,
   calculateOptimalHeroFraction: (heroAspect: number, besidePhotos: PhotoDimension[], canvasWidth: number, gap: number, rowCount: 2 | 3) => { fraction: number; clamped: boolean },
   fixRowAlignment2Row: (cells: CollageCell[], row1Height: number, row2Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
-  fixRowAlignment3Row: (cells: CollageCell[], row1Height: number, row2Height: number, row3Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[]
+  fixRowAlignment3Row: (cells: CollageCell[], row1Height: number, row2Height: number, row3Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
+  maxBeside3Row: number,
+  maxBeside2Row: number,
+  scaleToleranceLow: number,
+  scaleToleranceHigh: number
 ): HeroUnitBlock | null {
   const minPhotos = rowCount === 3 ? 3 : 2;
-  const maxPhotos = rowCount === 3 ? 12 : 6;
+  const maxPhotos = rowCount === 3 ? maxBeside3Row : maxBeside2Row;
   
   // Try different beside counts
   for (let besideCount = Math.min(maxPhotos, candidates.length); besideCount >= minPhotos; besideCount--) {
@@ -243,7 +273,7 @@ function tryBuildHeroUnit(
     const scaleFactor = canvasWidth / totalNaturalWidth;
     
     // Accept if within tolerance
-    if (scaleFactor < 0.75 || scaleFactor > 1.25) continue;
+    if (scaleFactor < scaleToleranceLow || scaleFactor > scaleToleranceHigh) continue;
     
     // Apply scaling
     const scaledHeroWidth = Math.round(heroWidth * scaleFactor);

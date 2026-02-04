@@ -13,7 +13,7 @@ import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { captureHeroLogs, HeroLogEntry } from '@/lib/debugLogger';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -45,6 +45,7 @@ export default function Index() {
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<HeroLogEntry[]>([]);
+  const [layoutTuning, setLayoutTuning] = useState<LayoutTuning>(DEFAULT_TUNING);
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -62,6 +63,8 @@ export default function Index() {
     cropOverride?: { photoId: string; crop: CropRegion };
     /** Shuffle for variety (refresh button) */
     randomize?: boolean;
+    /** Layout tuning parameters (for immediate changes) */
+    tuning?: LayoutTuning;
   }
 
   // Centralized collage regeneration - all triggers use this
@@ -72,6 +75,7 @@ export default function Index() {
       priorityOverride,
       cropOverride,
       randomize = false,
+      tuning = layoutTuning,
     } = options;
     
     // Apply crop override to get correct dimensions immediately (avoids stale state)
@@ -104,6 +108,7 @@ export default function Index() {
         generateCollageLayout(photosToUse, settings, { 
           photoWeights,
           randomize,
+          tuning,
         })
       );
       setDebugLogs(logs);
@@ -113,7 +118,7 @@ export default function Index() {
       toast.error('Failed to generate collage. Try again.');
       // Don't call setLayout(null) - keep button visible for retry
     }
-  }, [state.settings, setLayout]);
+  }, [state.settings, setLayout, layoutTuning]);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -221,6 +226,14 @@ export default function Index() {
       regenerateCollage({ settings: newSettings });
     }
   }, [updateSettings, state.layout, state.settings, regenerateCollage]);
+
+  const handleTuningChange = useCallback((key: keyof LayoutTuning, value: number) => {
+    const newTuning = { ...layoutTuning, [key]: value };
+    setLayoutTuning(newTuning);
+    if (state.layout) {
+      regenerateCollage({ tuning: newTuning });
+    }
+  }, [layoutTuning, state.layout, regenerateCollage]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {
@@ -431,7 +444,11 @@ export default function Index() {
                     className="absolute top-0 hidden xl:block"
                     style={{ right: 'calc(100% + 24px)', width: '700px' }}
                   >
-                    <DebugPanel logs={debugLogs} />
+                    <DebugPanel 
+                      logs={debugLogs} 
+                      tuning={layoutTuning} 
+                      onTuningChange={handleTuningChange} 
+                    />
                   </div>
                 )}
               </div>

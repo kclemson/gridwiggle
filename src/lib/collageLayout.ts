@@ -1,5 +1,5 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings } from '@/types/collage';
-import { getActiveCrop } from '@/lib/imageUtils';
+import { getDisplayCrop } from '@/lib/cropUtils';
 
 // ============================================================================
 // Types
@@ -73,7 +73,7 @@ interface PartitionScore {
 
 function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>): PhotoDimension[] {
   return photos.map((photo) => {
-    const crop = getActiveCrop(photo);
+    const crop = getDisplayCrop(photo);
     const width = crop ? crop.width : photo.originalWidth;
     const height = crop ? crop.height : photo.originalHeight;
     return {
@@ -486,7 +486,7 @@ export function generateCollageLayout(
   
   if (photos.length === 1) {
     const photo = photos[0];
-    const crop = getActiveCrop(photo);
+    const crop = getDisplayCrop(photo);
     const w = crop ? crop.width : photo.originalWidth;
     const h = crop ? crop.height : photo.originalHeight;
     const scale = 1200 / w;

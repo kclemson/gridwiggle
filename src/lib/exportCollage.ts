@@ -1,5 +1,6 @@
 import { PhotoItem, CollageLayout } from '@/types/collage';
-import { getActiveCrop, loadImage } from '@/lib/imageUtils';
+import { loadImage } from '@/lib/imageUtils';
+import { getDisplayCrop } from '@/lib/cropUtils';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -31,7 +32,7 @@ export async function exportCollageAsPng(
     const imgUrl = URL.createObjectURL(photo.blob);
     try {
       const img = await loadImage(imgUrl);
-      const crop = getActiveCrop(photo);
+      const crop = getDisplayCrop(photo);
 
       if (crop) {
         // Draw cropped image

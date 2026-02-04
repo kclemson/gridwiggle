@@ -1,91 +1,50 @@
 
 
-## Root Cause: Uncaught Worker Creation Error
+## Add Max Height Constraint to Collage Preview
 
-The actual bug is simple: **`getWorker()` doesn't handle worker creation failures**.
+### Problem
 
-```typescript
-// Line 17-25 of smartCropService.ts
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(                    // ← This throws on Safari mobile
-      new URL('../workers/visionWorker.ts', import.meta.url),
-      { type: 'module' }
-    );
-  }
-  return worker;
-}
-```
+Portrait collages scale to fill the full container width, resulting in excessively tall previews that push content off-screen and require significant scrolling.
 
-When Safari mobile fails to create a module worker, this throws synchronously. The error bubbles up, gets caught in the `processSmartCrops` try/catch, logs to console, and sets `error` on the photo - but **no `smartCrop` is ever set**.
+### Solution
+
+Add a `max-height` constraint to the collage wrapper. This is a CSS-only change that caps the preview height while maintaining the correct aspect ratio.
 
 ---
 
-## The Fix: Catch the Error, Return Fallback
+### Design Decision: Where to Apply the Constraint
 
-Wrap worker creation in try/catch. If it fails, return a full-image crop instead of crashing:
+| Option | Pros | Cons |
+|--------|------|------|
+| **In `CollagePreview.tsx`** | Component self-contains its display logic | May not always want the constraint (e.g., export preview) |
+| **In `Index.tsx` wrapper** | Context-specific, collage component stays pure | Correct approach - UI context controls display |
 
-### `src/services/smartCropService.ts`
-
-**Change 1:** Make `getWorker()` return `null` on failure
-
-```typescript
-function getWorker(): Worker | null {
-  if (!worker) {
-    try {
-      worker = new Worker(
-        new URL('../workers/visionWorker.ts', import.meta.url),
-        { type: 'module' }
-      );
-    } catch (e) {
-      console.warn('Module worker not supported:', e);
-      return null;
-    }
-  }
-  return worker;
-}
-```
-
-**Change 2:** Handle `null` worker in `getSmartCrop()`
-
-```typescript
-export async function getSmartCrop(...): Promise<SmartCropResult> {
-  const currentWorker = getWorker();
-  
-  // If worker creation failed, return full-image crop as fallback
-  if (!currentWorker) {
-    onStatus?.('Using full image (AI unavailable)');
-    return {
-      crop: { x: 0, y: 0, width, height },
-      confidence: 0,
-      subjects: 'AI unavailable'
-    };
-  }
-  
-  // ... rest of existing code
-}
-```
+**Recommendation:** Apply in `Index.tsx` - the parent controls how the preview is displayed in this UI context.
 
 ---
 
-## Why This Is the Right Fix
+### Implementation
 
-| Approach | Problem |
-|----------|---------|
-| Add global error boundary | Doesn't fix the bug, just hides it with a reload button |
-| Add unhandledrejection handler | This is a synchronous throw, not a promise rejection |
-| Safari UA detection | Brittle, breaks when Safari adds support |
-| **Catch the actual throw** | ✓ Fixes the root cause |
+**File: `src/pages/Index.tsx` (line 389)**
 
-The existing code already has a sensible fallback behavior built in - when `smartCrop` is `null`, `CroppedImage` shows the full image. We just need to actually return a crop instead of throwing.
+Add `max-h-[70vh]` and adjust flex behavior to center the collage when it's constrained:
+
+```tsx
+// Current
+<div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+
+// Updated
+<div className="rounded-xl overflow-hidden border border-border bg-surface p-4 max-h-[70vh] flex items-center justify-center">
+```
+
+The `CollagePreview` component already has `w-full` and uses `maxWidth` with `aspect-ratio`, so it will naturally scale down to fit within the height constraint while maintaining proportions.
 
 ---
 
-## File Summary
+### Why 70vh?
 
-| File | Change |
-|------|--------|
-| `src/services/smartCropService.ts` | Wrap worker creation in try/catch, return fallback on failure |
-
-No new files. No speculative error boundaries. Just catch the error where it actually happens.
+- Leaves room for header (~56px) and some breathing room
+- On mobile (812px height), this is ~568px max - reasonable for viewing
+- Tall portrait collages will scale to fit, wide landscape collages won't be affected
+- User can still export at full resolution - this is just the preview constraint
 

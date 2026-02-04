@@ -14,12 +14,17 @@ interface WorkerStatusCallback {
 // Create worker singleton
 let worker: Worker | null = null;
 
-function getWorker(): Worker {
+function getWorker(): Worker | null {
   if (!worker) {
-    worker = new Worker(
-      new URL('../workers/visionWorker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    try {
+      worker = new Worker(
+        new URL('../workers/visionWorker.ts', import.meta.url),
+        { type: 'module' }
+      );
+    } catch (e) {
+      console.warn('Module worker not supported:', e);
+      return null;
+    }
   }
   return worker;
 }
@@ -88,6 +93,17 @@ export async function getSmartCrop(
   height: number,
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
+  // Check worker availability first - fail fast with fallback
+  const currentWorker = getWorker();
+  if (!currentWorker) {
+    onStatus?.('Using full image (AI unavailable)');
+    return {
+      crop: { x: 0, y: 0, width, height },
+      confidence: 0,
+      subjects: 'AI unavailable'
+    };
+  }
+
   // Convert blob to dataUrl for the vision worker
   const dataUrl = await blobToDataUrl(blob);
   
@@ -95,7 +111,6 @@ export async function getSmartCrop(
   const scaled = await scaleImageForProcessing(dataUrl, width, height);
   
   return new Promise((resolve, reject) => {
-    const currentWorker = getWorker();
     
     // Timeout after 60 seconds (model download + processing)
     const timeoutId = setTimeout(() => {

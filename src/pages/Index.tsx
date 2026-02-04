@@ -289,24 +289,20 @@ export default function Index() {
               />
             </div>
 
-            {/* Original photos grid */}
+            {/* Photos grid - shows all photos with processing/error/cropped states */}
             <PhotoGrid
               photos={state.photos}
               onRemove={handleRemovePhoto}
-              title="Original Photos"
+              onPhotoClick={(photoId) => {
+                const photo = state.photos.find(p => p.id === photoId);
+                if (photo && (photo.smartCrop || photo.manualCrop)) {
+                  setEditingPhotoId(photoId);
+                }
+              }}
+              showCropped
+              title="Photos"
+              hint="tap to adjust crop"
             />
-
-            {/* Smart cropped photos grid */}
-            {photosWithSmartCrop.length > 0 && (
-              <PhotoGrid
-                photos={photosWithSmartCrop}
-                onRemove={handleRemovePhoto}
-                onPhotoClick={setEditingPhotoId}
-                showCropped
-                title="Smart Cropped Photos"
-                hint="tap to crop"
-              />
-            )}
 
             {/* Settings */}
             <CollageSettings

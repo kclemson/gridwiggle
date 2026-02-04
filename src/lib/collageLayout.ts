@@ -190,7 +190,7 @@ function scorePartition(
   // Combined score (lower = better)
   // Uniformity is primary, orientation direction is hard gate
   const totalScore = 
-    aspectDiff * 0.5 +       // Relaxed: allow aspect flexibility
+    aspectDiff * 2.0 +       // Tighter: respect target shape
     directionPenalty +       // HARD: correct orientation direction
     areaCV * 1.0 +           // PRIMARY: uniform cell sizes
     heightCV * 0.2 +         // Light: uniform row heights

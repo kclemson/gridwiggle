@@ -240,49 +240,6 @@ function packVerticalColumn(
   return { cells, width: columnWidth };
 }
 
-/**
- * Pack photos into a vertical strip using row-based layout,
- * then scale UNIFORMLY to match target height (preserving aspect ratios).
- */
-function packVerticalStripWithUniformScale(
-  photos: PhotoDimension[],
-  maxWidth: number,
-  targetHeight: number,
-  offsetX: number,
-  offsetY: number,
-  gap: number
-): CollageCell[] {
-  if (photos.length === 0 || maxWidth < MIN_DIMENSION) return [];
-  
-  // Pack with portrait orientation preference
-  const result = packPhotosIntoRegion(photos, {
-    width: maxWidth,
-    gap,
-    offsetX: 0,
-    offsetY: 0,
-    isLandscape: false,
-  });
-  
-  const cells = result.cells;
-  if (cells.length === 0) return [];
-  
-  const packedHeight = getCellsHeight(cells);
-  const packedWidth = Math.max(...cells.map(c => c.x + c.width));
-  
-  // Scale UNIFORMLY to match target height
-  const scale = targetHeight / packedHeight;
-  const minY = Math.min(...cells.map(c => c.y));
-  const minX = Math.min(...cells.map(c => c.x));
-  
-  return cells.map(cell => ({
-    photoId: cell.photoId,
-    // Scale BOTH x and width to preserve aspect ratios
-    x: Math.round(offsetX + (cell.x - minX) * scale),
-    y: Math.round(offsetY + (cell.y - minY) * scale),
-    width: Math.round(cell.width * scale),
-    height: Math.round(cell.height * scale),
-  }));
-}
 
 // ============================================================================
 // Zone Packing Functions
@@ -413,7 +370,7 @@ function generateEdgeAnchoredHeroLayout(
 
 /**
  * Generate layout with floating hero (for many photos).
- * Uses uniform scaling to preserve aspect ratios.
+ * Uses natural width column packing to preserve exact aspect ratios.
  */
 function generateFloatingHeroLayout(
   hero: PhotoDimension,
@@ -434,48 +391,54 @@ function generateFloatingHeroLayout(
     standards.length
   );
   
-  // 2. Choose hero X position (can be anywhere)
-  const heroX = chooseHeroX(heroSize.width, canvasWidth, gap, standards.length, randomize);
-  
-  // 3. Calculate strip widths
-  const leftWidth = heroX - gap;
-  const rightX = heroX + heroSize.width + gap;
-  const rightWidth = canvasWidth - rightX;
-  
-  const hasLeft = leftWidth >= MIN_DIMENSION;
-  const hasRight = rightWidth >= MIN_DIMENSION;
-  
-  // 4. Distribute photos to left/right/below
+  // 2. Distribute photos to left/right/below
   const shuffled = randomize ? shuffleArray(standards) : standards;
-  
-  let leftCount = 0, rightCount = 0;
   const totalBesideRatio = 0.4; // 40% beside, 60% below
+  const besideTotal = Math.floor(standards.length * totalBesideRatio);
   
-  if (hasLeft && hasRight) {
-    // Split beside photos proportionally to strip widths
-    const leftRatio = leftWidth / (leftWidth + rightWidth);
-    const besideTotal = Math.floor(standards.length * totalBesideRatio);
-    leftCount = Math.max(1, Math.floor(besideTotal * leftRatio));
-    rightCount = Math.max(1, besideTotal - leftCount);
-  } else if (hasLeft) {
-    leftCount = Math.floor(standards.length * totalBesideRatio);
-  } else if (hasRight) {
-    rightCount = Math.floor(standards.length * totalBesideRatio);
+  // Split beside photos roughly evenly between left and right
+  const leftCount = Math.max(1, Math.floor(besideTotal / 2));
+  const rightCount = Math.max(1, besideTotal - leftCount);
+  
+  let leftPhotos = shuffled.slice(0, leftCount);
+  let rightPhotos = shuffled.slice(leftCount, leftCount + rightCount);
+  let belowPhotos = shuffled.slice(leftCount + rightCount);
+  
+  // 3. Pack left strip using natural width calculation
+  let { cells: leftCells, width: actualLeftWidth } = packVerticalColumn(
+    leftPhotos, heroSize.height, 0, 0, gap
+  );
+  
+  // 4. Calculate max allowed width for left strip (leave room for hero + right)
+  const maxLeftWidth = canvasWidth - heroSize.width - gap * 2 - MIN_DIMENSION;
+  
+  // If left strip is too wide, move photos to below zone
+  if (actualLeftWidth > maxLeftWidth && maxLeftWidth > 0) {
+    belowPhotos = [...leftPhotos, ...belowPhotos];
+    leftPhotos = [];
+    leftCells = [];
+    actualLeftWidth = 0;
   }
   
-  const leftPhotos = shuffled.slice(0, leftCount);
-  const rightPhotos = shuffled.slice(leftCount, leftCount + rightCount);
-  const belowPhotos = shuffled.slice(leftCount + rightCount);
+  // 5. Position hero based on actual left strip width
+  const heroX = actualLeftWidth > 0 ? actualLeftWidth + gap : 0;
   
-  // 5. Pack left strip with UNIFORM scaling
-  const leftCells = hasLeft 
-    ? packVerticalStripWithUniformScale(leftPhotos, leftWidth, heroSize.height, 0, 0, gap)
-    : [];
+  // 6. Pack right strip using natural width calculation
+  const rightOffsetX = heroX + heroSize.width + gap;
+  let { cells: rightCells, width: actualRightWidth } = packVerticalColumn(
+    rightPhotos, heroSize.height, rightOffsetX, 0, gap
+  );
   
-  // 6. Pack right strip with UNIFORM scaling
-  const rightCells = hasRight
-    ? packVerticalStripWithUniformScale(rightPhotos, rightWidth, heroSize.height, rightX, 0, gap)
-    : [];
+  // Calculate max allowed width for right strip
+  const maxRightWidth = canvasWidth - rightOffsetX;
+  
+  // If right strip is too wide, move photos to below zone
+  if (actualRightWidth > maxRightWidth && maxRightWidth > 0) {
+    belowPhotos = [...rightPhotos, ...belowPhotos];
+    rightPhotos = [];
+    rightCells = [];
+    actualRightWidth = 0;
+  }
   
   // 7. Create hero cell
   const heroCell: CollageCell = {

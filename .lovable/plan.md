@@ -1,77 +1,70 @@
 
 
-# Add Filename to Smart Crop Logging
+# Only Smart Crop When Person Detected
 
 ## Goal
 
-Include the original filename in the console logs so you can identify which image is which when debugging smart crop detection.
+Change the smart crop logic to ONLY apply when "person" is detected. All other detections (banana, potted plant, vase, etc.) should skip smart cropping and use the full image.
 
-## Current Situation
+## Rationale
 
-- `PhotoItem` only has `id` (generated UUID), no filename
-- The filename is available in `PhotoUploader` when files are selected (`file.name`)
-- But it's not being stored in the photo object
+| Subject Detected | Typical Content | Action |
+|-----------------|-----------------|--------|
+| "person" | Real photos of people | Apply smart crop |
+| Any other label | Landscapes, objects, cartoons | Skip - use full image |
+| No detection | Memes, screenshots, abstract | Skip - use full image |
 
-## Changes Required
+The DETR model:
+- Reliably detects "person" in real photos (Picard: 1.00, Success Kid: 1.00)
+- Hallucinates random objects in cartoons (Shrek: "banana", Spongebob house: "banana")
+- Often fails to detect anything in memes (Lisa Simpson: 0.00)
 
-### File 1: `src/types/collage.ts`
+By only trusting "person" detections, we get reliable smart cropping for photos that benefit most from it.
 
-Add optional `filename` field to both `PhotoItem` and `PhotoMetadata`:
+## Technical Change
 
+### File: `src/workers/visionWorker.ts`
+
+Update the skipCrop logic to check if any "person" was detected:
+
+**Current code (around line 139-141):**
 ```typescript
-export interface PhotoItem {
-  id: string;
-  filename?: string;           // NEW: Original filename for debugging
-  objectUrl: string;
-  // ... rest unchanged
-}
-
-export interface PhotoMetadata {
-  id: string;
-  filename?: string;           // NEW: Persist for debugging
-  // ... rest unchanged
-}
+// Skip smart cropping if confidence is too low (cartoons, memes, screenshots)
+const skipCrop = maxConfidence < 0.6;
 ```
 
-### File 2: `src/components/PhotoUploader.tsx`
-
-Capture the filename when creating the PhotoItem:
-
+**New code:**
 ```typescript
-return {
-  id: generateId(),
-  filename: file.name,         // NEW: Store original filename
-  objectUrl,
-  blob,
-  // ... rest unchanged
-};
+// Only apply smart crop if a person was detected
+// DETR hallucinates random objects (banana, vase) for cartoons
+// but reliably detects "person" in real photos
+const hasPerson = results.some(r => r.score > 0.4 && r.label === 'person');
+const skipCrop = !hasPerson;
 ```
 
-### File 3: `src/pages/Index.tsx`
+## Expected Behavior After Fix
 
-Update the logging to show filename (fallback to ID if not available):
+| Image | Detection | skipCrop | Result |
+|-------|-----------|----------|--------|
+| picard.jpg | person (1.00) | false | Smart crop applied |
+| successkid.webp | person (1.00) | false | Smart crop applied |
+| shrek.webp | banana (0.96) | true | Full image |
+| spongebobshouse2.jpg | banana (0.94) | true | Full image |
+| lisasimpson.jpg | none (0.00) | true | Full image |
 
-```typescript
-console.log(
-  `Smart crop for ${photo.filename || photo.id}: confidence=${result.confidence.toFixed(2)}, ` +
-  `subjects="${result.subjects}", skipCrop=${result.skipCrop}`
-);
+## Console Output After Fix
+
 ```
-
-## Expected Console Output After Fix
-
-```
-Smart crop for shrek.jpg: confidence=0.94, subjects="banana", skipCrop=false
-Smart crop for lisa-simpson.png: confidence=0.00, subjects="No subjects detected", skipCrop=true
-Smart crop for pineapple-house.jpg: confidence=0.96, subjects="banana", skipCrop=false
 Smart crop for picard.jpg: confidence=1.00, subjects="person", skipCrop=false
+Smart crop for successkid.webp: confidence=1.00, subjects="person", skipCrop=false
+Smart crop for shrek.webp: confidence=0.96, subjects="banana", skipCrop=true
+Smart crop for spongebobshouse2.jpg: confidence=0.94, subjects="banana", skipCrop=true
+Smart crop for lisasimpson.jpg: confidence=0.00, subjects="No subjects detected", skipCrop=true
 ```
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/types/collage.ts` | Add optional `filename` field to `PhotoItem` and `PhotoMetadata` |
-| `src/components/PhotoUploader.tsx` | Capture `file.name` when creating photo object |
-| `src/pages/Index.tsx` | Show filename in log output |
+| `src/workers/visionWorker.ts` | Change skipCrop to only be false when "person" is detected |
 

@@ -1,191 +1,345 @@
 
 
-## Refactor: Centralized Collage Regeneration
+# Hero Photo Layout: Unconstrained Anchor-Based Placement
 
-### Goal
+## Core Principles (What You Keep Repeating)
 
-Consolidate all collage regeneration triggers into a single `regenerateCollage` function to eliminate code duplication and ensure consistent behavior.
+1. **Heroes can anchor ANYWHERE** - corners, edges, floating, center, offset - no artificial restrictions
+2. **Single validation rule**: All remaining regions must have dimensions >= 100px
+3. **Aspect ratio always preserved** - hero cells exactly match their crop aspect ratio
+4. **Grid-based performance** - 100px grid spacing prevents pixel-by-pixel enumeration
+5. **No orientation bias** - the math decides what's valid, not arbitrary rules
 
 ---
 
-## Technical Changes
+## Simplified Model: Just (x, y, spanFraction)
 
-### File: `src/pages/Index.tsx`
+No "attached edges" concept. Just positions:
 
-**1. Remove `layoutStale` state (line 45)**
-
-No longer needed since all changes will regenerate immediately:
-
-```tsx
-// DELETE this line:
-const [layoutStale, setLayoutStale] = useState(false);
+```typescript
+interface AnchorPosition {
+  x: number;           // Hero's left edge in pixels
+  y: number;           // Hero's top edge in pixels  
+  spanFraction: number; // Size scaling (0.35 to 0.65)
+}
 ```
 
-**2. Add `RegenerateOptions` interface and `regenerateCollage` function (after line 49)**
+If `x === 0`, hero happens to touch left edge. If `x === 500`, it's floating. The remaining region logic doesn't care - it just checks if there's space.
 
-Insert after the `photosRef` lines:
+---
 
-```tsx
-// Options for regenerating the collage layout
-interface RegenerateOptions {
-  /** Use specific photos instead of current state (for removal before state updates) */
-  photos?: PhotoItem[];
-  /** Use specific settings instead of current state */
-  settings?: CollageSettingsType;
-  /** Override a single photo's priority before state updates */
-  priorityOverride?: { photoId: string; priority: PhotoPriority };
-  /** Shuffle for variety (refresh button) */
-  randomize?: boolean;
+## Algorithm
+
+```text
+1. Generate grid of (x, y, spanFraction) candidates
+   - X positions: 0, 100, 200, ... canvasWidth
+   - Y positions: 0, 100, 200, ... canvasHeight
+   - Span options: 0.35, 0.50, 0.65
+
+2. For each candidate:
+   - Calculate hero dimensions (preserve aspect ratio)
+   - Calculate remaining regions (up to 4 strips around hero)
+
+3. Filter: Keep candidates where ALL remaining regions >= 100px in both dimensions
+
+4. Select: Random from valid set (or first if deterministic)
+
+5. Pack standards into remaining regions
+```
+
+---
+
+## Technical Implementation
+
+### File: `src/lib/collageLayout.ts`
+
+### Constants and Types
+
+```typescript
+const MIN_REGION_DIMENSION = 100;
+
+interface AnchorPosition {
+  x: number;
+  y: number;
+  spanFraction: number;
 }
 
-// Centralized collage regeneration - all triggers use this
-const regenerateCollage = useCallback((options: RegenerateOptions = {}) => {
-  const {
-    photos = photosRef.current,
-    settings = state.settings,
-    priorityOverride,
-    randomize = false,
-  } = options;
-  
-  // Need at least 2 photos for a collage
-  if (photos.length < 2) {
-    setLayout(null);
-    return;
-  }
-  
-  // Build weights from priorities (with optional override for pending state updates)
-  const photoWeights: Record<string, number> = {};
-  for (const photo of photos) {
-    const effectivePriority = priorityOverride?.photoId === photo.id 
-      ? priorityOverride.priority 
-      : photo.priority;
-    photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
-  }
-  
-  const layout = generateCollageLayout(photos, settings, { 
-    photoWeights,
-    randomize,
-  });
-  setLayout(layout);
-}, [state.settings, setLayout]);
+interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 ```
 
-**3. Simplify `handleRemovePhoto` (lines 91-94)**
+### Generate Grid Candidates
 
-Replace with auto-regeneration:
-
-```tsx
-const handleRemovePhoto = useCallback((photoId: string) => {
-  removePhoto(photoId);
-  if (state.layout) {
-    const remainingPhotos = state.photos.filter(p => p.id !== photoId);
-    regenerateCollage({ photos: remainingPhotos });
-  }
-}, [removePhoto, state.layout, state.photos, regenerateCollage]);
-```
-
-**4. Simplify `handleSaveCrop` (lines 96-112)**
-
-Replace with:
-
-```tsx
-const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
-  updatePhoto(photoId, { manualCrop: crop, priority });
-  setEditingPhotoId(null);
-  if (state.layout) {
-    regenerateCollage({ priorityOverride: { photoId, priority } });
-  }
-}, [updatePhoto, state.layout, regenerateCollage]);
-```
-
-**5. Simplify `handleToggleHero` (lines 114-132)**
-
-Replace with:
-
-```tsx
-const handleToggleHero = useCallback((photoId: string) => {
-  const photo = state.photos.find(p => p.id === photoId);
-  if (!photo) return;
+```typescript
+function generateAnchorCandidates(
+  canvasWidth: number,
+  canvasHeight: number,
+  randomize: boolean
+): AnchorPosition[] {
+  const step = MIN_REGION_DIMENSION;
+  const candidates: AnchorPosition[] = [];
   
-  const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
-  updatePhoto(photoId, { priority: newPriority });
+  const spanOptions = randomize 
+    ? [0.35 + Math.random() * 0.30]
+    : [0.35, 0.50, 0.65];
   
-  if (state.layout) {
-    regenerateCollage({ priorityOverride: { photoId, priority: newPriority } });
+  // Generate grid of positions
+  for (let x = 0; x <= canvasWidth; x += step) {
+    for (let y = 0; y <= canvasHeight; y += step) {
+      for (const span of spanOptions) {
+        candidates.push({ x, y, spanFraction: span });
+      }
+    }
   }
-}, [state.photos, state.layout, updatePhoto, regenerateCollage]);
-```
-
-**6. Simplify `handleCreateCollage` (lines 134-153)**
-
-Replace with:
-
-```tsx
-const handleCreateCollage = useCallback(() => {
-  regenerateCollage({ randomize: state.layout !== null });
-}, [state.layout, regenerateCollage]);
-```
-
-**7. Update `handlePhotosAdded` (lines 155-180)**
-
-Change the end to regenerate immediately instead of marking stale:
-
-```tsx
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
   
-  if (succeeded.length === 0) {
-    return;
-  }
-
-  const wasLayoutEmpty = state.layout === null;
-
-  try {
-    await processSmartCrops(succeeded);
-  } catch (error) {
-    console.error('Smart crop processing failed:', error);
-    toast.error('AI processing failed. Please try again.');
-  }
-
-  // Always regenerate - first batch without randomization, subsequent with
-  regenerateCollage({ randomize: !wasLayoutEmpty });
-}, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
+  return candidates;
+}
 ```
 
-**8. Simplify `handleUpdateSettings` (lines 182-193)**
+### Calculate Hero Dimensions
 
-Replace with:
-
-```tsx
-const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
-  updateSettings(updates);
-  if (state.layout && ('gapSize' in updates || 'orientation' in updates)) {
-    const newSettings = { ...state.settings, ...updates };
-    regenerateCollage({ settings: newSettings });
+```typescript
+function calculateHeroDimensions(
+  anchor: AnchorPosition,
+  heroAspect: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  areaBudget: number
+): { x: number; y: number; width: number; height: number } {
+  const targetArea = canvasWidth * canvasHeight * areaBudget;
+  
+  // Preserve aspect ratio: width = sqrt(area * aspect)
+  let width = Math.sqrt(targetArea * heroAspect) * (anchor.spanFraction / 0.5);
+  let height = width / heroAspect;
+  
+  // Constrain to canvas
+  if (width > canvasWidth * 0.85) {
+    width = canvasWidth * 0.85;
+    height = width / heroAspect;
   }
-}, [updateSettings, state.layout, state.settings, regenerateCollage]);
+  if (height > canvasHeight * 0.85) {
+    height = canvasHeight * 0.85;
+    width = height * heroAspect;
+  }
+  
+  // Position: anchor is top-left, clamp to keep hero inside canvas
+  const x = Math.min(anchor.x, canvasWidth - width);
+  const y = Math.min(anchor.y, canvasHeight - height);
+  
+  return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+}
+```
+
+### Calculate Remaining Regions
+
+```typescript
+function calculateRemainingRegions(
+  hero: { x: number; y: number; width: number; height: number },
+  canvasWidth: number,
+  canvasHeight: number,
+  gap: number
+): Region[] {
+  const regions: Region[] = [];
+  
+  // Left strip
+  if (hero.x > gap) {
+    regions.push({ x: 0, y: 0, width: hero.x - gap, height: canvasHeight });
+  }
+  
+  // Right strip
+  if (hero.x + hero.width < canvasWidth - gap) {
+    regions.push({ 
+      x: hero.x + hero.width + gap, 
+      y: 0, 
+      width: canvasWidth - hero.x - hero.width - gap, 
+      height: canvasHeight 
+    });
+  }
+  
+  // Top strip (between left/right)
+  if (hero.y > gap) {
+    const left = hero.x > gap ? hero.x : 0;
+    const right = hero.x + hero.width < canvasWidth - gap ? hero.x + hero.width : canvasWidth;
+    if (right > left) {
+      regions.push({ x: left, y: 0, width: right - left, height: hero.y - gap });
+    }
+  }
+  
+  // Bottom strip (between left/right)
+  if (hero.y + hero.height < canvasHeight - gap) {
+    const left = hero.x > gap ? hero.x : 0;
+    const right = hero.x + hero.width < canvasWidth - gap ? hero.x + hero.width : canvasWidth;
+    if (right > left) {
+      regions.push({ 
+        x: left, 
+        y: hero.y + hero.height + gap, 
+        width: right - left, 
+        height: canvasHeight - hero.y - hero.height - gap 
+      });
+    }
+  }
+  
+  return regions;
+}
+```
+
+### Validate: The Only Filter
+
+```typescript
+function isValidAnchor(
+  anchor: AnchorPosition,
+  heroAspect: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  areaBudget: number,
+  gap: number
+): boolean {
+  const hero = calculateHeroDimensions(anchor, heroAspect, canvasWidth, canvasHeight, areaBudget);
+  
+  if (hero.width < MIN_REGION_DIMENSION || hero.height < MIN_REGION_DIMENSION) {
+    return false;
+  }
+  
+  const regions = calculateRemainingRegions(hero, canvasWidth, canvasHeight, gap);
+  
+  return regions.length > 0 && regions.every(r => 
+    r.width >= MIN_REGION_DIMENSION && r.height >= MIN_REGION_DIMENSION
+  );
+}
+```
+
+### Select and Realize
+
+```typescript
+function selectAnchor(
+  candidates: AnchorPosition[],
+  heroAspect: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  areaBudget: number,
+  gap: number,
+  randomize: boolean
+): AnchorPosition | null {
+  const valid = candidates.filter(c => 
+    isValidAnchor(c, heroAspect, canvasWidth, canvasHeight, areaBudget, gap)
+  );
+  
+  if (valid.length === 0) return null;
+  
+  return randomize 
+    ? valid[Math.floor(Math.random() * valid.length)]
+    : valid[0];
+}
+```
+
+### Dynamic Area Budget
+
+```typescript
+function getHeroAreaBudget(heroCount: number, standardCount: number): number {
+  const maxTotal = 0.70;
+  const perHero = maxTotal / heroCount;
+  const standardsNeed = Math.min(0.50, standardCount * 0.05);
+  return Math.min(perHero, (1.0 - standardsNeed) / heroCount);
+}
+```
+
+### Multi-Hero: Recursive Placement
+
+```typescript
+function placeHeroes(
+  heroes: PhotoDimension[],
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  canvasHeight: number,
+  gap: number,
+  randomize: boolean
+): { heroCells: CollageCell[]; remainingRegions: Region[] } {
+  let regions: Region[] = [{ x: 0, y: 0, width: canvasWidth, height: canvasHeight }];
+  const heroCells: CollageCell[] = [];
+  const orderedHeroes = randomize ? shuffleArray([...heroes]) : heroes;
+  
+  for (const hero of orderedHeroes) {
+    regions.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+    const target = regions.shift();
+    if (!target) break;
+    
+    const budget = getHeroAreaBudget(heroes.length, standards.length);
+    const candidates = generateAnchorCandidates(target.width, target.height, randomize);
+    const anchor = selectAnchor(candidates, hero.aspectRatio, target.width, target.height, budget, gap, randomize);
+    
+    if (!anchor) continue;
+    
+    const dims = calculateHeroDimensions(anchor, hero.aspectRatio, target.width, target.height, budget);
+    heroCells.push({
+      photoId: hero.id,
+      x: dims.x + target.x,
+      y: dims.y + target.y,
+      width: dims.width,
+      height: dims.height,
+    });
+    
+    const newRegions = calculateRemainingRegions(dims, target.width, target.height, gap);
+    regions.push(...newRegions.map(r => ({
+      x: r.x + target.x,
+      y: r.y + target.y,
+      width: r.width,
+      height: r.height,
+    })));
+  }
+  
+  return { heroCells, remainingRegions: regions };
+}
+```
+
+### Main Entry Point
+
+```typescript
+function generateHeroLayout(
+  heroes: PhotoDimension[],
+  standards: PhotoDimension[],
+  settings: CollageSettings,
+  targetAspect: number,
+  randomize: boolean
+): CollageLayout {
+  const baseWidth = 1200;
+  const baseHeight = Math.round(baseWidth / targetAspect);
+  
+  const { heroCells, remainingRegions } = placeHeroes(
+    heroes, standards, baseWidth, baseHeight, settings.gapSize, randomize
+  );
+  
+  const standardCells = packStandardsIntoRegions(standards, remainingRegions, settings.gapSize);
+  const allCells = [...heroCells, ...standardCells];
+  const maxY = Math.max(...allCells.map(c => c.y + c.height));
+  
+  return { width: baseWidth, height: Math.round(maxY), cells: allCells };
+}
+```
+
+### Update `generateCollageLayout()`
+
+```typescript
+const heroes = dims.filter(d => d.weight >= 2.0);
+const standards = dims.filter(d => d.weight < 2.0);
+
+if (heroes.length > 0 && standards.length > 0) {
+  return generateHeroLayout(heroes, standards, settings, targetAspect, options?.randomize ?? false);
+}
 ```
 
 ---
 
-## Summary of Changes
+## Summary
 
-| Handler | Before | After |
-|---------|--------|-------|
-| `handleCreateCollage` | 20 lines with weight building | 3 lines |
-| `handleSaveCrop` | 17 lines with weight loop | 7 lines |
-| `handleToggleHero` | 19 lines with weight loop | 10 lines |
-| `handleUpdateSettings` | 12 lines | 7 lines |
-| `handleRemovePhoto` | Marks stale | Auto-regenerates |
-| `handlePhotosAdded` | Marks stale for existing layouts | Auto-regenerates |
+| Removed | Added |
+|---------|-------|
+| `attachedEdges` array | Simple `(x, y, spanFraction)` |
+| Edge-detection logic | Uniform position handling |
+| Orientation restrictions | Single 100px validation rule |
 
----
-
-## Benefits
-
-- **Single source of truth**: All regeneration logic in one function
-- **Consistent weight calculation**: No more duplicated loops
-- **Immediate feedback**: Photo removal regenerates instantly
-- **Easier maintenance**: Future changes only need one place
-- **~40 lines removed**: Cleaner, more readable code
+~350 candidates generated, ~50-150 pass validation, selection is instant.
 

@@ -572,10 +572,12 @@ export function generateCollageLayout(
       break;
     case 'auto':
     default:
-      // Use actual average aspect ratio, clamped to reasonable range
+      // Bias toward landscape for better social media display (carousels, previews)
       const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-      // Clamp between 0.6 (tall portrait) and 2.0 (wide landscape)
-      targetAspect = Math.max(0.6, Math.min(2.0, avgAspect));
+      const landscapeBias = 1.3; // Pull toward wider layouts
+      const biasedAspect = avgAspect * landscapeBias;
+      // Clamp to reasonable range (0.8 to 2.2)
+      targetAspect = Math.max(0.8, Math.min(2.2, biasedAspect));
       isLandscape = targetAspect >= 1.0;
       break;
   }

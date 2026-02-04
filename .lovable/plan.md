@@ -1,103 +1,95 @@
 
 
-# Reposition Debug Panel Next to Collage Section
+# Add Comprehensive Logging to Floating Strategy
 
-## Overview
+## Problem Analysis
 
-Move the debug panel from its current fixed position at the top of the page to align vertically with the collage preview section. This allows capturing both the collage and its associated layout logs in a single screenshot.
+The debug panel screenshots reveal a strong correlation:
+- **Collages with only "Strategy" logs** → Using "floating" strategy → **Black bars/dead space**
+- **Collages with full logs** → Using "edge-anchored" strategy → **Clean, tight layouts**
 
-## Current Behavior
+The "floating" strategy code path (lines 958-1191 in `heroLayout.ts`) has **zero** `[Hero]` prefixed console.log statements, while the "edge-anchored" path has comprehensive logging at every decision point.
 
-The debug panel uses `fixed top-16` positioning, which places it at the top of the viewport regardless of scroll position. As shown in your screenshot, this means the logs appear next to the photo grid rather than next to the collage output.
+## Root Causes
 
-## Proposed Solution
+1. **Missing diagnostic logging** - Can't see what the floating algorithm is computing
+2. **Possible layout bugs** - The black bars suggest width calculations aren't filling the canvas
+3. **Silent fallback** - When floating falls back to edge-anchored, there's no logging about why
 
-Instead of a fixed-position panel at the document level, we'll render the debug panel **inline with the collage section** using a relative positioning approach:
+## Solution
 
-1. Create a wrapper around the collage preview section
-2. Position the debug panel absolutely relative to that wrapper
-3. This keeps the panel anchored to the collage visually while allowing the rest of the UI to scroll normally
+Add comprehensive `[Hero]` logging to the floating strategy at these points:
 
-## Implementation
-
-### File: `src/components/DebugPanel.tsx`
-
-Remove the fixed positioning and change to a simpler relative design:
-
-```text
-Before:
-  className="fixed top-16 hidden xl:block z-50"
-  style={{ left: 'calc(50% + 256px + 24px)', ... }}
-
-After:
-  className="hidden xl:block"
-  (no inline positioning styles - will be positioned by parent)
+### 1. Configuration Entry (after line 969)
+```typescript
+console.log('[Hero] Floating config', {
+  useIntroRows,
+  introPhotoCount: introPhotos.length,
+  leftCount,
+  rightCount,
+  belowCount: initialBelowPhotos.length,
+});
 ```
 
-The component will just render the panel UI without positioning itself.
-
-### File: `src/pages/Index.tsx`
-
-Wrap the collage section in a relative container and position the debug panel:
-
-```text
-Before (lines 357-426):
-  <div className="space-y-2 pt-4 border-t border-border">
-    {/* collage content */}
-  </div>
-
-  {/* Debug panel rendered separately at end of component */}
-
-After:
-  <div className="relative">
-    <div className="space-y-2 pt-4 border-t border-border">
-      {/* collage content */}
-    </div>
-    
-    {/* Debug panel positioned to the right of this section */}
-    {import.meta.env.DEV && (
-      <div 
-        className="absolute top-0 hidden xl:block"
-        style={{ left: 'calc(100% + 24px)', width: '360px' }}
-      >
-        <DebugPanel logs={debugLogs} />
-      </div>
-    )}
-  </div>
+### 2. Side Packing Results (after line 1031)
+```typescript
+console.log('[Hero] Side packing', {
+  leftRows: 'row3Height' in leftResult ? 3 : 2,
+  leftHeight: leftResult.combinedHeight.toFixed(0),
+  leftWidth: leftResult.naturalTotalWidth.toFixed(0),
+  rightRows: 'row3Height' in rightResult ? 3 : 2,
+  rightHeight: rightResult.combinedHeight.toFixed(0),
+  rightWidth: rightResult.naturalTotalWidth.toFixed(0),
+});
 ```
 
-This positions the panel:
-- `top-0`: Aligned with the top of the collage section
-- `left: calc(100% + 24px)`: 24px to the right of the 512px container
-
-## Visual Result
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              viewport                                        │
-│                                                                              │
-│              ┌──────────────────┐                                            │
-│              │  Photos grid     │                                            │
-│              │  (no panel here) │                                            │
-│              └──────────────────┘                                            │
-│                                                                              │
-│              ┌──────────────────┐     ┌─────────────────────┐                │
-│              │  COLLAGE         │     │ HERO LAYOUT LOGS    │                │
-│              │  header row      │     │                     │                │
-│              ├──────────────────┤     │ ▸ Strategy          │                │
-│              │                  │     │   strategy: floating│                │
-│              │  Collage         │     │   standardCount: 19 │                │
-│              │  Preview         │     │                     │                │
-│              │                  │     │ ✓ Layout complete   │                │
-│              └──────────────────┘     └─────────────────────┘                │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+### 3. Scale Factor Decision (after line 1055)
+```typescript
+console.log('[Hero] Trying config', {
+  rowMode: 'floating',
+  heroWidth: heroWidth.toFixed(0),
+  totalNaturalWidth: totalNaturalWidth.toFixed(0),
+  scaleFactor: scaleFactor.toFixed(2),
+  accepted: scaleFactor >= 0.80 && scaleFactor <= 1.20,
+});
 ```
 
-## Files Modified
+### 4. Fallback Trigger (before lines 1041 and 1060)
+```typescript
+console.log('[Hero] Fallback triggered', {
+  reason: maxSideHeight === 0 ? 'no-side-packing' : 'scale-out-of-tolerance',
+  scaleFactor: scaleFactor?.toFixed(2) ?? 'n/a',
+  fallbackTo: 'edge-anchored',
+});
+```
+
+### 5. Layout Complete (before return at line 1186)
+```typescript
+console.log('[Hero] Layout complete', {
+  finalAspect: (canvasWidth / finalHeight).toFixed(2),
+  heroCell: { width: heroCell.width, height: heroCell.height },
+  heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
+  leftCells: leftCells.length,
+  rightCells: rightCells.length,
+  belowCells: belowCells.length,
+  totalCells: allCells.length,
+});
+```
+
+## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/components/DebugPanel.tsx` | Remove fixed positioning, simplify to just the panel UI |
-| `src/pages/Index.tsx` | Move debug panel rendering into the collage section with relative positioning |
+| `src/lib/heroLayout.ts` | Add 5 `[Hero]` log statements to `generateFloatingHeroLayout` function |
+
+## Expected Outcome
+
+After this change, the debug panel will show complete logging for ALL layouts, making it immediately visible when:
+- The floating strategy is being used
+- What side widths are being calculated
+- Whether scale factors are in tolerance
+- Why fallbacks are triggered
+- Final layout metrics
+
+This will help diagnose and fix the black bar issue in subsequent work.
 

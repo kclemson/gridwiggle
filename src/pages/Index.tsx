@@ -386,7 +386,7 @@ export default function Index() {
                   </p>
                 )}
 
-                <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+                <div className="rounded-xl overflow-hidden border border-border bg-surface p-4 max-h-[400px]">
                   <CollagePreview
                     photos={state.photos}
                     layout={state.layout}
@@ -394,7 +394,6 @@ export default function Index() {
                     onSwapPhotos={handleSwapPhotos}
                     onCellClick={setEditingPhotoId}
                     onToggleHero={handleToggleHero}
-                    maxHeight="70vh"
                   />
                 </div>
               </div>

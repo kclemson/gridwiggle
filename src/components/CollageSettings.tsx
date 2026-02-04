@@ -1,6 +1,12 @@
 import { CollageSettings as CollageSettingsType } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
@@ -12,38 +18,28 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
     <div className="space-y-2">
       {/* Header - matching PhotoGrid style */}
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-        Settings
+        Configure
       </h3>
       
       {/* All settings in one row */}
-      <div className="flex items-center gap-3 p-2 rounded-lg bg-surface">
-        {/* Orientation with label */}
+      <div className="flex items-center gap-3 p-2 rounded-lg bg-surface flex-wrap">
+        {/* Shape dropdown */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Orientation:</span>
-          <ToggleGroup 
-            type="single" 
-            value={settings.orientation} 
-            onValueChange={(value) => value && onUpdate({ orientation: value as 'portrait' | 'landscape' })}
+          <span className="text-xs text-muted-foreground">Shape:</span>
+          <Select
+            value={settings.orientation}
+            onValueChange={(value) => onUpdate({ orientation: value as CollageSettingsType['orientation'] })}
           >
-            <ToggleGroupItem 
-              value="landscape" 
-              size="sm"
-              className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
-            >
-              <span className={`text-xs pb-0.5 ${settings.orientation === 'landscape' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
-                Landscape
-              </span>
-            </ToggleGroupItem>
-            <ToggleGroupItem 
-              value="portrait" 
-              size="sm"
-              className="data-[state=on]:bg-transparent data-[state=off]:bg-transparent hover:bg-transparent"
-            >
-              <span className={`text-xs pb-0.5 ${settings.orientation === 'portrait' ? 'text-foreground border-b border-foreground' : 'text-muted-foreground'}`}>
-                Portrait
-              </span>
-            </ToggleGroupItem>
-          </ToggleGroup>
+            <SelectTrigger className="h-7 w-24 text-xs border-0 bg-transparent focus:ring-0 focus:ring-offset-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto</SelectItem>
+              <SelectItem value="landscape">Landscape</SelectItem>
+              <SelectItem value="portrait">Portrait</SelectItem>
+              <SelectItem value="square">Square</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         
         {/* Separator */}

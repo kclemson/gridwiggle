@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 const STORAGE_KEY = 'smart-collage-state';
 
 const defaultSettings: CollageSettings = {
-  orientation: 'landscape',
+  orientation: 'auto',
   gapColor: '#000000',
   gapSize: 8,
 };

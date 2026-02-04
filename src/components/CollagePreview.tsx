@@ -100,6 +100,12 @@ export function CollagePreview({
   };
 
 
+  // Calculate max width that ensures height stays ≤ 500px
+  const maxPreviewHeight = 500;
+  const aspectRatio = layout.width / layout.height;
+  const heightConstrainedWidth = maxPreviewHeight * aspectRatio;
+  const effectiveMaxWidth = Math.min(layout.width, heightConstrainedWidth);
+
   return (
     <div 
       className="w-full overflow-hidden"
@@ -111,8 +117,7 @@ export function CollagePreview({
         ref={collageRef}
         className="relative mx-auto"
         style={{
-          maxWidth: layout.width,
-          maxHeight: 500,
+          maxWidth: effectiveMaxWidth,
           width: '100%',
           aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,

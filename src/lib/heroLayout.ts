@@ -9,6 +9,10 @@ import { packPhotosIntoRegion } from '@/lib/collageLayout';
 const MIN_DIMENSION = 100;
 const BASE_WIDTH = 1200;
 
+// Thresholds for adaptive strategy based on photo count
+const FEW_PHOTOS_THRESHOLD = 8;   // Edge-anchor only
+const MANY_PHOTOS_THRESHOLD = 15; // Full flexibility
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -19,21 +23,6 @@ interface PhotoDimension {
   height: number;
   aspectRatio: number;
   weight: number;
-}
-
-interface ZoneDistribution {
-  above: PhotoDimension[];
-  left: PhotoDimension[];
-  right: PhotoDimension[];
-  below: PhotoDimension[];
-}
-
-interface ZoneAreas {
-  above: number;
-  left: number;
-  right: number;
-  below: number;
-  total: number;
 }
 
 // ============================================================================
@@ -77,7 +66,7 @@ function getCellsHeight(cells: CollageCell[]): number {
 
 /**
  * Calculate hero size based on area budget.
- * Heroes get larger portions when there are fewer standards.
+ * Budget adapts based on standard photo count.
  */
 function calculateHeroSize(
   hero: PhotoDimension,
@@ -86,11 +75,19 @@ function calculateHeroSize(
   heroCount: number,
   standardCount: number
 ): { width: number; height: number } {
-  // Budget per hero: scales down with more heroes, leaves room for standards
-  const maxTotalBudget = 0.60; // All heroes together max 60%
+  // Reduce hero budget when few standards available (per plan)
+  let maxBudget: number;
+  if (standardCount < 5) {
+    maxBudget = 0.35;
+  } else if (standardCount < 10) {
+    maxBudget = 0.45;
+  } else {
+    maxBudget = 0.60;
+  }
+  
   const standardsNeed = Math.min(0.50, standardCount * 0.04);
   const perHeroBudget = Math.min(
-    maxTotalBudget / heroCount,
+    maxBudget / heroCount,
     (1.0 - standardsNeed) / heroCount
   );
   
@@ -125,117 +122,166 @@ function calculateHeroSize(
 
 /**
  * Choose hero horizontal position.
- * Returns x coordinate for hero's left edge.
+ * Uses adaptive strategy based on standard photo count:
+ * - Few photos: Always anchor to left or right edge
+ * - Many photos: Allow center positioning
  */
 function chooseHeroX(
   heroWidth: number,
   canvasWidth: number,
   gap: number,
+  standardCount: number,
   randomize: boolean
 ): number {
-  // Valid positions: left edge, center, right edge, or random valid spot
   const leftX = 0;
-  const centerX = Math.round((canvasWidth - heroWidth) / 2);
   const rightX = canvasWidth - heroWidth;
   
-  if (randomize) {
-    // Choose from grid of valid positions
-    const step = MIN_DIMENSION;
-    const validPositions: number[] = [];
-    for (let x = 0; x <= canvasWidth - heroWidth; x += step) {
-      validPositions.push(x);
+  // Few photos: ALWAYS anchor to edge (eliminates problematic center floating)
+  if (standardCount < FEW_PHOTOS_THRESHOLD) {
+    if (randomize) {
+      return Math.random() < 0.5 ? leftX : rightX;
     }
-    // Always include exact center and right edge
-    if (!validPositions.includes(centerX)) validPositions.push(centerX);
-    if (!validPositions.includes(rightX)) validPositions.push(rightX);
-    
-    return validPositions[Math.floor(Math.random() * validPositions.length)];
+    return leftX; // Default to left edge
   }
   
-  // Default: prefer center, then right, then left
-  return centerX;
+  // Many photos: Allow more flexibility including center
+  if (standardCount >= MANY_PHOTOS_THRESHOLD) {
+    if (randomize) {
+      const step = MIN_DIMENSION;
+      const validPositions: number[] = [];
+      for (let x = 0; x <= canvasWidth - heroWidth; x += step) {
+        validPositions.push(x);
+      }
+      return validPositions[Math.floor(Math.random() * validPositions.length)];
+    }
+  }
+  
+  // Medium count: Prefer edges but allow some center positions
+  if (randomize) {
+    const centerX = Math.round((canvasWidth - heroWidth) / 2);
+    // 70% edge, 30% center
+    const roll = Math.random();
+    if (roll < 0.35) return leftX;
+    if (roll < 0.70) return rightX;
+    return centerX;
+  }
+  
+  return leftX; // Default to left edge for predictability
 }
 
 // ============================================================================
-// Zone-Based Photo Distribution
+// Vertical Strip Packing (with proper aspect ratio preservation)
 // ============================================================================
 
 /**
- * Calculate available areas for each zone given hero position and size.
+ * Calculate the natural width a set of photos needs to fill a target height
+ * when stacked vertically as a single column.
+ * 
+ * For a single column: each photo height = width / aspectRatio
+ * Total height = width * sum(1/aspectRatio) + gaps
+ * Solving for width: width = (targetHeight - gaps) / sum(1/aspectRatio)
  */
-function calculateZoneAreas(
-  heroX: number,
-  heroWidth: number,
-  heroHeight: number,
-  canvasWidth: number,
-  aboveHeight: number,
+function calculateNaturalStripWidth(
+  photos: PhotoDimension[],
+  targetHeight: number,
   gap: number
-): ZoneAreas {
-  const leftWidth = Math.max(0, heroX - gap);
-  const rightWidth = Math.max(0, canvasWidth - heroX - heroWidth - gap);
+): number {
+  if (photos.length === 0) return 0;
   
-  // Above and below use full canvas width
-  // Left and right strips are beside the hero (within hero zone height)
-  const aboveArea = aboveHeight > MIN_DIMENSION ? canvasWidth * aboveHeight : 0;
-  const leftArea = leftWidth > MIN_DIMENSION ? leftWidth * heroHeight : 0;
-  const rightArea = rightWidth > MIN_DIMENSION ? rightWidth * heroHeight : 0;
-  // Below area: we don't know exact height yet, estimate based on remaining photos
-  // For distribution, use a reasonable estimate
-  const belowArea = canvasWidth * heroHeight; // Estimate same as hero height
+  const inverseAspectSum = photos.reduce((sum, p) => sum + 1 / p.aspectRatio, 0);
+  const gapTotal = gap * (photos.length - 1);
+  const photoHeightTotal = targetHeight - gapTotal;
   
-  return {
-    above: aboveArea,
-    left: leftArea,
-    right: rightArea,
-    below: belowArea,
-    total: aboveArea + leftArea + rightArea + belowArea,
-  };
+  if (inverseAspectSum <= 0 || photoHeightTotal <= 0) return MIN_DIMENSION;
+  
+  return photoHeightTotal / inverseAspectSum;
 }
 
 /**
- * Distribute standard photos to zones based on area proportions.
+ * Pack photos as a single vertical column with exact height matching.
+ * Returns cells that fill exactly the target height with correct aspect ratios.
  */
-function distributeToZones(
-  standards: PhotoDimension[],
-  zones: ZoneAreas
-): ZoneDistribution {
-  if (zones.total === 0 || standards.length === 0) {
-    return { above: [], left: [], right: [], below: standards };
+function packVerticalColumn(
+  photos: PhotoDimension[],
+  targetHeight: number,
+  offsetX: number,
+  offsetY: number,
+  gap: number
+): { cells: CollageCell[]; width: number } {
+  if (photos.length === 0) {
+    return { cells: [], width: 0 };
   }
   
-  const n = standards.length;
+  // Calculate the width needed to fill target height exactly
+  const columnWidth = calculateNaturalStripWidth(photos, targetHeight, gap);
   
-  // Calculate proportional counts
-  let aboveCount = Math.round(n * (zones.above / zones.total));
-  let leftCount = Math.round(n * (zones.left / zones.total));
-  let rightCount = Math.round(n * (zones.right / zones.total));
-  
-  // Ensure at least 1 photo per non-empty zone if possible
-  if (zones.above > 0 && aboveCount === 0 && n >= 4) aboveCount = 1;
-  if (zones.left > 0 && leftCount === 0 && n >= 4) leftCount = 1;
-  if (zones.right > 0 && rightCount === 0 && n >= 4) rightCount = 1;
-  
-  // Clamp totals to not exceed available photos
-  const assignedCount = aboveCount + leftCount + rightCount;
-  if (assignedCount > n) {
-    // Scale down proportionally
-    const scale = n / assignedCount;
-    aboveCount = Math.floor(aboveCount * scale);
-    leftCount = Math.floor(leftCount * scale);
-    rightCount = Math.floor(rightCount * scale);
+  if (columnWidth < MIN_DIMENSION) {
+    return { cells: [], width: 0 };
   }
   
-  // Rest goes to below
-  const belowCount = n - aboveCount - leftCount - rightCount;
+  // Pack photos vertically at the calculated width
+  const cells: CollageCell[] = [];
+  let y = offsetY;
   
-  // Slice photos into zones
-  let idx = 0;
-  const above = standards.slice(idx, idx + aboveCount); idx += aboveCount;
-  const left = standards.slice(idx, idx + leftCount); idx += leftCount;
-  const right = standards.slice(idx, idx + rightCount); idx += rightCount;
-  const below = standards.slice(idx, idx + belowCount);
+  for (const photo of photos) {
+    const cellHeight = columnWidth / photo.aspectRatio;
+    
+    cells.push({
+      photoId: photo.id,
+      x: Math.round(offsetX),
+      y: Math.round(y),
+      width: Math.round(columnWidth),
+      height: Math.round(cellHeight),
+    });
+    
+    y += cellHeight + gap;
+  }
   
-  return { above, left, right, below };
+  return { cells, width: columnWidth };
+}
+
+/**
+ * Pack photos into a vertical strip using row-based layout,
+ * then scale UNIFORMLY to match target height (preserving aspect ratios).
+ */
+function packVerticalStripWithUniformScale(
+  photos: PhotoDimension[],
+  maxWidth: number,
+  targetHeight: number,
+  offsetX: number,
+  offsetY: number,
+  gap: number
+): CollageCell[] {
+  if (photos.length === 0 || maxWidth < MIN_DIMENSION) return [];
+  
+  // Pack with portrait orientation preference
+  const result = packPhotosIntoRegion(photos, {
+    width: maxWidth,
+    gap,
+    offsetX: 0,
+    offsetY: 0,
+    isLandscape: false,
+  });
+  
+  const cells = result.cells;
+  if (cells.length === 0) return [];
+  
+  const packedHeight = getCellsHeight(cells);
+  const packedWidth = Math.max(...cells.map(c => c.x + c.width));
+  
+  // Scale UNIFORMLY to match target height
+  const scale = targetHeight / packedHeight;
+  const minY = Math.min(...cells.map(c => c.y));
+  const minX = Math.min(...cells.map(c => c.x));
+  
+  return cells.map(cell => ({
+    photoId: cell.photoId,
+    // Scale BOTH x and width to preserve aspect ratios
+    x: Math.round(offsetX + (cell.x - minX) * scale),
+    y: Math.round(offsetY + (cell.y - minY) * scale),
+    width: Math.round(cell.width * scale),
+    height: Math.round(cell.height * scale),
+  }));
 }
 
 // ============================================================================
@@ -243,8 +289,7 @@ function distributeToZones(
 // ============================================================================
 
 /**
- * Pack photos into full-width rows (for above/below zones).
- * Returns cells with proper positioning.
+ * Pack photos into full-width rows (for below zone).
  */
 function packRowsFullWidth(
   photos: PhotoDimension[],
@@ -265,69 +310,24 @@ function packRowsFullWidth(
   return result.cells;
 }
 
-/**
- * Pack photos into a vertical strip beside the hero.
- * Uses portrait-oriented packing to fill the height.
- * If the natural pack height doesn't match target, scale to fit.
- */
-function packVerticalStrip(
-  photos: PhotoDimension[],
-  stripWidth: number,
-  targetHeight: number,
-  offsetX: number,
-  offsetY: number,
-  gap: number
-): CollageCell[] {
-  if (photos.length === 0 || stripWidth < MIN_DIMENSION) return [];
-  
-  // Pack with portrait orientation preference
-  const result = packPhotosIntoRegion(photos, {
-    width: stripWidth,
-    gap,
-    offsetX,
-    offsetY,
-    isLandscape: false, // Prefer vertical stacking
-    targetHeight,
-  });
-  
-  const cells = result.cells;
-  if (cells.length === 0) return [];
-  
-  // Calculate achieved height
-  const packedHeight = getCellsHeight(cells);
-  
-  // If significantly off from target, scale to fit exactly
-  if (Math.abs(packedHeight - targetHeight) > gap) {
-    const scale = targetHeight / packedHeight;
-    const minY = Math.min(...cells.map(c => c.y));
-    
-    return cells.map(cell => ({
-      photoId: cell.photoId,
-      x: cell.x, // X stays the same
-      y: Math.round(offsetY + (cell.y - minY) * scale),
-      width: cell.width, // Width stays the same
-      height: Math.round(cell.height * scale),
-    }));
-  }
-  
-  return cells;
-}
-
 // ============================================================================
-// Main Hero Layout Algorithm
+// Simplified Edge-Anchored Hero Layout
 // ============================================================================
 
 /**
- * Generate layout with hero photo(s) using zone-based flow packing.
+ * Generate layout with edge-anchored hero.
  * 
- * Algorithm:
- * 1. Calculate hero size and horizontal position
- * 2. Pack "above" zone photos at full width → determines hero Y position
- * 3. Pack left/right strip photos beside hero → scaled to match hero height
- * 4. Place hero cell
- * 5. Pack "below" zone photos at full width
+ * Simplified approach (per plan):
+ * 1. Hero anchored to left or right edge
+ * 2. Single vertical column beside hero (fills hero height exactly)
+ * 3. Remaining photos in full-width rows below
+ * 
+ * This eliminates blank rectangles because:
+ * - No "above" zone splitting
+ * - Single column calculates exact width to fill hero height
+ * - Below zone absorbs remaining photos naturally
  */
-function generateSingleHeroLayout(
+function generateEdgeAnchoredHeroLayout(
   hero: PhotoDimension,
   standards: PhotoDimension[],
   canvasWidth: number,
@@ -335,10 +335,9 @@ function generateSingleHeroLayout(
   gap: number,
   randomize: boolean
 ): CollageLayout {
-  // Estimate initial canvas height
   const estimatedHeight = Math.round(canvasWidth / targetAspect);
   
-  // 1. Calculate hero size
+  // 1. Calculate hero size (scaled by standard count)
   const heroSize = calculateHeroSize(
     hero, 
     canvasWidth, 
@@ -347,70 +346,60 @@ function generateSingleHeroLayout(
     standards.length
   );
   
-  // 2. Choose hero X position
-  const heroX = chooseHeroX(heroSize.width, canvasWidth, gap, randomize);
+  // 2. Determine which edge (left or right)
+  const anchorRight = randomize ? Math.random() < 0.5 : false;
   
-  // 3. Calculate zone areas for distribution
-  // For initial distribution, estimate above height as ~20% of canvas
-  const estimatedAboveHeight = Math.round(estimatedHeight * 0.2);
-  const zoneAreas = calculateZoneAreas(
-    heroX, 
-    heroSize.width, 
-    heroSize.height, 
-    canvasWidth, 
-    estimatedAboveHeight, 
-    gap
-  );
+  // 3. Calculate how many photos to put beside vs below
+  // Aim for 1-3 photos beside (enough to fill without extreme sizing)
+  const besideCount = Math.min(3, Math.max(1, Math.floor(standards.length * 0.3)));
+  const shuffled = randomize ? shuffleArray(standards) : standards;
+  const besidePhotos = shuffled.slice(0, besideCount);
+  const belowPhotos = shuffled.slice(besideCount);
   
-  // 4. Distribute photos to zones
-  const shuffledStandards = randomize ? shuffleArray(standards) : standards;
-  const distribution = distributeToZones(shuffledStandards, zoneAreas);
-  
-  // 5. Pack ABOVE zone (full width rows)
-  const aboveCells = packRowsFullWidth(distribution.above, canvasWidth, gap, 0);
-  const aboveHeight = aboveCells.length > 0 ? getCellsHeight(aboveCells) : 0;
-  
-  // 6. Calculate hero Y position (after above zone + gap)
-  const heroY = aboveHeight > 0 ? aboveHeight + gap : 0;
-  
-  // 7. Pack LEFT strip (beside hero, scaled to hero height)
-  const leftWidth = heroX - gap;
-  const leftCells = packVerticalStrip(
-    distribution.left,
-    leftWidth,
+  // 4. Pack beside column - calculate natural width to fill hero height
+  const { cells: besideCells, width: besideWidth } = packVerticalColumn(
+    besidePhotos,
     heroSize.height,
-    0,
-    heroY,
+    0, // Will adjust X later
+    0, // Will adjust Y later
     gap
   );
   
-  // 8. Pack RIGHT strip (beside hero, scaled to hero height)
-  const rightX = heroX + heroSize.width + gap;
-  const rightWidth = canvasWidth - rightX;
-  const rightCells = packVerticalStrip(
-    distribution.right,
-    rightWidth,
-    heroSize.height,
-    rightX,
-    heroY,
-    gap
-  );
+  // 5. Calculate positions based on anchor side
+  let heroX: number;
+  let besideX: number;
   
-  // 9. Create hero cell
+  if (anchorRight) {
+    // Hero on right, beside column on left
+    besideX = 0;
+    heroX = besideWidth > 0 ? besideWidth + gap : 0;
+  } else {
+    // Hero on left, beside column on right
+    heroX = 0;
+    besideX = heroSize.width + gap;
+  }
+  
+  // 6. Adjust beside cell positions
+  const adjustedBesideCells = besideCells.map(cell => ({
+    ...cell,
+    x: Math.round(besideX + (cell.x)),
+  }));
+  
+  // 7. Create hero cell
   const heroCell: CollageCell = {
     photoId: hero.id,
     x: heroX,
-    y: heroY,
+    y: 0,
     width: heroSize.width,
     height: heroSize.height,
   };
   
-  // 10. Pack BELOW zone (full width rows)
-  const belowY = heroY + heroSize.height + gap;
-  const belowCells = packRowsFullWidth(distribution.below, canvasWidth, gap, belowY);
+  // 8. Pack below zone
+  const belowY = heroSize.height + gap;
+  const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
   
-  // 11. Assemble all cells and calculate final height
-  const allCells = [...aboveCells, ...leftCells, heroCell, ...rightCells, ...belowCells];
+  // 9. Assemble and calculate final height
+  const allCells = [heroCell, ...adjustedBesideCells, ...belowCells];
   const finalHeight = allCells.length > 0
     ? Math.max(...allCells.map(c => c.y + c.height))
     : estimatedHeight;
@@ -423,8 +412,128 @@ function generateSingleHeroLayout(
 }
 
 /**
+ * Generate layout with floating hero (for many photos).
+ * Uses uniform scaling to preserve aspect ratios.
+ */
+function generateFloatingHeroLayout(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  targetAspect: number,
+  gap: number,
+  randomize: boolean
+): CollageLayout {
+  const estimatedHeight = Math.round(canvasWidth / targetAspect);
+  
+  // 1. Calculate hero size
+  const heroSize = calculateHeroSize(
+    hero, 
+    canvasWidth, 
+    estimatedHeight, 
+    1, 
+    standards.length
+  );
+  
+  // 2. Choose hero X position (can be anywhere)
+  const heroX = chooseHeroX(heroSize.width, canvasWidth, gap, standards.length, randomize);
+  
+  // 3. Calculate strip widths
+  const leftWidth = heroX - gap;
+  const rightX = heroX + heroSize.width + gap;
+  const rightWidth = canvasWidth - rightX;
+  
+  const hasLeft = leftWidth >= MIN_DIMENSION;
+  const hasRight = rightWidth >= MIN_DIMENSION;
+  
+  // 4. Distribute photos to left/right/below
+  const shuffled = randomize ? shuffleArray(standards) : standards;
+  
+  let leftCount = 0, rightCount = 0;
+  const totalBesideRatio = 0.4; // 40% beside, 60% below
+  
+  if (hasLeft && hasRight) {
+    // Split beside photos proportionally to strip widths
+    const leftRatio = leftWidth / (leftWidth + rightWidth);
+    const besideTotal = Math.floor(standards.length * totalBesideRatio);
+    leftCount = Math.max(1, Math.floor(besideTotal * leftRatio));
+    rightCount = Math.max(1, besideTotal - leftCount);
+  } else if (hasLeft) {
+    leftCount = Math.floor(standards.length * totalBesideRatio);
+  } else if (hasRight) {
+    rightCount = Math.floor(standards.length * totalBesideRatio);
+  }
+  
+  const leftPhotos = shuffled.slice(0, leftCount);
+  const rightPhotos = shuffled.slice(leftCount, leftCount + rightCount);
+  const belowPhotos = shuffled.slice(leftCount + rightCount);
+  
+  // 5. Pack left strip with UNIFORM scaling
+  const leftCells = hasLeft 
+    ? packVerticalStripWithUniformScale(leftPhotos, leftWidth, heroSize.height, 0, 0, gap)
+    : [];
+  
+  // 6. Pack right strip with UNIFORM scaling
+  const rightCells = hasRight
+    ? packVerticalStripWithUniformScale(rightPhotos, rightWidth, heroSize.height, rightX, 0, gap)
+    : [];
+  
+  // 7. Create hero cell
+  const heroCell: CollageCell = {
+    photoId: hero.id,
+    x: heroX,
+    y: 0,
+    width: heroSize.width,
+    height: heroSize.height,
+  };
+  
+  // 8. Pack below zone
+  const belowY = heroSize.height + gap;
+  const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
+  
+  // 9. Assemble
+  const allCells = [...leftCells, heroCell, ...rightCells, ...belowCells];
+  const finalHeight = allCells.length > 0
+    ? Math.max(...allCells.map(c => c.y + c.height))
+    : estimatedHeight;
+  
+  return {
+    width: canvasWidth,
+    height: Math.round(finalHeight),
+    cells: allCells,
+  };
+}
+
+// ============================================================================
+// Main Entry Points
+// ============================================================================
+
+/**
+ * Generate layout for a single hero photo.
+ * Uses adaptive strategy based on standard photo count.
+ */
+function generateSingleHeroLayout(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  targetAspect: number,
+  gap: number,
+  randomize: boolean
+): CollageLayout {
+  // Use edge-anchored layout for few photos (simpler, no gaps)
+  if (standards.length < FEW_PHOTOS_THRESHOLD) {
+    return generateEdgeAnchoredHeroLayout(
+      hero, standards, canvasWidth, targetAspect, gap, randomize
+    );
+  }
+  
+  // Use floating layout for many photos (more variety, uniform scaling preserves aspect)
+  return generateFloatingHeroLayout(
+    hero, standards, canvasWidth, targetAspect, gap, randomize
+  );
+}
+
+/**
  * Handle multiple heroes by processing them sequentially.
- * Each hero after the first gets placed in the "below" zone of the previous.
  */
 function generateMultiHeroLayout(
   heroes: PhotoDimension[],
@@ -446,7 +555,6 @@ function generateMultiHeroLayout(
   
   for (let i = 0; i < orderedHeroes.length; i++) {
     const hero = orderedHeroes[i];
-    const isFirst = i === 0;
     const isLast = i === orderedHeroes.length - 1;
     
     // Get this hero's share of standards
@@ -463,60 +571,38 @@ function generateMultiHeroLayout(
       standards.length
     );
     
-    // Choose X position
-    const heroX = chooseHeroX(heroSize.width, canvasWidth, gap, randomize);
+    // Always edge-anchor for multi-hero (simpler)
+    const anchorRight = randomize ? Math.random() < 0.5 : (i % 2 === 1);
     
-    // For first hero, pack above zone
-    if (isFirst && heroStandards.length > 0) {
-      // Use ~25% for above on first hero
-      const aboveCount = Math.max(1, Math.floor(heroStandards.length * 0.25));
-      const abovePhotos = heroStandards.slice(0, aboveCount);
-      
-      const aboveCells = packRowsFullWidth(abovePhotos, canvasWidth, gap, currentY);
-      allCells.push(...aboveCells);
-      
-      if (aboveCells.length > 0) {
-        currentY = Math.max(...aboveCells.map(c => c.y + c.height)) + gap;
-      }
+    // Beside photos: 1-2 per hero
+    const besideCount = Math.min(2, Math.max(1, Math.floor(heroStandards.length * 0.25)));
+    const besidePhotos = heroStandards.slice(0, besideCount);
+    const belowPhotos = heroStandards.slice(besideCount);
+    
+    // Pack beside column
+    const { cells: besideCells, width: besideWidth } = packVerticalColumn(
+      besidePhotos,
+      heroSize.height,
+      0,
+      currentY,
+      gap
+    );
+    
+    // Calculate positions
+    let heroX: number;
+    if (anchorRight) {
+      heroX = besideWidth > 0 ? besideWidth + gap : 0;
+    } else {
+      heroX = 0;
     }
     
-    // Pack left/right strips
-    const leftWidth = heroX - gap;
-    const rightX = heroX + heroSize.width + gap;
-    const rightWidth = canvasWidth - rightX;
+    const besideX = anchorRight ? 0 : (heroSize.width + gap);
+    const adjustedBesideCells = besideCells.map(cell => ({
+      ...cell,
+      x: Math.round(besideX),
+    }));
     
-    // Distribute remaining standards to left/right/below
-    const remainingStandards = isFirst 
-      ? heroStandards.slice(Math.floor(heroStandards.length * 0.25))
-      : heroStandards;
-    
-    // Simple split: 30% left, 30% right, 40% below (if zones exist)
-    const hasLeft = leftWidth >= MIN_DIMENSION;
-    const hasRight = rightWidth >= MIN_DIMENSION;
-    
-    let leftCount = 0, rightCount = 0;
-    if (hasLeft && hasRight) {
-      leftCount = Math.floor(remainingStandards.length * 0.3);
-      rightCount = Math.floor(remainingStandards.length * 0.3);
-    } else if (hasLeft) {
-      leftCount = Math.floor(remainingStandards.length * 0.4);
-    } else if (hasRight) {
-      rightCount = Math.floor(remainingStandards.length * 0.4);
-    }
-    
-    const leftPhotos = remainingStandards.slice(0, leftCount);
-    const rightPhotos = remainingStandards.slice(leftCount, leftCount + rightCount);
-    const belowPhotos = remainingStandards.slice(leftCount + rightCount);
-    
-    // Pack left strip
-    const leftCells = packVerticalStrip(leftPhotos, leftWidth, heroSize.height, 0, currentY, gap);
-    allCells.push(...leftCells);
-    
-    // Pack right strip
-    const rightCells = packVerticalStrip(rightPhotos, rightWidth, heroSize.height, rightX, currentY, gap);
-    allCells.push(...rightCells);
-    
-    // Place hero
+    // Add hero
     allCells.push({
       photoId: hero.id,
       x: heroX,
@@ -525,9 +611,11 @@ function generateMultiHeroLayout(
       height: heroSize.height,
     });
     
+    allCells.push(...adjustedBesideCells);
+    
     currentY += heroSize.height + gap;
     
-    // Pack below for this hero (or remaining if last)
+    // Pack below for this hero
     if (belowPhotos.length > 0) {
       const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, currentY);
       allCells.push(...belowCells);
@@ -567,7 +655,6 @@ export function generateHeroLayout(
   const standards = dims.filter(d => d.weight < 2.0);
   
   if (heroes.length === 0) {
-    // No heroes - shouldn't happen if hasHeroPhotos was checked
     return { width: BASE_WIDTH, height: Math.round(BASE_WIDTH / targetAspect), cells: [] };
   }
   

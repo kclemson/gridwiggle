@@ -57,6 +57,22 @@ export interface RegionPackOptions {
 export interface LayoutOptions {
   /** Weight multiplier per photo ID (default: 1). Higher = larger in layout */
   photoWeights?: Record<string, number>;
+  /** When true, shuffle photo order and pick from top-N layouts for variety */
+  randomize?: boolean;
+}
+
+// ============================================================================
+// Randomization Helpers
+// ============================================================================
+
+/** Fisher-Yates shuffle - returns new shuffled array */
+function shuffleArray<T>(arr: T[]): T[] {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
 
 interface PartitionScore {
@@ -232,11 +248,14 @@ function countPartitions(n: number, k: number): number {
 function findBestRowSplit(
   dims: PhotoDimension[],
   targetAspect: number,
-  isLandscape: boolean
+  isLandscape: boolean,
+  randomize: boolean = false
 ): PhotoDimension[][] {
-  const n = dims.length;
+  // Shuffle photo order when randomizing for variety
+  const workingDims = randomize ? shuffleArray(dims) : dims;
+  const n = workingDims.length;
   
-  if (n <= 1) return [dims];
+  if (n <= 1) return [workingDims];
   
   // Determine ideal photos-per-row based on orientation
   // More per row for landscape = wider layout
@@ -251,38 +270,65 @@ function findBestRowSplit(
     ? Math.min(n, idealRows + 1, 6) 
     : Math.min(n, idealRows + 3, 10);
   
-  let bestScore: PartitionScore = {
-    partition: [dims],
-    areaCV: Infinity,
-    heightCV: Infinity,
-    aspectDiff: Infinity,
-    totalScore: Infinity
-  };
+  // Collect top scores for randomization
+  const topScores: PartitionScore[] = [];
+  const TOP_N = 5;
   
   for (let numRows = minRows; numRows <= maxRows; numRows++) {
     const partitionCount = countPartitions(n, numRows);
     
     // For small partition counts, enumerate all
-      if (partitionCount <= 500) {
-        for (const partition of generatePartitions(dims, numRows)) {
-          const score = scorePartition(partition, targetAspect, isLandscape);
-          if (score.totalScore < bestScore.totalScore) {
-            bestScore = score;
-          }
-        }
-      } else {
-        // For large sets, use sampling + heuristic approach
-        const sampledPartitions = samplePartitions(dims, numRows, 100);
-        for (const partition of sampledPartitions) {
-          const score = scorePartition(partition, targetAspect, isLandscape);
-          if (score.totalScore < bestScore.totalScore) {
-            bestScore = score;
-          }
-        }
+    if (partitionCount <= 500) {
+      for (const partition of generatePartitions(workingDims, numRows)) {
+        const score = scorePartition(partition, targetAspect, isLandscape);
+        insertIntoTopN(topScores, score, TOP_N);
       }
+    } else {
+      // For large sets, use sampling + heuristic approach
+      const sampledPartitions = samplePartitions(workingDims, numRows, 100);
+      for (const partition of sampledPartitions) {
+        const score = scorePartition(partition, targetAspect, isLandscape);
+        insertIntoTopN(topScores, score, TOP_N);
+      }
+    }
   }
   
-  return bestScore.partition;
+  if (topScores.length === 0) {
+    return [workingDims];
+  }
+  
+  // When randomizing, pick randomly from top N; otherwise pick the best
+  if (randomize && topScores.length > 1) {
+    const randomIndex = Math.floor(Math.random() * topScores.length);
+    return topScores[randomIndex].partition;
+  }
+  
+  return topScores[0].partition;
+}
+
+/** Insert score into top-N array, keeping it sorted (best first) */
+function insertIntoTopN(
+  topScores: PartitionScore[],
+  score: PartitionScore,
+  maxSize: number
+): void {
+  // Find insertion position
+  let insertIdx = topScores.length;
+  for (let i = 0; i < topScores.length; i++) {
+    if (score.totalScore < topScores[i].totalScore) {
+      insertIdx = i;
+      break;
+    }
+  }
+  
+  // Only insert if within top N
+  if (insertIdx < maxSize) {
+    topScores.splice(insertIdx, 0, score);
+    // Trim to max size
+    if (topScores.length > maxSize) {
+      topScores.pop();
+    }
+  }
 }
 
 /** Sample partitions using a balanced heuristic for large sets */
@@ -436,9 +482,9 @@ export function packPhotosIntoRegion(
     };
   }
   
-  // Use existing row-split logic
+  // Use existing row-split logic (no randomization for region packing)
   const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : (isLandscape ? 1.5 : 0.75));
-  const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape);
+  const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape, false);
   
   // Calculate layout with offsets
   const cells = calculateLayoutWithOffset(partition, width, gap, offsetX, offsetY);
@@ -510,7 +556,8 @@ export function generateCollageLayout(
   // Target aspect ratio based on orientation
   const targetAspect = isLandscape ? 1.5 : 0.75;
   
-  const rows = findBestRowSplit(dims, targetAspect, isLandscape);
+  // Pass randomize option for variety on regeneration
+  const rows = findBestRowSplit(dims, targetAspect, isLandscape, options?.randomize ?? false);
   const layout = calculateLayout(rows, settings);
   
   return layout;

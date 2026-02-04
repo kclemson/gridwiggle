@@ -153,10 +153,16 @@ export default function Index() {
       photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
     }
     
-    const layout = generateCollageLayout(state.photos, state.settings, { photoWeights });
+    // Randomize when regenerating (layout already exists) for variety
+    const shouldRandomize = state.layout !== null;
+    
+    const layout = generateCollageLayout(state.photos, state.settings, { 
+      photoWeights,
+      randomize: shouldRandomize 
+    });
     setLayout(layout);
     setLayoutStale(false);
-  }, [state.photos, state.settings, setLayout]);
+  }, [state.photos, state.settings, state.layout, setLayout]);
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);

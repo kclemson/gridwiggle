@@ -468,8 +468,8 @@ function generateEdgeAnchoredHeroLayout(
   // Determine anchor side
   const anchorRight = randomize ? Math.random() < 0.5 : false;
   
-  // NEW: Sometimes place intro rows before hero zone (30% chance)
-  const useIntroRows = randomize && standards.length >= 8 && Math.random() < 0.3;
+  // NEW: Sometimes place intro rows before hero zone (50% chance)
+  const useIntroRows = randomize && standards.length >= 8 && Math.random() < 0.5;
   const introRowCount = useIntroRows ? Math.min(2, Math.floor(standards.length / 6)) : 0;
   const photosPerIntroRow = 3;
   
@@ -753,24 +753,70 @@ function generateFloatingHeroLayout(
 ): CollageLayout {
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
-  // Split: ~30% left, ~30% right, rest below
-  const leftCount = Math.min(4, Math.ceil(standards.length * 0.25));
-  const rightCount = Math.min(4, Math.ceil(standards.length * 0.25));
+  // NEW: Sometimes place intro rows before hero zone (50% chance for large sets)
+  const useIntroRows = randomize && standards.length >= 12 && Math.random() < 0.5;
+  const introRowCount = useIntroRows ? Math.min(2, Math.floor(standards.length / 8)) : 0;
+  const photosPerIntroRow = 4;
   
-  const leftCandidates = shuffled.slice(0, leftCount);
-  const rightCandidates = shuffled.slice(leftCount, leftCount + rightCount);
-  const initialBelowPhotos = shuffled.slice(leftCount + rightCount);
+  // Split photos: intro rows → beside zone → below zone
+  const introPhotos = shuffled.slice(0, introRowCount * photosPerIntroRow);
+  const remainingPhotos = shuffled.slice(introRowCount * photosPerIntroRow);
+  
+  // Pack intro rows first
+  let currentY = 0;
+  let introCells: CollageCell[] = [];
+  if (introPhotos.length > 0) {
+    const introResult = packPhotosIntoRegion(introPhotos, {
+      width: canvasWidth,
+      gap,
+      offsetX: 0,
+      offsetY: 0,
+      isLandscape: true,
+    });
+    introCells = introResult.cells;
+    if (introCells.length > 0) {
+      currentY = Math.max(...introCells.map(c => c.y + c.height)) + gap;
+    }
+  }
+  
+  // Split remaining: ~30% left, ~30% right, rest below
+  const leftCount = Math.min(6, Math.ceil(remainingPhotos.length * 0.3));
+  const rightCount = Math.min(6, Math.ceil(remainingPhotos.length * 0.3));
+  
+  const leftCandidates = remainingPhotos.slice(0, leftCount);
+  const rightCandidates = remainingPhotos.slice(leftCount, leftCount + rightCount);
+  const initialBelowPhotos = remainingPhotos.slice(leftCount + rightCount);
 
   // Target width fraction for hero
   const widthFraction = calculateHeroWidthFraction(standards.length);
   const targetHeroWidth = Math.round(canvasWidth * widthFraction);
   const targetSideWidth = Math.floor((canvasWidth - targetHeroWidth - 2 * gap) / 2);
 
-  // Pack left side into 2 rows
-  const leftResult = packBesideAs2Rows(leftCandidates, targetSideWidth, gap, 0);
+  // NEW: Pack left side - try 3-row for many photos, then 2-row
+  let leftResult: PackResult2Row | PackResult3Row;
+  if (leftCandidates.length >= 6) {
+    const result3 = packBesideAs3Rows(leftCandidates, targetSideWidth, gap, 0);
+    if (result3.combinedHeight > 0) {
+      leftResult = result3;
+    } else {
+      leftResult = packBesideAs2Rows(leftCandidates, targetSideWidth, gap, 0);
+    }
+  } else {
+    leftResult = packBesideAs2Rows(leftCandidates, targetSideWidth, gap, 0);
+  }
   
-  // Pack right side into 2 rows
-  const rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
+  // NEW: Pack right side - try 3-row for many photos, then 2-row
+  let rightResult: PackResult2Row | PackResult3Row;
+  if (rightCandidates.length >= 6) {
+    const result3 = packBesideAs3Rows(rightCandidates, targetSideWidth, gap, 0);
+    if (result3.combinedHeight > 0) {
+      rightResult = result3;
+    } else {
+      rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
+    }
+  } else {
+    rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
+  }
 
   // Use the taller side to determine hero height
   const maxSideHeight = Math.max(
@@ -796,7 +842,8 @@ function generateFloatingHeroLayout(
   
   const scaleFactor = canvasWidth / totalNaturalWidth;
   
-  if (scaleFactor < 0.85 || scaleFactor > 1.15) {
+  // RELAXED: ±20% tolerance for floating layout with 3-row options
+  if (scaleFactor < 0.80 || scaleFactor > 1.20) {
     // Outside tolerance - fall back to edge-anchored
     return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
   }
@@ -813,14 +860,14 @@ function generateFloatingHeroLayout(
   const heroCell: CollageCell = {
     photoId: hero.id,
     x: heroX,
-    y: 0,
+    y: currentY,
     width: scaledHeroWidth,
     height: scaledHeroHeight,
   };
 
   // Scale left cells with horizontal-only scaling within their zone
   const leftHorizontalScale = leftNaturalWidth > 0 ? scaledLeftWidth / leftNaturalWidth : 1;
-  const leftCells = leftResult.cells.map(cell => ({
+  let leftCells = leftResult.cells.map(cell => ({
     ...cell,
     x: Math.round(cell.x * leftHorizontalScale),
     y: Math.round(cell.y * scaleFactor),
@@ -828,16 +875,84 @@ function generateFloatingHeroLayout(
     height: Math.round(cell.height * scaleFactor),
   }));
 
+  // NEW: Apply row alignment fix to left cells
+  if ('row3Height' in leftResult && leftResult.row3Height > 0) {
+    leftCells = fixRowAlignment3Row(
+      leftCells,
+      leftResult.row1Height,
+      leftResult.row2Height,
+      leftResult.row3Height,
+      scaledHeroHeight,
+      scaleFactor,
+      gap
+    );
+  } else if ('row2Height' in leftResult && leftResult.row2Height > 0) {
+    leftCells = fixRowAlignment2Row(
+      leftCells,
+      leftResult.row1Height,
+      leftResult.row2Height,
+      scaledHeroHeight,
+      scaleFactor,
+      gap
+    );
+  }
+  
+  // Add currentY offset to left cells
+  leftCells = leftCells.map(cell => ({ ...cell, y: cell.y + currentY }));
+
   // Scale right cells with horizontal-only scaling within their zone
   const rightStartX = heroX + scaledHeroWidth + gap;
   const rightHorizontalScale = rightNaturalWidth > 0 ? scaledRightWidth / rightNaturalWidth : 1;
-  const rightCells = rightResult.cells.map(cell => ({
+  let rightCells = rightResult.cells.map(cell => ({
     ...cell,
     x: rightStartX + Math.round(cell.x * rightHorizontalScale),
     y: Math.round(cell.y * scaleFactor),
     width: Math.round(cell.width * rightHorizontalScale),
     height: Math.round(cell.height * scaleFactor),
   }));
+
+  // NEW: Apply row alignment fix to right cells (need to recalculate without rightStartX first)
+  if ('row3Height' in rightResult && rightResult.row3Height > 0) {
+    // Create temporary cells without X offset for alignment fix
+    let tempRightCells = rightResult.cells.map(cell => ({
+      ...cell,
+      x: Math.round(cell.x * rightHorizontalScale),
+      y: Math.round(cell.y * scaleFactor),
+      width: Math.round(cell.width * rightHorizontalScale),
+      height: Math.round(cell.height * scaleFactor),
+    }));
+    tempRightCells = fixRowAlignment3Row(
+      tempRightCells,
+      rightResult.row1Height,
+      rightResult.row2Height,
+      rightResult.row3Height,
+      scaledHeroHeight,
+      scaleFactor,
+      gap
+    );
+    // Re-apply rightStartX offset
+    rightCells = tempRightCells.map(cell => ({ ...cell, x: cell.x + rightStartX }));
+  } else if ('row2Height' in rightResult && rightResult.row2Height > 0) {
+    let tempRightCells = rightResult.cells.map(cell => ({
+      ...cell,
+      x: Math.round(cell.x * rightHorizontalScale),
+      y: Math.round(cell.y * scaleFactor),
+      width: Math.round(cell.width * rightHorizontalScale),
+      height: Math.round(cell.height * scaleFactor),
+    }));
+    tempRightCells = fixRowAlignment2Row(
+      tempRightCells,
+      rightResult.row1Height,
+      rightResult.row2Height,
+      scaledHeroHeight,
+      scaleFactor,
+      gap
+    );
+    rightCells = tempRightCells.map(cell => ({ ...cell, x: cell.x + rightStartX }));
+  }
+  
+  // Add currentY offset to right cells
+  rightCells = rightCells.map(cell => ({ ...cell, y: cell.y + currentY }));
 
   // Collect unused photos for below zone
   const belowPhotos = [
@@ -847,11 +962,11 @@ function generateFloatingHeroLayout(
   ];
 
   // Pack below zone
-  const belowY = scaledHeroHeight + gap;
+  const belowY = currentY + scaledHeroHeight + gap;
   const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
 
-  // Assemble
-  const allCells = [...leftCells, heroCell, ...rightCells, ...belowCells];
+  // Assemble all cells
+  const allCells = [...introCells, ...leftCells, heroCell, ...rightCells, ...belowCells];
   const finalHeight = allCells.length > 0
     ? Math.max(...allCells.map(c => c.y + c.height))
     : scaledHeroHeight;

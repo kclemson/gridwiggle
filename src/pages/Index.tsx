@@ -340,11 +340,14 @@ export default function Index() {
             {/* Collage preview - appears below when layout exists */}
             {state.layout && (
               <div className="space-y-2 pt-4 border-t border-border">
-                {/* Header row with title and action icons */}
+                {/* Header row with title, centered hint, and action icons */}
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
                     Collage
                   </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Drag to rearrange • Tap ★ to feature
+                  </p>
                   <div className="flex items-center gap-1">
                     <Button 
                       variant="ghost" 
@@ -371,11 +374,6 @@ export default function Index() {
                     </Button>
                   </div>
                 </div>
-                
-                {/* Hint text */}
-                <p className="text-sm text-muted-foreground px-1">
-                  Drag to rearrange • Tap ★ to feature
-                </p>
                 
                 {exportError && (
                   <p className="text-sm text-destructive flex items-center gap-1 px-1">

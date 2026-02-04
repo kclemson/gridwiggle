@@ -137,8 +137,11 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       ? Math.max(...results.filter(r => r.score > 0.4).map(r => r.score)) 
       : 0;
     
-    // Skip smart cropping if confidence is too low (cartoons, memes, screenshots)
-    const skipCrop = maxConfidence < 0.6;
+    // Only apply smart crop if a person was detected
+    // DETR hallucinates random objects (banana, vase) for cartoons
+    // but reliably detects "person" in real photos
+    const hasPerson = results.some(r => r.score > 0.4 && r.label === 'person');
+    const skipCrop = !hasPerson;
     
     self.postMessage({
       type: 'result',

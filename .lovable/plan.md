@@ -1,199 +1,167 @@
 
 
-# Fix Hero Layout: Eliminate Clipping and Blank Rectangles
+# 2-Row Hero Layout: Guaranteed Visual Dominance
 
-## Problem Summary
+## The Core Insight
 
-From analyzing the code and screenshots:
+Making the hero span 2 rows of standard photos solves multiple problems at once:
 
-1. **Severe clipping** - Photos beside the hero are clipped horizontally because their cell dimensions don't match their crop aspect ratios
-2. **Blank rectangles** - The hero + beside column don't fill the canvas width
-3. **Portrait bias** - When shape is "Auto", the layout tends toward portrait orientation
+1. **Guaranteed size hierarchy** - Hero is always ~2× larger than any single beside photo
+2. **Better packing** - Two rows provide more flexibility to fill available width within tolerance
+3. **Fewer black rectangles** - More photos beside = more combinations to hit the ±10% tolerance
+4. **Inverted math** - Let the standard photos determine the height, hero adapts to match
 
-## Root Cause Analysis
+## Mathematical Approach
 
-### The Core Issue
-
-The current `generateEdgeAnchoredHeroLayout` function:
-1. Calculates hero size from an area budget (preserves hero aspect ratio ✓)
-2. Packs "beside" photos as a vertical column to match hero height
-3. **Doesn't verify or adjust to ensure hero + beside = canvas width**
-
-When the beside column's "natural width" (calculated to fill hero height) doesn't match the remaining canvas width, you get either:
-- **Blank space** (natural width < remaining width)
-- **Clipping** (natural width > remaining width, but SVG slice mode clips to fit)
-
-### Why Row-Based Packing Works But Column Packing Fails
-
-Row packing works because:
-- Width is fixed (the constraint)
-- Row height adjusts to fit all photos (the free variable)
-- Each photo's width = `height × aspect`, guaranteeing aspect preservation
-
-Column packing fails because:
-- Height is fixed (hero's height - the constraint)
-- Column width is calculated, BUT it's not adjusted to fit the remaining canvas width
-- When you force the beside photos into the remaining width space, their aspect ratios break
-
-## Solution: Treat Hero + Beside as a Weighted Row
-
-Instead of calculating hero size from area budget and then hoping beside photos fit, treat the hero area as a **single row** where hero and beside photos share a common height.
-
-### The Math
-
-For a row containing the hero (weight W, aspect A_h) and beside photos (weight 1 each, aspects A_1, A_2, ...):
+### Current (problematic)
 
 ```text
-Row height = (canvasWidth - gaps) / weightedAspectSum
-
-where weightedAspectSum = (A_h × W) + A_1 + A_2 + ...
+Hero height = heroWidth / heroAspect
+Beside height = heroHeight (shared)
+Problem: If beside photo has similar aspect ratio → similar size!
 ```
 
-Each photo's width:
+### Proposed (2-row)
+
 ```text
-heroWidth = rowHeight × A_h × W / (weightedAspectSum) × (canvasWidth - gaps)
-besideWidth_i = rowHeight × A_i × 1 / (weightedAspectSum) × (canvasWidth - gaps)
+Step 1: Pack standards into 2 rows at (canvasWidth - heroWidth - gap) width
+Step 2: Get combinedBesideHeight = row1Height + gap + row2Height
+Step 3: Hero height = combinedBesideHeight (spans both rows)
+Step 4: Hero width = heroHeight × heroAspect
+Step 5: Verify hero width fits; iterate if needed
 ```
 
-Wait, that's not quite right. Let me reconsider...
+This inverts the dependency:
+- **Before**: Hero determines height → beside photos must match → often fails
+- **After**: Beside photos packed naturally → hero matches their combined height → always works
 
-Actually, for row packing with weights:
+## Algorithm Flow
+
 ```text
-aspectSum = sum of (aspect × weight) for all items in row
-rowHeight = availableWidth / aspectSum
-photoWidth = (aspect × weight / aspectSum) × availableWidth
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   1. Split standards: ~4-6 for beside zone, rest for below zone    │
+│                                                                     │
+│   2. Pack beside photos into 2 rows at target width                │
+│      (use existing row-packing algorithm)                          │
+│                                                                     │
+│   3. combinedHeight = row1 + gap + row2                            │
+│                                                                     │
+│   4. heroHeight = combinedHeight                                   │
+│      heroWidth = heroHeight × heroAspect                           │
+│                                                                     │
+│   5. If heroWidth + besideWidth ≠ canvasWidth:                     │
+│      Scale besideWidth to fit (within ±10% tolerance)              │
+│      OR adjust hero fraction and retry                             │
+│                                                                     │
+│   6. Pack remaining photos in full-width rows below                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-For a photo: `photoWidth / rowHeight = aspect × weight / aspectSum × aspectSum / 1 = aspect × weight`
+## Visual Result
 
-This means a hero with weight=2 would have:
-- Cell aspect = 2 × photo aspect = WRONG (cell is 2× wider than photo)
-
-The weight is for **area emphasis**, not aspect ratio change. So we need a different approach.
-
-### Correct Approach: Hero Width as Fraction, Shared Height
-
-1. **Hero claims a fraction of canvas width** (e.g., 50-65% based on weight and standard count)
-2. **Beside photos share the remaining width as a row** (at the same height as hero)
-3. **Height emerges from the row math**
-
-For beside photos sharing a fixed width and height with the hero:
 ```text
-heroHeight = heroWidth / hero.aspectRatio
-availableBesideWidth = canvasWidth - heroWidth - gap
+Before (1-row beside):
+┌──────────────────┬─────────────────┐
+│                  │                 │
+│      HERO        │    Photo A      │  ← Similar sizes!
+│                  │                 │
+└──────────────────┴─────────────────┘
 
-For beside photos to fit at heroHeight:
-besidePhoto.width = heroHeight × besidePhoto.aspectRatio
+After (2-row beside):
+┌──────────────────┬────────┬────────┐
+│                  │ A      │   B    │  ← Row 1
+│      HERO        ├────────┼────────┤
+│                  │   C    │ D │ E  │  ← Row 2
+└──────────────────┴────────┴────────┘
+Hero is 2× the height of any individual photo!
 ```
 
-If the sum of beside photo widths exceeds `availableBesideWidth`, we have two options:
-- **Move excess photos to below zone** (current approach, but causes narrow cells)
-- **Allow small aspect ratio adjustment** (your "5-10% crop is OK" rule!)
+## Implementation Details
 
-### The 5-10% Tolerance Fix
+### File: src/lib/heroLayout.ts
 
-Instead of forcing exact aspect ratios, we can allow the algorithm to slightly adjust cell dimensions to fill the available space perfectly, as long as the adjustment is within tolerance.
+**New function**: `packBesideAsRows`
 
-For beside photos:
-```text
-naturalTotalWidth = sum(heroHeight × photo.aspectRatio) + gaps
-availableWidth = canvasWidth - heroWidth - gap
+This function takes beside photos and packs them into exactly 2 rows using the existing `packPhotosIntoRegion` function:
 
-if naturalTotalWidth within 10% of availableWidth:
-  scaleFactor = availableWidth / naturalTotalWidth
-  // Scale all beside photo widths by scaleFactor
-  // This causes each photo to be cropped by (1 - scaleFactor) on each side
-```
-
-If outside tolerance, redistribute photos to below zone.
-
-### Symmetric Cropping
-
-When we scale photos to fit, crop evenly from both sides:
-- Scale factor < 1 means photos are narrower → horizontal crop from both edges
-- Scale factor > 1 means photos are taller → vertical crop from both edges
-
-This is already how SVG `xMidYMid slice` works - it centers the image and clips equally from opposite edges.
-
-## Implementation Plan
-
-### Step 1: Fix `generateEdgeAnchoredHeroLayout`
-
-Replace the current vertical column packing with a tolerance-based horizontal row packing:
-
-1. Calculate hero width as fraction of canvas width (based on standard count)
-2. Derive hero height from aspect ratio
-3. Calculate beside photos' natural widths at hero height
-4. If natural widths fit within tolerance (±10%) of available width, scale to fit
-5. If outside tolerance, reduce beside photo count and try again
-6. Overflow goes to below zone
-
-### Step 2: Fix `generateFloatingHeroLayout`
-
-Same approach for left/right strips:
-1. Calculate hero dimensions
-2. For each side (left, right), calculate natural widths at hero height
-3. Scale within tolerance or reduce photo count
-4. No blank rectangles because everything scales to fill
-
-### Step 3: Fix Row Packing Rounding
-
-In `calculateLayoutWithOffset`, ensure cell dimensions are derived consistently:
 ```typescript
-// Calculate row height first (this is the shared dimension)
-const height = availableWidth / aspectSum;
-
-// Each photo's width derived from shared height
-for (const photo of row) {
-  const photoWidth = height * photo.aspectRatio * photo.weight;
-  // Round consistently
-  const roundedWidth = Math.round(photoWidth);
-  const roundedHeight = Math.round(height);
-  // ...
+function packBesideAsRows(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  gap: number,
+  offsetX: number
+): { 
+  cells: CollageCell[]; 
+  combinedHeight: number; 
+  usedIds: Set<string>;
+} {
+  // Use existing row packing to split into 2 rows
+  const result = packPhotosIntoRegion(photos, {
+    width: targetWidth,
+    gap,
+    offsetX,
+    offsetY: 0,
+    isLandscape: true, // Prefer wider rows
+  });
+  
+  // Ensure we get 2 rows (may need to force)
+  // Return combined height for hero sizing
 }
 ```
 
-The rounding here creates small mismatches (< 1px), which is well within your 5-10% tolerance.
+**Modified function**: `generateEdgeAnchoredHeroLayout`
 
-## File Changes
+1. Calculate target beside width as `canvasWidth × (1 - heroFraction) - gap`
+2. Call `packBesideAsRows` with ~4-6 photos
+3. Get `combinedHeight` from the 2 rows
+4. Set hero height = `combinedHeight`
+5. Calculate hero width from aspect ratio
+6. Verify total width fits canvas (iterate if needed)
+7. Pack remaining photos in below zone
+
+### Hero Width Fraction Adjustment
+
+Since the hero now spans 2 rows, it will be naturally larger. We can use a smaller width fraction:
+
+```typescript
+function calculateHeroWidthFraction(standardCount: number): number {
+  // Reduced fractions since hero is now 2-rows tall
+  if (standardCount <= 4) {
+    return 0.55;  // Was 0.65
+  } else if (standardCount <= 8) {
+    return 0.45;  // Was 0.55
+  } else if (standardCount <= 15) {
+    return 0.40;  // Was 0.48
+  } else {
+    return 0.35;  // Was 0.40
+  }
+}
+```
+
+### Handling Edge Cases
+
+**Few photos (< 4 standards):**
+If there aren't enough photos for 2 beside rows, fall back to 1-row mode but with the hero explicitly sized larger.
+
+**Odd aspect ratios:**
+If the hero has a very wide or very tall aspect ratio, the 2-row combined height might make the hero too wide/narrow. The algorithm will verify and adjust by moving photos between beside and below zones.
+
+## Technical Changes Summary
 
 | File | Function | Change |
 |------|----------|--------|
-| `heroLayout.ts` | `generateEdgeAnchoredHeroLayout` | Replace vertical column with tolerance-based row packing |
-| `heroLayout.ts` | `generateFloatingHeroLayout` | Same tolerance-based approach for side strips |
-| `heroLayout.ts` | (new) `packBesideRow` | Helper to pack beside photos at hero height with tolerance |
-| `heroLayout.ts` | `calculateHeroWidth` | New function - hero width as fraction of canvas |
+| heroLayout.ts | (new) `packBesideAsRows` | Pack photos into exactly 2 rows, return combined height |
+| heroLayout.ts | `generateEdgeAnchoredHeroLayout` | Hero spans 2 beside rows instead of 1 |
+| heroLayout.ts | `generateFloatingHeroLayout` | Same 2-row approach for left/right sides |
+| heroLayout.ts | `calculateHeroWidthFraction` | Reduce fractions since hero is now taller |
 
 ## Expected Results
 
-1. **No severe clipping** - Beside photos fit within available width, with at most 5-10% crop (symmetric from both edges)
-2. **No blank rectangles** - Hero + beside fills canvas width exactly (due to scaling)
-3. **Natural aspect orientation** - Height emerges from the math rather than being pre-calculated
-4. **Better visual balance** - Tolerance-based scaling creates more uniform layouts
-
-## Technical Details: The Tolerance Scaling Math
-
-Given:
-- `heroWidth` = fraction of canvas width (e.g., 55%)
-- `heroHeight = heroWidth / hero.aspectRatio`
-- `availableBesideWidth = canvasWidth - heroWidth - gap`
-- `besidePhotos` = array of photos to place beside hero
-
-Calculate:
-```typescript
-const naturalWidths = besidePhotos.map(p => heroHeight * p.aspectRatio);
-const naturalTotalWidth = sum(naturalWidths) + gap * (besidePhotos.length - 1);
-const scaleFactor = availableBesideWidth / naturalTotalWidth;
-
-if (scaleFactor >= 0.90 && scaleFactor <= 1.10) {
-  // Within 10% tolerance - scale to fit
-  const scaledWidths = naturalWidths.map(w => w * scaleFactor);
-  // Each photo is cropped by (1 - scaleFactor) / 2 on each side
-  // For scaleFactor = 0.90, that's 5% from each edge = 10% total
-} else {
-  // Outside tolerance - reduce beside count and try again
-}
-```
-
-This ensures the cropping is always ≤ 10% and symmetric.
+1. **Guaranteed visual hierarchy** - Hero is always ~2× larger than any beside photo
+2. **No more "similar size" issue** - Even if aspects match, heights differ by 2×
+3. **Better packing** - 2 rows of beside photos can fill width more reliably
+4. **Fewer black rectangles** - More photos = more flexibility within ±10% tolerance
+5. **Natural orientation** - Height emerges from packing math, not pre-calculated
 

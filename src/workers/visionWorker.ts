@@ -1,4 +1,4 @@
-import { pipeline } from "@huggingface/transformers";
+import { pipeline, RawImage } from "@huggingface/transformers";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;
@@ -11,11 +11,9 @@ interface DetectionResult {
 
 interface WorkerMessage {
   type: 'detect';
-  imageDataUrl: string;
+  imageBlob: Blob;
   originalWidth: number;
   originalHeight: number;
-  processedWidth: number;
-  processedHeight: number;
 }
 
 async function loadModel() {
@@ -95,16 +93,35 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   try {
     const model = await loadModel();
     
+    self.postMessage({ type: 'status', message: 'Loading image...' });
+    
+    // Load image directly from blob - no base64 conversion needed
+    let image = await RawImage.fromBlob(e.data.imageBlob);
+    
+    // Scale down to max 640px for performance
+    const maxSize = 640;
+    const origW = image.width;
+    const origH = image.height;
+    let processedWidth = origW;
+    let processedHeight = origH;
+    
+    if (origW > maxSize || origH > maxSize) {
+      const scale = Math.min(maxSize / origW, maxSize / origH);
+      processedWidth = Math.round(origW * scale);
+      processedHeight = Math.round(origH * scale);
+      image = await image.resize(processedWidth, processedHeight);
+    }
+    
     self.postMessage({ type: 'status', message: 'Detecting subjects...' });
-    const results = await model(e.data.imageDataUrl) as DetectionResult[];
+    const results = await model(image) as DetectionResult[];
     
     // Calculate optimal crop
     const crop = calculateOptimalCrop(
       results,
       e.data.originalWidth,
       e.data.originalHeight,
-      e.data.processedWidth,
-      e.data.processedHeight
+      processedWidth,
+      processedHeight
     );
     
     // Determine subject description

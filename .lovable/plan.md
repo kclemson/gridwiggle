@@ -1,76 +1,64 @@
 
-## Fix: Auto-Generated Collage Shows Empty (Stale Closure Issue)
 
-### Root Cause
+## Remove "Create Collage" Button
 
-The collage generation reads `state.photos` from a closure that's stale by the time processing completes:
+### Rationale
 
-```text
-Timeline:
-1. handlePhotosAdded captures handleCreateCollage (which has state.photos = [])
-2. processSmartCrops updates photos one by one via updatePhoto
-3. After await, handleCreateCollage() is called
-4. But handleCreateCollage still sees state.photos = [] from step 1
-5. generateCollageLayout receives empty array → empty layout
-```
+Since the collage now auto-generates after processing completes, and there's a refresh icon in the collage header for regeneration, the "Create Collage" button is redundant.
 
-When you click the refresh button, React has re-rendered and created a new `handleCreateCollage` with the current photos, so it works.
+---
 
-### Solution
+## Technical Changes
 
-Use a **ref** to always access the latest photos when generating the collage. This bypasses the stale closure problem since refs hold mutable values.
+### File: `src/pages/Index.tsx`
 
-### Technical Changes
+**1. Remove computed values (lines 240-242)**
 
-**File: `src/pages/Index.tsx`**
-
-1. **Add a ref to track current photos**:
+These are only used by the button:
 ```tsx
-const photosRef = useRef<PhotoItem[]>(state.photos);
-
-// Keep ref in sync with state (simple assignment, no useEffect needed)
-photosRef.current = state.photos;
+// DELETE these lines:
+const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
+const canCreateCollage = photosWithSmartCrop.length >= 2 && !isProcessing;
 ```
 
-2. **Update `handleCreateCollage` to use the ref**:
+**2. Remove button section (lines 328-353)**
+
+Delete the entire conditional block:
 ```tsx
-const handleCreateCollage = useCallback(() => {
-  // Use ref for latest photos (avoids stale closure)
-  const photos = photosRef.current;
-  
-  // Build weights from photo priorities
-  const photoWeights: Record<string, number> = {};
-  for (const photo of photos) {
-    photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
-  }
-  
-  // Randomize when regenerating (layout already exists) for variety
-  const shouldRandomize = state.layout !== null;
-  
-  const layout = generateCollageLayout(photos, state.settings, { 
-    photoWeights,
-    randomize: shouldRandomize 
-  });
-  setLayout(layout);
-  setLayoutStale(false);
-}, [state.settings, state.layout, setLayout]); // Note: state.photos removed from deps
+// DELETE this entire section:
+{/* Create collage button - only show before first creation */}
+{!state.layout && (
+  <>
+    <div className="flex justify-center">
+      <Button
+        size="default"
+        className="gap-2"
+        disabled={!canCreateCollage}
+        onClick={handleCreateCollage}
+      >
+        <Wand2 className="h-5 w-5" />
+        Create Collage
+        {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+      </Button>
+    </div>
+
+    {!canCreateCollage && state.photos.length > 0 && (
+      <p className="text-center text-sm text-muted-foreground">
+        {isProcessing 
+          ? 'Please wait while AI analyzes your photos...'
+          : 'Add at least 2 photos to create a collage'
+        }
+      </p>
+    )}
+  </>
+)}
 ```
 
-This way, `handleCreateCollage` always reads from `photosRef.current` which is updated on every render.
+---
 
-### Why This Works
+## Result
 
-| Before | After |
-|--------|-------|
-| `handleCreateCollage` captures `state.photos` at creation time | `handleCreateCollage` reads `photosRef.current` at call time |
-| Stale after async operations update state | Always gets latest value regardless of when function was created |
+- Cleaner UI: no redundant button
+- Photos upload → processing shows in PhotoGrid → collage auto-generates → refresh icon available for regeneration
+- Removed ~20 lines of code
 
-### Alternative Considered
-
-Another approach would be to pass photos directly as a parameter to `handleCreateCollage`, but the ref pattern is cleaner since the function is also used by the refresh button and crop save handler.
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/pages/Index.tsx` | Add `photosRef`, update `handleCreateCollage` to use ref |

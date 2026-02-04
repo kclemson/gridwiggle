@@ -355,7 +355,8 @@ export default function Index() {
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}
             {state.photos.length >= 2 && (
-              <div className="space-y-2 pt-4 border-t border-border">
+              <div className="relative">
+                <div className="space-y-2 pt-4 border-t border-border">
                 {!state.layout ? (
                   // No layout yet - show Generate button
                   <Button 
@@ -422,6 +423,17 @@ export default function Index() {
                     </div>
                   </>
                 )}
+                </div>
+                
+                {/* Dev-only Debug Panel - positioned next to collage */}
+                {import.meta.env.DEV && (
+                  <div 
+                    className="absolute top-0 hidden xl:block"
+                    style={{ left: 'calc(100% + 24px)', width: '360px' }}
+                  >
+                    <DebugPanel logs={debugLogs} />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -437,9 +449,6 @@ export default function Index() {
           onSave={handleSaveCrop}
         />
       )}
-
-      {/* Dev-only Debug Panel */}
-      {import.meta.env.DEV && <DebugPanel logs={debugLogs} />}
     </div>
   );
 }

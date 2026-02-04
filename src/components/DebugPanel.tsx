@@ -85,24 +85,12 @@ function LogEntry({ entry }: { entry: HeroLogEntry }) {
 }
 
 export function DebugPanel({ logs }: DebugPanelProps) {
-  // Only render in dev mode
-  if (!import.meta.env.DEV) {
-    return null;
-  }
-  
   const timestamp = logs.length > 0 
     ? new Date(logs[0].timestamp).toLocaleTimeString() 
     : null;
 
   return (
-    <div 
-      className="fixed top-16 hidden xl:block z-50"
-      style={{
-        left: 'calc(50% + 256px + 24px)',
-        width: '360px',
-        maxHeight: 'calc(100vh - 80px)',
-      }}
-    >
+    <div className="max-h-[600px]">
       <div className="bg-background border border-border rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
         <div className="bg-muted/50 px-3 py-2 border-b border-border flex items-center justify-between">

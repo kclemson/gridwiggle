@@ -502,6 +502,16 @@ function generateEdgeAnchoredHeroLayout(
   const introPhotos = shuffled.slice(0, introRowCount * photosPerIntroRow);
   const remainingPhotos = shuffled.slice(introRowCount * photosPerIntroRow);
   
+  const widthFraction = calculateHeroWidthFraction(remainingPhotos.length, targetAspect);
+  
+  console.log('[Hero] Edge-anchored config', {
+    useIntroRows,
+    introPhotoCount: introPhotos.length,
+    remainingPhotos: remainingPhotos.length,
+    anchorSide: anchorRight ? 'right' : 'left',
+    heroWidthFraction: widthFraction.toFixed(2),
+  });
+  
   // Pack intro rows first
   let currentY = 0;
   let introCells: CollageCell[] = [];
@@ -521,6 +531,10 @@ function generateEdgeAnchoredHeroLayout(
 
   // For < 4 remaining standards, fall back to 1-row mode
   if (remainingPhotos.length < 4) {
+    console.log('[Hero] Fallback triggered', {
+      reason: 'too-few-photos',
+      fallbackTo: '1-row',
+    });
     const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
     // Offset all cells by currentY and add intro cells
     const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
@@ -531,7 +545,6 @@ function generateEdgeAnchoredHeroLayout(
     };
   }
 
-  const widthFraction = calculateHeroWidthFraction(remainingPhotos.length, targetAspect);
   const targetBesideWidth = Math.round(canvasWidth * (1 - widthFraction)) - gap;
 
   // ADAPTIVE APPROACH: Try 3-row first for large sets, then 2-row
@@ -557,7 +570,15 @@ function generateEdgeAnchoredHeroLayout(
       const totalNaturalWidth = heroWidth + gap + packResult.naturalTotalWidth;
       const scaleFactor = canvasWidth / totalNaturalWidth;
       
-      if (scaleFactor < 0.80 || scaleFactor > 1.20) {
+      const accepted = scaleFactor >= 0.80 && scaleFactor <= 1.20;
+      console.log('[Hero] Trying config', {
+        rowMode: '3-row',
+        besideCount,
+        scaleFactor: scaleFactor.toFixed(2),
+        accepted,
+      });
+      
+      if (!accepted) {
         continue; // Try fewer photos
       }
       
@@ -612,6 +633,15 @@ function generateEdgeAnchoredHeroLayout(
         ? Math.max(...allCells.map(c => c.y + c.height))
         : currentY + scaledHeroHeight;
 
+      console.log('[Hero] Layout complete', {
+        finalAspect: (canvasWidth / finalHeight).toFixed(2),
+        heroCell: { width: heroCell.width, height: heroCell.height },
+        heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
+        besideCells: adjustedBesideCells.length,
+        belowCells: belowCells.length,
+        totalCells: allCells.length,
+      });
+
       return {
         width: canvasWidth,
         height: Math.round(finalHeight),
@@ -637,7 +667,15 @@ function generateEdgeAnchoredHeroLayout(
     const totalNaturalWidth = heroWidth + gap + packResult.naturalTotalWidth;
     const scaleFactor = canvasWidth / totalNaturalWidth;
     
-    if (scaleFactor < 0.85 || scaleFactor > 1.15) {
+    const accepted = scaleFactor >= 0.85 && scaleFactor <= 1.15;
+    console.log('[Hero] Trying config', {
+      rowMode: '2-row',
+      besideCount,
+      scaleFactor: scaleFactor.toFixed(2),
+      accepted,
+    });
+    
+    if (!accepted) {
       continue; // Try fewer photos
     }
     
@@ -691,6 +729,15 @@ function generateEdgeAnchoredHeroLayout(
       ? Math.max(...allCells.map(c => c.y + c.height))
       : currentY + scaledHeroHeight;
 
+    console.log('[Hero] Layout complete', {
+      finalAspect: (canvasWidth / finalHeight).toFixed(2),
+      heroCell: { width: heroCell.width, height: heroCell.height },
+      heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
+      besideCells: adjustedBesideCells.length,
+      belowCells: belowCells.length,
+      totalCells: allCells.length,
+    });
+
     return {
       width: canvasWidth,
       height: Math.round(finalHeight),
@@ -699,6 +746,10 @@ function generateEdgeAnchoredHeroLayout(
   }
 
   // No working multi-row config found - fallback to 1-row
+  console.log('[Hero] Fallback triggered', {
+    reason: 'no-valid-config',
+    fallbackTo: '1-row',
+  });
   const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
   const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
   return {
@@ -1023,6 +1074,14 @@ function generateSingleHeroLayout(
   randomize: boolean,
   targetAspect: number | undefined
 ): CollageLayout {
+  const strategy = standards.length < FEW_PHOTOS_THRESHOLD ? 'edge-anchored' : 'floating';
+  
+  console.log('[Hero] Strategy', {
+    strategy,
+    standardCount: standards.length,
+    threshold: FEW_PHOTOS_THRESHOLD,
+  });
+  
   // Use edge-anchored layout for few photos (simpler, cleaner)
   if (standards.length < FEW_PHOTOS_THRESHOLD) {
     return generateEdgeAnchoredHeroLayout(
@@ -1208,6 +1267,14 @@ export function generateHeroLayout(
   const dims = getPhotoDimensions(photos, weights);
   const heroes = dims.filter(d => d.weight >= 2.0);
   const standards = dims.filter(d => d.weight < 2.0);
+
+  console.log('[Collage] Layout requested', {
+    totalPhotos: photos.length,
+    heroCount: heroes.length,
+    standardCount: standards.length,
+    targetAspect: targetAspect?.toFixed(2) ?? 'auto',
+    randomize,
+  });
 
   if (heroes.length === 0) {
     // Fallback: no heroes, return empty (caller should not have routed here)

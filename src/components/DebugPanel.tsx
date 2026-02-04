@@ -89,11 +89,16 @@ export function DebugPanel({ logs }: DebugPanelProps) {
     ? new Date(logs[0].timestamp).toLocaleTimeString() 
     : null;
 
+  // Split logs into two columns
+  const midpoint = Math.ceil(logs.length / 2);
+  const leftLogs = logs.slice(0, midpoint);
+  const rightLogs = logs.slice(midpoint);
+
   return (
     <div className="max-h-[600px]">
       <div className="bg-background border border-border rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
-        <div className="bg-muted/50 px-3 py-2 border-b border-border flex items-center justify-between">
+        <div className="bg-muted/50 px-3 py-1.5 border-b border-border flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             Hero Layout Logs
           </span>
@@ -104,17 +109,26 @@ export function DebugPanel({ logs }: DebugPanelProps) {
           )}
         </div>
         
-        {/* Log entries */}
+        {/* Log entries - two columns */}
         <ScrollArea className="max-h-[calc(100vh-140px)]">
           {logs.length === 0 ? (
             <div className="p-4 text-center text-xs text-muted-foreground">
               Generate a collage to see logs
             </div>
           ) : (
-            <div>
-              {logs.map((entry, index) => (
-                <LogEntry key={`${entry.timestamp}-${index}`} entry={entry} />
-              ))}
+            <div className="grid grid-cols-2 divide-x divide-border/50">
+              {/* Left column */}
+              <div>
+                {leftLogs.map((entry, index) => (
+                  <LogEntry key={`${entry.timestamp}-${index}`} entry={entry} />
+                ))}
+              </div>
+              {/* Right column */}
+              <div>
+                {rightLogs.map((entry, index) => (
+                  <LogEntry key={`${entry.timestamp}-${midpoint + index}`} entry={entry} />
+                ))}
+              </div>
             </div>
           )}
         </ScrollArea>

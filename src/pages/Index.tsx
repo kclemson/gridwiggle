@@ -429,7 +429,7 @@ export default function Index() {
                 {import.meta.env.DEV && (
                   <div 
                     className="absolute top-0 hidden xl:block"
-                    style={{ left: 'calc(100% + 24px)', width: '360px' }}
+                    style={{ left: 'calc(100% + 24px)', width: '700px' }}
                   >
                     <DebugPanel logs={debugLogs} />
                   </div>

@@ -1,106 +1,77 @@
 
 
-## Prep Step: Remove Deprecated `getActiveCrop`
+## Smart Crop: People Priority
 
-Before implementing the slicing floorplan algorithm, we'll clean up the crop source inconsistency.
-
----
-
-## What We're Fixing
-
-Currently there are two functions for getting a photo's crop:
-
-| Function | Location | Behavior |
-|----------|----------|----------|
-| `getActiveCrop` (deprecated) | `imageUtils.ts` | Returns raw crop, no validation or clamping |
-| `getDisplayCrop` (correct) | `cropUtils.ts` | Validates bounds, clamps to image, returns null if invalid |
-
-The preview uses `getDisplayCrop`, but layout and export still use the deprecated `getActiveCrop`. This could cause subtle mismatches.
+Simplify the algorithm to focus on people when detected, otherwise use all detections.
 
 ---
 
-## Changes
+## Logic
 
-### 1. `src/lib/collageLayout.ts`
+```text
+calculateOptimalCrop(detections):
 
-**Before:**
-```typescript
-import { getActiveCrop } from '@/lib/imageUtils';
+  1. Filter by confidence > 0.4 (unchanged)
+  
+  2. Find people:
+     peopleDetections = detections where label === 'person'
+  
+  3. Choose which set defines the crop:
+     - If peopleDetections.length > 0 → use peopleDetections only
+     - Else → use all detections (current behavior)
+  
+  4. Calculate bounding box (unchanged math)
 ```
-
-**After:**
-```typescript
-import { getDisplayCrop } from '@/lib/cropUtils';
-```
-
-Update 2 usages:
-- Line 76: `getPhotoDimensions()` helper
-- Line 489: single-photo layout case in `generateCollageLayout()`
-
-Both change from `getActiveCrop(photo)` to `getDisplayCrop(photo)`.
 
 ---
 
-### 2. `src/lib/exportCollage.ts`
+## Your Photo Example
 
-**Before:**
-```typescript
-import { getActiveCrop, loadImage } from '@/lib/imageUtils';
+```text
+Detected:
+  - person (child 1) → label === 'person' ✓
+  - person (child 2) → label === 'person' ✓
+  - person (child 3) → label === 'person' ✓
+  - potted plant     → not a person, ignored
+  - bench            → not a person, ignored
+
+Result: Crop focuses on the 3 children
 ```
-
-**After:**
-```typescript
-import { loadImage } from '@/lib/imageUtils';
-import { getDisplayCrop } from '@/lib/cropUtils';
-```
-
-Update 1 usage:
-- Line 34: change `getActiveCrop(photo)` to `getDisplayCrop(photo)`
 
 ---
 
-### 3. `src/lib/imageUtils.ts`
+## Other Scenarios
 
-Remove the deprecated function entirely (lines 49-60):
-
-```typescript
-// DELETE THIS:
-/**
- * @deprecated Use getDisplayCrop from '@/lib/cropUtils' instead.
- * This function lacks validation and clamping.
- */
-export function getActiveCrop(photo: { smartCrop: CropRegion | null; manualCrop: CropRegion | null }): CropRegion | null {
-  return photo.manualCrop || photo.smartCrop;
-}
-```
-
-Also remove the unused `CropRegion` import since it's no longer needed after removing this function.
+| Photo Type | People Detected? | Behavior |
+|------------|------------------|----------|
+| Family with dog | Yes | Focus on people (dog likely in frame anyway) |
+| Just a dog | No | Fallback: all detections → dog included |
+| Landscape | No | Fallback: all detections → current behavior |
+| Group selfie | Yes | Focus on people |
 
 ---
 
-## Files Changed
+## File Changes
 
 | File | Change |
 |------|--------|
-| `src/lib/collageLayout.ts` | Switch import and 2 usages to `getDisplayCrop` |
-| `src/lib/exportCollage.ts` | Switch import and 1 usage to `getDisplayCrop` |
-| `src/lib/imageUtils.ts` | Delete deprecated `getActiveCrop` function |
+| `src/workers/visionWorker.ts` | Update `calculateOptimalCrop` to filter for `'person'` label before bounding box calculation |
 
 ---
 
-## Why This Matters
+## Code Change
 
-1. **Consistency**: Layout, preview, and export all use the same validated crop
-2. **No dead code**: Deprecated function is gone, not just marked
-3. **Clean foundation**: The slicing floorplan algorithm will use the correct crop source from day one
-4. **Smaller diff**: Easier to review and verify before the bigger changes
+In `calculateOptimalCrop`, after the confidence filter:
 
----
+```typescript
+// Current: uses all subjects with confidence > 0.4
+const subjects = detections.filter(d => d.score > 0.4);
 
-## Testing
+// New: prioritize people if detected
+const allSubjects = detections.filter(d => d.score > 0.4);
+const people = allSubjects.filter(d => d.label === 'person');
+const subjects = people.length > 0 ? people : allSubjects;
+```
 
-1. Upload photos, apply smartcrop
-2. Verify preview displays correctly
-3. Export PNG and verify it matches preview (no crop differences)
-4. Apply manual crop, repeat verification
+Three lines. No config objects. No category lists.
 

@@ -237,9 +237,7 @@ export default function Index() {
     );
   }
 
-  const photosWithSmartCrop = state.photos.filter((p) => p.smartCrop || p.manualCrop);
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
-  const canCreateCollage = photosWithSmartCrop.length >= 2 && !isProcessing;
 
   const editingPhoto = editingPhotoId 
     ? state.photos.find((p) => p.id === editingPhotoId) 
@@ -324,33 +322,6 @@ export default function Index() {
               settings={state.settings}
               onUpdate={handleUpdateSettings}
             />
-
-            {/* Create collage button - only show before first creation */}
-            {!state.layout && (
-              <>
-                <div className="flex justify-center">
-                  <Button
-                    size="default"
-                    className="gap-2"
-                    disabled={!canCreateCollage}
-                    onClick={handleCreateCollage}
-                  >
-                    <Wand2 className="h-5 w-5" />
-                    Create Collage
-                    {isProcessing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-                  </Button>
-                </div>
-
-                {!canCreateCollage && state.photos.length > 0 && (
-                  <p className="text-center text-sm text-muted-foreground">
-                    {isProcessing 
-                      ? 'Please wait while AI analyzes your photos...'
-                      : 'Add at least 2 photos to create a collage'
-                    }
-                  </p>
-                )}
-              </>
-            )}
 
             {/* Collage preview - appears below when layout exists */}
             {state.layout && (

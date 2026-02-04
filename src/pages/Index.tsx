@@ -349,9 +349,9 @@ export default function Index() {
                   <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
                     Collage
                   </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Drag to rearrange • Tap ★ to feature
-                  </p>
+                  <span className="text-xs text-muted-foreground font-normal italic">
+                    — Drag to rearrange • Tap ★ to feature
+                  </span>
                   <div className="flex items-center gap-1">
                     <Button 
                       variant="ghost" 

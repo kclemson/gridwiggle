@@ -84,11 +84,17 @@ export default function Index() {
       photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
     }
     
-    const layout = generateCollageLayout(photos, settings, { 
-      photoWeights,
-      randomize,
-    });
-    setLayout(layout);
+    try {
+      const layout = generateCollageLayout(photos, settings, { 
+        photoWeights,
+        randomize,
+      });
+      setLayout(layout);
+    } catch (error) {
+      console.error('Layout generation failed:', error);
+      toast.error('Failed to generate collage. Try again.');
+      // Don't call setLayout(null) - keep button visible for retry
+    }
   }, [state.settings, setLayout]);
 
   // Process smart crops for photos - called directly from event handler
@@ -322,61 +328,75 @@ export default function Index() {
               onUpdate={handleUpdateSettings}
             />
 
-            {/* Collage preview - appears below when layout exists */}
-            {state.layout && (
+            {/* Generate button or Collage preview - always visible when 2+ photos */}
+            {state.photos.length >= 2 && (
               <div className="space-y-2 pt-4 border-t border-border">
-                {/* Header row with title, centered hint, and action icons */}
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-                    Collage
-                  </h3>
-                  <span className="text-xs text-muted-foreground font-normal italic">
-                    — Drag to rearrange • Tap ★ to feature
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8" 
-                      onClick={handleCreateCollage}
-                      title="Shuffle layout"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8" 
-                      onClick={handleExport}
-                      disabled={isExporting}
-                      title="Download PNG"
-                    >
-                      {isExporting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                
-                {exportError && (
-                  <p className="text-sm text-destructive flex items-center gap-1 px-1">
-                    <AlertCircle className="h-4 w-4" />
-                    {exportError}
-                  </p>
-                )}
+                {!state.layout ? (
+                  // No layout yet - show Generate button
+                  <Button 
+                    onClick={handleCreateCollage}
+                    className="w-full"
+                  >
+                    <Grid3X3 className="h-4 w-4 mr-2" />
+                    Generate Collage
+                  </Button>
+                ) : (
+                  // Layout exists - show collage preview with shuffle/download
+                  <>
+                    {/* Header row with title, centered hint, and action icons */}
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+                        Collage
+                      </h3>
+                      <span className="text-xs text-muted-foreground font-normal italic">
+                        — Drag to rearrange • Tap ★ to feature
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8" 
+                          onClick={handleCreateCollage}
+                          title="Shuffle layout"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8" 
+                          onClick={handleExport}
+                          disabled={isExporting}
+                          title="Download PNG"
+                        >
+                          {isExporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {exportError && (
+                      <p className="text-sm text-destructive flex items-center gap-1 px-1">
+                        <AlertCircle className="h-4 w-4" />
+                        {exportError}
+                      </p>
+                    )}
 
-                <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
-                  <CollagePreview
-                    photos={state.photos}
-                    layout={state.layout}
-                    gapColor={state.settings.gapColor}
-                    onSwapPhotos={handleSwapPhotos}
-                    onCellClick={setEditingPhotoId}
-                    onToggleHero={handleToggleHero}
-                  />
-                </div>
+                    <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+                      <CollagePreview
+                        photos={state.photos}
+                        layout={state.layout}
+                        gapColor={state.settings.gapColor}
+                        onSwapPhotos={handleSwapPhotos}
+                        onCellClick={setEditingPhotoId}
+                        onToggleHero={handleToggleHero}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

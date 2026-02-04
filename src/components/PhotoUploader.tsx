@@ -25,6 +25,7 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
       
       return {
         id: generateId(),
+        filename: file.name,
         objectUrl,
         blob,
         originalWidth: dimensions.width,

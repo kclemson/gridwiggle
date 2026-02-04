@@ -18,6 +18,7 @@ export type PhotoPriority = 1 | 2 | 3;
  */
 export interface PhotoItem {
   id: string;
+  filename?: string;          // Original filename for debugging
   objectUrl: string;          // For <img src> rendering
   blob: Blob;                 // For canvas operations
   originalWidth: number;
@@ -34,6 +35,7 @@ export interface PhotoItem {
  */
 export interface PhotoMetadata {
   id: string;
+  filename?: string;          // Original filename for debugging
   originalWidth: number;
   originalHeight: number;
   smartCrop: CropRegion | null;

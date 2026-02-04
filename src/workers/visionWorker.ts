@@ -132,11 +132,20 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       ? [...new Set(subjects)].join(', ')
       : 'No subjects detected';
     
+    // Calculate max confidence from filtered results
+    const maxConfidence = subjects.length > 0 
+      ? Math.max(...results.filter(r => r.score > 0.4).map(r => r.score)) 
+      : 0;
+    
+    // Skip smart cropping if confidence is too low (cartoons, memes, screenshots)
+    const skipCrop = maxConfidence < 0.6;
+    
     self.postMessage({
       type: 'result',
       crop,
-      confidence: subjects.length > 0 ? Math.max(...results.map(r => r.score)) : 0.5,
-      subjects: subjectDescription
+      confidence: maxConfidence,
+      subjects: subjectDescription,
+      skipCrop,
     });
   } catch (error) {
     self.postMessage({

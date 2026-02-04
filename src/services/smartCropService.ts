@@ -4,6 +4,7 @@ interface SmartCropResult {
   crop: CropRegion;
   confidence: number;
   subjects: string;
+  skipCrop: boolean;
 }
 
 interface WorkerStatusCallback {
@@ -59,7 +60,8 @@ export async function getSmartCrop(
     return {
       crop: { x: 0, y: 0, width, height },
       confidence: 0,
-      subjects: 'AI unavailable'
+      subjects: 'AI unavailable',
+      skipCrop: true,
     };
   }
 
@@ -85,7 +87,8 @@ export async function getSmartCrop(
         resolve({
           crop: e.data.crop,
           confidence: e.data.confidence,
-          subjects: e.data.subjects
+          subjects: e.data.subjects,
+          skipCrop: e.data.skipCrop ?? false,
         });
       } else if (e.data.type === 'error') {
         cleanup();

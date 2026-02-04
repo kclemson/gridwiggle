@@ -56,6 +56,8 @@ export default function Index() {
     settings?: CollageSettingsType;
     /** Override a single photo's priority before state updates */
     priorityOverride?: { photoId: string; priority: PhotoPriority };
+    /** Override a single photo's crop before state updates */
+    cropOverride?: { photoId: string; crop: CropRegion };
     /** Shuffle for variety (refresh button) */
     randomize?: boolean;
   }
@@ -66,18 +68,29 @@ export default function Index() {
       photos = photosRef.current,
       settings = state.settings,
       priorityOverride,
+      cropOverride,
       randomize = false,
     } = options;
     
+    // Apply crop override to get correct dimensions immediately (avoids stale state)
+    let photosToUse = photos;
+    if (cropOverride) {
+      photosToUse = photos.map(p => 
+        p.id === cropOverride.photoId 
+          ? { ...p, manualCrop: cropOverride.crop }
+          : p
+      );
+    }
+    
     // Need at least 2 photos for a collage
-    if (photos.length < 2) {
+    if (photosToUse.length < 2) {
       setLayout(null);
       return;
     }
     
     // Build weights from priorities (with optional override for pending state updates)
     const photoWeights: Record<string, number> = {};
-    for (const photo of photos) {
+    for (const photo of photosToUse) {
       const effectivePriority = priorityOverride?.photoId === photo.id 
         ? priorityOverride.priority 
         : photo.priority;
@@ -85,7 +98,7 @@ export default function Index() {
     }
     
     try {
-      const layout = generateCollageLayout(photos, settings, { 
+      const layout = generateCollageLayout(photosToUse, settings, { 
         photoWeights,
         randomize,
       });
@@ -117,8 +130,16 @@ export default function Index() {
           (status) => setProcessingStatus(status)
         );
         
+        // Only apply smart crop if model is confident enough
+        // Low confidence (< 0.6) typically means cartoons, memes, screenshots
+        const smartCropToApply = result.skipCrop ? null : result.crop;
+        
+        if (result.skipCrop) {
+          console.log(`Skipping smart crop for ${photo.id}: low confidence (${result.confidence.toFixed(2)}), subjects: ${result.subjects}`);
+        }
+        
         updatePhoto(photo.id, {
-          smartCrop: result.crop,
+          smartCrop: smartCropToApply,
           isProcessing: false,
         });
       } catch (error) {
@@ -149,7 +170,10 @@ export default function Index() {
     updatePhoto(photoId, { manualCrop: crop, priority });
     setEditingPhotoId(null);
     if (state.layout) {
-      regenerateCollage({ priorityOverride: { photoId, priority } });
+      regenerateCollage({ 
+        priorityOverride: { photoId, priority },
+        cropOverride: { photoId, crop },  // Pass crop immediately to avoid stale state
+      });
     }
   }, [updatePhoto, state.layout, regenerateCollage]);
 

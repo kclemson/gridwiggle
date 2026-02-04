@@ -1,213 +1,188 @@
 
 
-# Hero Layout Improvements - IMPLEMENTED ✅
+# Fix Hero Layout: Vertical Position Variety + Row Alignment + Better 3-Row Trigger
 
-## Completed
+## Overview
 
-### Fix 1: Independent Row Scaling ✅
-- Each beside row now fills `targetWidth` exactly
-- No more blank rectangles from mismatched row widths
-- Both 2-row and 3-row packing use this approach
-
-### Fix 2: Landscape Bias for Auto Mode ✅
-- Applied 1.3× bias to average aspect ratio
-- Clamped to 0.8-2.2 range (wider than before)
-- Results in more landscape-oriented collages for social media
-
-### Fix 3: 3-Row Hero Packing ✅
-- Added `packBesideAs3Rows` function
-- Used adaptively for larger photosets (8+ standard photos)
-- Hero now spans 3 rows for stronger visual hierarchy
-- Iterative approach: tries 3-row first, falls back to 2-row, then 1-row
+This plan addresses three issues:
+1. **Blank rectangles** appearing at the bottom of row 2 (rounding misalignment)
+2. **Hero always at top** - no vertical position variety
+3. **3-row never triggers** - tolerance too strict
 
 ## Problem Analysis
 
-### Why Blank Rectangles Still Appear
+### Issue 1: Row 2 Bottom Gap
 
-In `packBesideAs2Rows`, each row is calculated at the same target width but produces different actual widths:
-
-```text
-Row 1: 3 photos → natural width = 580px
-Row 2: 2 photos → natural width = 520px  (NARROWER)
-
-naturalTotalWidth = max(580, 520) = 580px
-```
-
-When we scale to fill `availableBesideWidth`, only Row 1 fills perfectly. Row 2 remains 60px short, creating a black rectangle.
-
-### Why Everything Tends Toward Square
-
-The `findBestRowSplit` scoring in `collageLayout.ts` uses `targetAspect` from the averaged photo aspects. With mixed orientations, this averages to ~1.0. Even though hero layouts pass `undefined` for Auto mode, the below-zone row packing still inherits this square tendency.
-
-### Why 3-Row Would Help
-
-With 3 rows instead of 2:
-- **More photos beside** = more combinations to hit the width tolerance
-- **Hero 3× height** of individual photos = even stronger visual hierarchy
-- **Better for larger photosets** = 20+ photos have plenty to fill 3 rows cleanly
-
----
-
-## Solution
-
-### Fix 1: Make Each Beside Row Fill Its Width Independently
-
-Instead of using `max(row1Width, row2Width)`, scale each row independently to fill the available width:
-
-```text
-Before (unified width, causes gaps):
-┌──────────┬────────────────┐
-│          │ A │ B │ C │ D  │ ← Row 1 fills
-│   HERO   ├────────────┬───┤
-│          │ E │ F │    │   │ ← Row 2 short!
-└──────────┴────────────┴───┘
-
-After (independent row scaling):
-┌──────────┬────────────────┐
-│          │ A │ B │ C │ D  │ ← Row 1 scaled to fill
-│   HERO   ├────────────────┤
-│          │   E   │   F    │ ← Row 2 scaled to fill
-└──────────┴────────────────┘
-```
-
-Each row scales to exactly fill `availableBesideWidth` (within the 10% tolerance).
-
-### Fix 2: Bias Auto Mode Toward Landscape
-
-For social media sharing (carousels, previews), landscape collages look better. Modify Auto mode:
+In `generateEdgeAnchoredHeroLayout`, the beside cells are scaled uniformly:
 
 ```typescript
-// Current: Simple average tends toward square
-const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-
-// Proposed: Bias toward landscape (1.5:1) for better social sharing
-const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-const landscapeBias = 1.3; // Pull toward wider layouts
-targetAspect = Math.max(0.8, Math.min(2.2, avgAspect * landscapeBias));
+y: Math.round(cell.y * scaleFactor),
+height: Math.round(cell.height * scaleFactor),
 ```
 
-This biases the collage toward 1.3-1.8 aspect ratios (wider than tall) which display better in social media carousels.
+But row 1 and row 2 have different heights (calculated independently to fill width). After scaling and rounding:
+- Row 1 bottom: `round(row1Height * scaleFactor)`
+- Row 2 top: `round((row1Height + gap) * scaleFactor)` 
+- Row 2 bottom: `round((row1Height + gap) * scaleFactor) + round(row2Height * scaleFactor)`
+- Hero bottom: `round(combinedHeight * scaleFactor)`
 
-### Fix 3: Add 3-Row Beside Packing Option
+These don't match due to cumulative rounding errors.
 
-Create `packBesideAs3Rows` and use it adaptively:
+**Fix**: After scaling, explicitly align row 2's Y position so its bottom matches the hero's bottom.
 
-```typescript
-// Use 3-row for large standard counts, 2-row for medium, 1-row for small
-if (standards.length >= 8) {
-  // Try 3-row packing (7-9 photos beside hero)
-  result = packBesideAs3Rows(candidates, targetWidth, gap);
-} else if (standards.length >= 4) {
-  // Try 2-row packing (4-6 photos beside hero)
-  result = packBesideAs2Rows(candidates, targetWidth, gap);
-} else {
-  // 1-row fallback
-  result = packBesideAs1Row(candidates, height, width, gap);
-}
-```
+### Issue 2: Hero Always at Top
 
-With 3 rows:
-- Hero spans all 3 rows (visually dominant)
-- More photos = more flexibility to hit width tolerance
-- Reduces blank rectangles for large photosets
+Current code only varies `anchorRight` (left vs right). The hero zone is always rendered first at `y: 0`, with "below zone" photos after.
 
----
+**Fix**: Add `introRows` option - sometimes pack 1-2 full-width rows BEFORE the hero zone, pushing the hero lower in the collage.
+
+### Issue 3: 3-Row Never Triggers
+
+Current constraints:
+- Requires 8+ standards
+- Tries beside counts 9→6 only
+- Uses ±15% tolerance
+
+With extreme hero aspect ratios (very wide/tall), the resulting hero width after `height × aspect` often falls outside tolerance.
+
+**Fix**: 
+- Relax tolerance to ±20% for 3-row
+- Try more beside counts (12→3)
+- Better row splitting for edge cases
 
 ## Technical Changes
 
-### File: src/lib/heroLayout.ts
+### File: `src/lib/heroLayout.ts`
 
 | Function | Change |
 |----------|--------|
-| `packBesideAs2Rows` | Scale each row independently to fill `targetWidth` exactly |
-| (new) `packBesideAs3Rows` | Pack into 3 rows with independent scaling |
-| `generateEdgeAnchoredHeroLayout` | Try 3-row first for larger sets, fall back to 2-row then 1-row |
-| `generateFloatingHeroLayout` | Same adaptive row count logic |
-
-### File: src/lib/collageLayout.ts
-
-| Function | Change |
-|----------|--------|
-| `generateCollageLayout` (Auto mode) | Apply landscape bias (1.3×) to target aspect |
-
----
+| `generateEdgeAnchoredHeroLayout` | Fix row 2 alignment by explicitly setting bottom row's Y to `heroHeight - rowHeight` |
+| `generateEdgeAnchoredHeroLayout` | Add `useIntroRows` flag to place hero zone after some full-width intro rows |
+| 3-row block (lines 383-446) | Relax tolerance to ±20%, try counts from 12 down to 3 |
+| `packBesideAs3Rows` | Better row splitting for uneven photo counts |
+| `generateFloatingHeroLayout` | Same intro rows option |
 
 ## Detailed Implementation
 
-### Independent Row Scaling in `packBesideAs2Rows`
+### Fix 1: Row 2 Alignment (Eliminate Bottom Gap)
+
+After creating `adjustedBesideCells`, identify which cells belong to each row and force row 2's bottom to align with hero bottom:
 
 ```typescript
-function packBesideAs2Rows(
-  photos: PhotoDimension[],
-  targetWidth: number,
+// After scaling beside cells, fix row alignment
+const scaledHeroHeight = Math.round(heroHeight * scaleFactor);
+
+// Separate cells by row (row 2 cells have y >= row 1 height + gap)
+const row1ScaledHeight = Math.round(row1Height * scaleFactor);
+const row2ScaledHeight = Math.round(row2Height * scaleFactor);
+
+// Force row 2 to align with hero bottom
+const correctRow2Y = scaledHeroHeight - row2ScaledHeight;
+
+adjustedBesideCells = adjustedBesideCells.map(cell => {
+  // Check if this is a row 2 cell (y >= row1Height threshold)
+  if (cell.y >= row1ScaledHeight) {
+    return {
+      ...cell,
+      y: correctRow2Y,
+      height: row2ScaledHeight, // Ensure consistent height
+    };
+  }
+  return cell;
+});
+```
+
+This guarantees:
+- Row 1: y=0, height=row1ScaledHeight
+- Row 2: y=heroHeight-row2ScaledHeight, height=row2ScaledHeight
+- Row 2 bottom = heroHeight (perfect alignment, no gap)
+
+### Fix 2: Intro Rows for Vertical Position Variety
+
+Add logic to sometimes place full-width rows BEFORE the hero zone:
+
+```typescript
+function generateEdgeAnchoredHeroLayout(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
   gap: number,
-  offsetX: number
-): PackResult {
-  // Split photos between rows
-  const midpoint = Math.ceil(photos.length / 2);
-  const row1Photos = photos.slice(0, midpoint);
-  const row2Photos = photos.slice(midpoint);
-
-  // Calculate natural height for each row at targetWidth
-  const row1AspectSum = row1Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
-  const row2AspectSum = row2Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
+  randomize: boolean
+): CollageLayout {
+  const shuffled = randomize ? shuffleArray(standards) : standards;
+  const anchorRight = randomize ? Math.random() < 0.5 : false;
   
-  const row1Gaps = gap * (row1Photos.length - 1);
-  const row2Gaps = gap * (row2Photos.length - 1);
+  // NEW: Sometimes place intro rows before hero zone (30% chance)
+  const useIntroRows = randomize && standards.length >= 8 && Math.random() < 0.3;
+  const introRowCount = useIntroRows ? Math.min(2, Math.floor(standards.length / 6)) : 0;
   
-  const row1Height = (targetWidth - row1Gaps) / row1AspectSum;
-  const row2Height = (targetWidth - row2Gaps) / row2AspectSum;
-
-  // FIXED: Each row now fills targetWidth exactly
-  // No need for naturalTotalWidth - both rows are already at targetWidth
-
-  const combinedHeight = row1Height + gap + row2Height;
+  // Split photos: intro rows → beside zone → below zone
+  const introPhotos = shuffled.slice(0, introRowCount * 3); // ~3 photos per intro row
+  const remainingPhotos = shuffled.slice(introRowCount * 3);
   
-  // Build cells for each row (each fills targetWidth)
-  const cells: CollageCell[] = [];
-  
-  // Row 1
-  let x = offsetX;
-  for (const photo of row1Photos) {
-    const photoWidth = row1Height * photo.aspectRatio;
-    cells.push({
-      photoId: photo.id,
-      x: Math.round(x),
-      y: 0,
-      width: Math.round(photoWidth),
-      height: Math.round(row1Height),
-    });
-    x += photoWidth + gap;
+  // Pack intro rows first
+  let currentY = 0;
+  let introCells: CollageCell[] = [];
+  if (introPhotos.length > 0) {
+    introCells = packRowsFullWidth(introPhotos, canvasWidth, gap, 0);
+    if (introCells.length > 0) {
+      currentY = Math.max(...introCells.map(c => c.y + c.height)) + gap;
+    }
   }
   
-  // Row 2
-  x = offsetX;
-  for (const photo of row2Photos) {
-    const photoWidth = row2Height * photo.aspectRatio;
-    cells.push({
-      photoId: photo.id,
-      x: Math.round(x),
-      y: Math.round(row1Height + gap),
-      width: Math.round(photoWidth),
-      height: Math.round(row2Height),
-    });
-    x += photoWidth + gap;
-  }
-
-  return {
-    cells,
-    combinedHeight,
-    row1Height,
-    row2Height,
-    naturalTotalWidth: targetWidth, // Both rows fill targetWidth exactly
-    usedIds: new Set([...row1Photos, ...row2Photos].map(p => p.id)),
-  };
+  // Now pack hero zone at currentY (not always 0!)
+  // ... rest of hero packing logic, but heroCell.y = currentY instead of 0
 }
 ```
 
-This ensures **both rows fill their width exactly** - no more black rectangles from mismatched row widths.
+Visual result:
 
-### New 3-Row Packing Function
+```text
+Standard (hero at top):            With intro rows (hero lower):
+┌──────────┬───────────────┐       ┌────────────────────────────┐
+│          │ A │ B │ C     │       │ X │ Y │ Z │ W              │ ← Intro row
+│   HERO   ├───────────────┤       ├──────────┬─────────────────┤
+│          │   D   │ E     │       │          │ A │ B │ C       │
+├──────────┴───────────────┤       │   HERO   ├─────────────────┤
+│ F │ G │ H │ I │ J        │       │          │   D   │ E       │
+└────────────────────────────      └──────────┴─────────────────┘
+```
+
+### Fix 3: Better 3-Row Trigger
+
+Relax constraints to make 3-row layouts happen more often:
+
+```typescript
+// Try 3-row packing for larger photosets (8+ photos)
+if (standards.length >= 8) {
+  // FIXED: Try more beside counts (12 down to 3)
+  for (let besideCount = Math.min(12, standards.length); besideCount >= 3; besideCount--) {
+    const besidePhotos = shuffled.slice(0, besideCount);
+    
+    // Need at least 3 photos for 3 rows (1 per row minimum)
+    if (besidePhotos.length < 3) continue;
+    
+    const packResult = packBesideAs3Rows(besidePhotos, targetBesideWidth, gap, 0);
+    
+    if (packResult.combinedHeight === 0) continue;
+    
+    const heroHeight = packResult.combinedHeight;
+    const heroWidth = heroHeight * hero.aspectRatio;
+    const totalNaturalWidth = heroWidth + gap + packResult.naturalTotalWidth;
+    const scaleFactor = canvasWidth / totalNaturalWidth;
+    
+    // FIXED: Relax tolerance to ±20% for 3-row
+    if (scaleFactor < 0.80 || scaleFactor > 1.20) {
+      continue; // Try fewer photos
+    }
+    
+    // Success - build layout with 3-row packing
+    // ...
+  }
+}
+```
+
+Also improve `packBesideAs3Rows` row splitting:
 
 ```typescript
 function packBesideAs3Rows(
@@ -217,119 +192,88 @@ function packBesideAs3Rows(
   offsetX: number
 ): PackResult {
   if (photos.length < 3) {
-    return { cells: [], combinedHeight: 0, ..., usedIds: new Set() };
+    return { cells: [], combinedHeight: 0, naturalTotalWidth: 0, usedIds: new Set() };
   }
 
-  // Split into 3 roughly equal rows
-  const third = Math.ceil(photos.length / 3);
-  const row1Photos = photos.slice(0, third);
-  const row2Photos = photos.slice(third, third * 2);
-  const row3Photos = photos.slice(third * 2);
+  // IMPROVED: Better splitting for uneven counts
+  // For 5 photos: [2, 2, 1], for 7: [3, 2, 2], for 9: [3, 3, 3]
+  const basePerRow = Math.floor(photos.length / 3);
+  const remainder = photos.length % 3;
+  
+  const row1Count = basePerRow + (remainder >= 1 ? 1 : 0);
+  const row2Count = basePerRow + (remainder >= 2 ? 1 : 0);
+  const row3Count = basePerRow;
+  
+  const row1Photos = photos.slice(0, row1Count);
+  const row2Photos = photos.slice(row1Count, row1Count + row2Count);
+  const row3Photos = photos.slice(row1Count + row2Count);
 
-  // Calculate heights for each row at targetWidth (each fills width exactly)
-  const row1Height = (targetWidth - gap * (row1Photos.length - 1)) / 
-                     row1Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
-  const row2Height = (targetWidth - gap * (row2Photos.length - 1)) / 
-                     row2Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
-  const row3Height = (targetWidth - gap * (row3Photos.length - 1)) / 
-                     row3Photos.reduce((sum, p) => sum + p.aspectRatio, 0);
+  // Ensure each row has at least 1 photo
+  if (row1Photos.length === 0 || row2Photos.length === 0 || row3Photos.length === 0) {
+    return { cells: [], combinedHeight: 0, naturalTotalWidth: 0, usedIds: new Set() };
+  }
 
-  const combinedHeight = row1Height + gap + row2Height + gap + row3Height;
-
-  // Build cells for each row...
-  // (similar to 2-row, just with 3 passes)
-
-  return {
-    cells,
-    combinedHeight,
-    naturalTotalWidth: targetWidth,
-    usedIds: new Set([...row1Photos, ...row2Photos, ...row3Photos].map(p => p.id)),
-  };
+  // ... rest of 3-row packing
 }
 ```
-
-### Adaptive Row Count Selection
-
-```typescript
-function generateEdgeAnchoredHeroLayout(...) {
-  // For large sets: try 3-row first
-  if (standards.length >= 8) {
-    for (let besideCount = Math.min(9, standards.length); besideCount >= 6; besideCount--) {
-      const result = packBesideAs3Rows(candidates, targetBesideWidth, gap, 0);
-      if (validateScaleFactor(result, hero)) {
-        return buildLayout(hero, result);
-      }
-    }
-  }
-  
-  // For medium sets: try 2-row
-  if (standards.length >= 4) {
-    for (let besideCount = Math.min(6, standards.length); besideCount >= 4; besideCount--) {
-      const result = packBesideAs2Rows(candidates, targetBesideWidth, gap, 0);
-      if (validateScaleFactor(result, hero)) {
-        return buildLayout(hero, result);
-      }
-    }
-  }
-  
-  // Fallback: 1-row
-  return generateEdgeAnchoredHeroLayout1Row(...);
-}
-```
-
-### Landscape Bias in Auto Mode
-
-```typescript
-// In generateCollageLayout()
-case 'auto':
-default:
-  const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-  
-  // Bias toward landscape for better social media display
-  const landscapeBias = 1.3;
-  const biasedAspect = avgAspect * landscapeBias;
-  
-  // Clamp to reasonable range (0.8 to 2.2)
-  targetAspect = Math.max(0.8, Math.min(2.2, biasedAspect));
-  isLandscape = targetAspect >= 1.0;
-  break;
-```
-
----
 
 ## Expected Results
 
-1. **No more blank rectangles** - Each row scales independently to fill its width
-2. **More landscape variety** - 1.3× bias pulls Auto mode toward wider layouts
-3. **Better visual hierarchy for large sets** - 3-row packing makes hero 3× the height
-4. **More flexibility** - More rows = more photos = more combinations to hit tolerance
+1. **No more row 2 bottom gaps** - Explicit alignment forces row 2 bottom = hero bottom
+2. **Vertical position variety** - 30% chance hero appears below intro rows instead of at top
+3. **3-row layouts trigger more often** - Relaxed ±20% tolerance + wider count range
+4. **Better visual hierarchy** - Hero can be 2× or 3× height of adjacent photos
 
----
+## Visual Summary
 
-## Visual Comparison
-
-### Before (2-row with unified scaling)
+### Current (issues)
 ```text
-┌──────────────┬───────────┬─────────┐
-│              │ A │ B │ C │ D │ E   │
-│    HERO      ├───────────┼─────────┤
-│              │ F │ G     │ █████   │ ← Black rectangle!
-├──────────────┴───────────┴─────────┤
-│          more photos below...      │
-└────────────────────────────────────┘
+Hero always at top. 3-row never happens. Row 2 has gap at bottom.
+┌──────────┬───────────────┐
+│          │ A │ B │ C     │
+│   HERO   ├───────────┬───┤
+│          │ D │ E     │███│ ← Gap!
+└──────────┴───────────┴───┘
 ```
 
-### After (3-row with independent scaling)
+### After (fixed)
+
+**Layout A - Standard (hero top-left):**
 ```text
-┌──────────────┬─────────────────────┐
-│              │ A │ B │ C │ D       │ ← Row 1 fills
-│              ├─────────────────────┤
-│    HERO      │  E  │  F  │  G      │ ← Row 2 fills
-│              ├─────────────────────┤
-│              │ H │ I │ J │ K       │ ← Row 3 fills
-├──────────────┴─────────────────────┤
-│          more photos below...      │
-└────────────────────────────────────┘
-Hero is 3× the height of any individual photo!
+┌──────────┬───────────────┐
+│          │ A │ B │ C     │
+│   HERO   ├───────────────┤  ← No gap!
+│          │   D   │ E     │
+└──────────┴───────────────┘
 ```
+
+**Layout B - Intro rows (hero lower):**
+```text
+┌────────────────────────────┐
+│ X │ Y │ Z │ W              │ ← Intro row (hero not at top!)
+├──────────┬─────────────────┤
+│          │ A │ B │ C       │
+│   HERO   ├─────────────────┤
+│          │   D   │ E       │
+└──────────┴─────────────────┘
+```
+
+**Layout C - 3-row (large sets):**
+```text
+┌──────────┬─────────────────┐
+│          │ A │ B │ C       │ ← Row 1
+│          ├─────────────────┤
+│   HERO   │  D  │  E        │ ← Row 2
+│          ├─────────────────┤
+│          │ F │ G │ H       │ ← Row 3
+└──────────┴─────────────────┘
+Hero is 3× the height of any adjacent photo!
+```
+
+## Implementation Order
+
+1. **Fix row 2 alignment** - Add explicit Y positioning after scaling
+2. **Add intro rows option** - Pack full-width rows before hero zone sometimes
+3. **Improve 3-row trigger** - Relax tolerance and widen photo count range
+4. **Update packBesideAs3Rows** - Better row splitting for uneven counts
 

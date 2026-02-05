@@ -4,7 +4,8 @@ import {
   LayoutTuning, 
   PhotoItem, 
   DEFAULT_TUNING,
-  CollageLayout 
+  CollageLayout,
+  MIN_PHOTOS_FOR_SHAPE_CONTROL,
 } from '@/types/collage';
 import { 
   SyntheticPhoto, 
@@ -163,10 +164,15 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
-  const shapes: CollageSettings['shape'][] = ['auto', 'landscape', 'portrait', 'square'];
   
   // Generate cases covering all combinations
   for (const photoCount of TEST_PHOTO_COUNTS) {
+    // Only allow shape control when we have enough photos
+    const shapes: CollageSettings['shape'][] = 
+      photoCount < MIN_PHOTOS_FOR_SHAPE_CONTROL 
+        ? ['auto'] 
+        : ['auto', 'landscape', 'portrait', 'square'];
+    
     for (const shape of shapes) {
       for (const hasHero of [true, false]) {
         const distribution = weightedRandomDistribution();

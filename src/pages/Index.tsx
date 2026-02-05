@@ -12,7 +12,7 @@ import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { captureHeroLogs, HeroLogEntry } from '@/lib/debugLogger';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, MIN_PHOTOS_FOR_SHAPE_CONTROL } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -164,11 +164,18 @@ export default function Index() {
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
+    const remainingCount = state.photos.length - 1;
+    
+    // Reset to auto if we drop below threshold and have a fixed shape
+    if (remainingCount < MIN_PHOTOS_FOR_SHAPE_CONTROL && state.settings.shape !== 'auto') {
+      updateSettings({ shape: 'auto' });
+    }
+    
     if (state.layout) {
       const remainingPhotos = state.photos.filter(p => p.id !== photoId);
       regenerateCollage({ photos: remainingPhotos });
     }
-  }, [removePhoto, state.layout, state.photos, regenerateCollage]);
+  }, [removePhoto, state.layout, state.photos, state.settings.shape, updateSettings, regenerateCollage]);
 
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
@@ -362,6 +369,7 @@ export default function Index() {
             <CollageSettings
               settings={state.settings}
               onUpdate={handleUpdateSettings}
+              photoCount={state.photos.length}
             />
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}

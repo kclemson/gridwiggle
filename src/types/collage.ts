@@ -121,3 +121,9 @@ export const DEFAULT_TUNING: LayoutTuning = {
   minContentPhotos: 4,
   minPhotosPerRow: 2,
 };
+
+/**
+ * Minimum photos required to allow shape control.
+ * With fewer photos, aspect ratio constraints are too hard to satisfy.
+ */
+export const MIN_PHOTOS_FOR_SHAPE_CONTROL = 6;

@@ -1,138 +1,123 @@
 
 
-# Plan: Dynamic Tag Labels with Real-Time Layout Metrics
+# Plan: Fix Dynamic Tag Label Issues
 
 ## Summary
 
-Enhance the tag checkbox labels to display relevant metrics from the current layout, making it easier to assess issues like "wrong shape" or "hero not prominent" at a glance.
+Three fixes needed for the dynamic tag labels in the layout rating tool.
 
-## Dynamic Labels
+---
 
-| Tag | Current Label | Enhanced Label |
-|-----|---------------|----------------|
-| `wrong-shape` | Wrong shape | Wrong shape (0.67) |
-| `hero-not-prominent` | Hero not prominent | Hero not prominent (18% vs 15/12/11%) |
-| `hero-too-dominant` | Hero too dominant | Hero too dominant (45% · 3.2×) |
-| `extreme-aspect` | Extreme aspect | Extreme aspect (0.42) |
-| `row-too-dense` | Row too dense | Row too dense ([1, 5, 4]) |
-| `single-photo-row` | Single-photo row | Single-photo row ([1, 3, 2]) |
-| `uneven-sizes` | Uneven sizes | Uneven sizes (4.2×) |
+## Issue 1: Hero Not Prominent Shows 300% (Bug Fix)
 
-Labels for tags without relevant metrics (`wasted-space`, `well-balanced`, `hero-works`) remain static.
+**Root Cause**: In `layoutAdapter.ts` line 70, `cellAreaPercents` is computed as integers 0-100:
+```typescript
+const cellAreaPercents = layout.cells
+  .map(cell => Math.round((cell.width * cell.height) / canvasArea * 100))
+  .sort((a, b) => b - a);
+```
 
-## Changes
+But in `TagCheckboxes.tsx` line 28, we multiply by 100 again:
+```typescript
+.map(p => `${Math.round(p * 100)}%`)
+```
 
-### 1. `src/components/layout-rating/RatingControls.tsx`
+This results in `3 * 100 = 300%` instead of `3%`.
 
-Add a new prop to pass the layout result:
+**Fix**: Remove the `* 100` multiplication in `TagCheckboxes.tsx` since `cellAreaPercents` is already in percentage form:
 
 ```typescript
-interface RatingControlsProps {
-  // ... existing props ...
-  result: LayoutTestResult;  // NEW
-}
-```
-
-Pass it through to TagCheckboxes:
-
-```tsx
-<TagCheckboxes 
-  selectedTags={selectedTags} 
-  onTagsChange={onTagsChange}
-  result={result}  // NEW
-/>
-```
-
-### 2. `src/pages/LayoutRating.tsx`
-
-Pass `currentResult` to RatingControls:
-
-```tsx
-<RatingControls
-  // ... existing props ...
-  result={currentResult}  // NEW
-/>
-```
-
-### 3. `src/components/layout-rating/TagCheckboxes.tsx`
-
-Accept the result prop and generate dynamic labels:
-
-```typescript
-interface TagCheckboxesProps {
-  selectedTags: LayoutTag[];
-  onTagsChange: (tags: LayoutTag[]) => void;
-  result: LayoutTestResult;  // NEW
-}
-
-// Generate dynamic label based on tag and result metrics
-function getDynamicLabel(tag: LayoutTag, result: LayoutTestResult): string {
-  const { canvasAspect, heroCoverage, heroToRunnerUpRatio, 
-          cellAreaPercents, rowSizes, largestToSmallestRatio } = result;
-  
-  switch (tag) {
-    case 'wrong-shape':
-      return `Wrong shape (${canvasAspect.toFixed(2)})`;
-    
-    case 'extreme-aspect':
-      return `Extreme aspect (${canvasAspect.toFixed(2)})`;
-    
-    case 'hero-not-prominent':
-      if (heroCoverage !== null && cellAreaPercents.length >= 4) {
-        const top3NonHero = cellAreaPercents.slice(1, 4)
-          .map(p => `${(p * 100).toFixed(0)}%`).join('/');
-        return `Hero not prominent (${(heroCoverage * 100).toFixed(0)}% vs ${top3NonHero})`;
-      }
-      return 'Hero not prominent';
-    
-    case 'hero-too-dominant':
-      if (heroCoverage !== null && heroToRunnerUpRatio !== null) {
-        return `Hero too dominant (${(heroCoverage * 100).toFixed(0)}% · ${heroToRunnerUpRatio.toFixed(1)}×)`;
-      }
-      return 'Hero too dominant';
-    
-    case 'row-too-dense':
-      return `Row too dense ([${rowSizes.join(', ')}])`;
-    
-    case 'single-photo-row':
-      return `Single-photo row ([${rowSizes.join(', ')}])`;
-    
-    case 'uneven-sizes':
-      return `Uneven sizes (${largestToSmallestRatio.toFixed(1)}×)`;
-    
-    // Static labels for these
-    case 'wasted-space':
-      return 'Wasted space';
-    case 'well-balanced':
-      return 'Well balanced';
-    case 'hero-works':
-      return 'Hero works well';
-    
-    default:
-      return tag;
+case 'hero-not-prominent':
+  if (heroCoverage !== null && cellAreaPercents.length >= 4) {
+    const top3NonHero = cellAreaPercents.slice(1, 4)
+      .map(p => `${Math.round(p)}%`).join('/');
+    return `Hero not prominent (${Math.round(heroCoverage * 100)}% vs ${top3NonHero})`;
   }
-}
 ```
+
+---
+
+## Issue 2: Mark Hero-Adjacent Rows with "H"
+
+**Goal**: Change `[5, 4, 4, 6, 5, 6, 5, 5, 5, 5]` to `[5H, 4H, 4H, 6, 5, 6, 5, 5, 5, 5]` where rows overlap vertically with the hero cell.
+
+**Changes in `layoutAdapter.ts`**:
+
+1. Add a new field to `LayoutTestResult` in `types.ts`:
+   ```typescript
+   rowHeroAdjacent: boolean[];  // Which rows are vertically adjacent to hero
+   ```
+
+2. Update `calculateMetrics` to detect which rows overlap with the hero's Y range:
+   ```typescript
+   // Find hero cell bounds
+   let heroYMin = 0, heroYMax = 0;
+   if (heroPhoto) {
+     const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
+     if (heroCell) {
+       heroYMin = heroCell.y;
+       heroYMax = heroCell.y + heroCell.height;
+     }
+   }
+   
+   // Mark rows that overlap with hero Y range
+   const rowHeroAdjacent = sortedYs.map(y => {
+     const rowCells = cellsByY.get(y)!;
+     const rowHeight = Math.max(...rowCells.map(c => c.height));
+     const rowYMax = y + rowHeight;
+     // Row overlaps with hero if ranges intersect
+     return heroPhoto !== undefined && 
+            y < heroYMax && rowYMax > heroYMin;
+   });
+   ```
+
+3. Update `TagCheckboxes.tsx` to format rows with "H" suffix:
+   ```typescript
+   case 'row-too-dense':
+   case 'single-photo-row':
+     const formatted = rowSizes.map((size, i) => 
+       result.rowHeroAdjacent[i] ? `${size}H` : `${size}`
+     );
+     return `${tag === 'row-too-dense' ? 'Row too dense' : 'Single-photo row'} ([${formatted.join(', ')}])`;
+   ```
+
+---
+
+## Issue 3: Clarify "Uneven Sizes" Label
+
+**Current**: `Uneven sizes (15.6×)` - unclear what 15.6× means
+
+**Fix**: Make it explicit that this is the max-to-min area ratio:
+```typescript
+case 'uneven-sizes':
+  return `Uneven sizes (max/min: ${largestToSmallestRatio.toFixed(1)}×)`;
+```
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `src/test/layout/types.ts` | Add `rowHeroAdjacent: boolean[]` to `LayoutTestResult` |
+| `src/test/layout/layoutAdapter.ts` | Calculate `rowHeroAdjacent` in `calculateMetrics` |
+| `src/components/layout-rating/TagCheckboxes.tsx` | Fix percentage bug, format H-rows, clarify uneven sizes |
+
+---
 
 ## Visual Result
 
-The tag checkboxes will look like:
-
-```text
-ISSUES                              POSITIVES
-☐ Hero not prominent (18% vs 15/12/11%)   ☐ Well balanced
-☐ Hero too dominant (45% · 3.2×)          ☐ Hero works well
-☐ Single-photo row ([1, 3, 2])
-☐ Row too dense ([1, 5, 4])
-☐ Uneven sizes (4.2×)
-☐ Wrong shape (0.67)
-☐ Extreme aspect (0.42)
-☐ Wasted space
+Before:
+```
+Hero not prominent (10% vs 300%/300%/300%)
+Row too dense ([5, 4, 4, 6, 5, 6, 5, 5, 5, 5])
+Uneven sizes (15.6×)
 ```
 
-## Technical Notes
-
-- Labels update instantly as you navigate between layouts
-- Metrics display the same values as the MetricsBadges, just in context
-- No changes to the underlying data model or storage
+After:
+```
+Hero not prominent (10% vs 3%/3%/3%)
+Row too dense ([5H, 4H, 4H, 6, 5, 6, 5, 5, 5, 5])
+Uneven sizes (max/min: 15.6×)
+```
 

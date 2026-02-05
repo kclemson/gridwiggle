@@ -2,18 +2,12 @@ import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } 
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { generateHeroLayout } from '@/lib/heroLayout';
 import { DEFAULT_TUNING } from '@/types/collage';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface PhotoDimension {
-  id: string;
-  width: number;
-  height: number;
-  aspectRatio: number;
-  weight: number; // For future "hero" photos support
-}
+import {
+  PhotoDimension,
+  shuffleArray,
+  getPhotoDimensions,
+  coefficientOfVariation,
+} from '@/lib/layoutMath';
 
 // ============================================================================
 // Configuration Scoring Types (Unified for all layout types)
@@ -215,18 +209,8 @@ export interface LayoutOptions {
 }
 
 // ============================================================================
-// Randomization Helpers
+// Partition Types
 // ============================================================================
-
-/** Fisher-Yates shuffle - returns new shuffled array */
-function shuffleArray<T>(arr: T[]): T[] {
-  const shuffled = [...arr];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
 
 interface PartitionScore {
   partition: PhotoDimension[][];
@@ -234,38 +218,6 @@ interface PartitionScore {
   heightCV: number;     // CV of row heights
   directionPenalty: number;   // Penalty for wrong orientation direction based on shape
   totalScore: number;   // Combined weighted score (lower = better)
-}
-
-// ============================================================================
-// Dimension Extraction
-// ============================================================================
-
-function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>): PhotoDimension[] {
-  return photos.map((photo) => {
-    const crop = getDisplayCrop(photo);
-    const width = crop ? crop.width : photo.originalWidth;
-    const height = crop ? crop.height : photo.originalHeight;
-    return {
-      id: photo.id,
-      width,
-      height,
-      aspectRatio: width / height,
-      weight: weights[photo.id] ?? 1,
-    };
-  });
-}
-
-// ============================================================================
-// Statistical Helpers
-// ============================================================================
-
-/** Coefficient of variation: stddev / mean (0 = perfectly uniform) */
-function coefficientOfVariation(values: number[]): number {
-  if (values.length === 0) return 0;
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  if (mean === 0) return 0;
-  const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-  return Math.sqrt(variance) / mean;
 }
 
 // ============================================================================

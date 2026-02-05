@@ -1,15 +1,20 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
-import { getDisplayCrop } from '@/lib/cropUtils';
 import { packPhotosIntoRegion, scoreConfiguration, ConfigurationScore, isAspectAcceptable, getAspectBounds } from '@/lib/collageLayout';
 import {
   buildHeroUnitBlock,
   buildContentRowsBlock,
   stackBlocks,
   splitPhotosForBlocks,
-  shuffleArray as blockShuffleArray,
-  type PhotoDimension as BlockPhotoDimension,
   type LayoutBlock,
 } from '@/lib/layoutBlocks';
+import {
+  PhotoDimension,
+  shuffleArray,
+  getPhotoDimensions,
+  calculateOptimalBesideRowCount,
+  calculateMaxBesideCount,
+  getPreferredRowModes,
+} from '@/lib/layoutMath';
 
 // ============================================================================
 // Constants
@@ -20,46 +25,6 @@ const BASE_WIDTH = 1200;
 
 /** Maximum scaling tolerance (10% = up to 5% crop per edge, symmetric) */
 const SCALE_TOLERANCE = 0.10;
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface PhotoDimension {
-  id: string;
-  width: number;
-  height: number;
-  aspectRatio: number;
-  weight: number;
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function shuffleArray<T>(arr: T[]): T[] {
-  const shuffled = [...arr];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-
-function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>): PhotoDimension[] {
-  return photos.map((photo) => {
-    const crop = getDisplayCrop(photo);
-    const width = crop ? crop.width : photo.originalWidth;
-    const height = crop ? crop.height : photo.originalHeight;
-    return {
-      id: photo.id,
-      width,
-      height,
-      aspectRatio: width / height,
-      weight: weights[photo.id] ?? 1,
-    };
-  });
-}
 
 // ============================================================================
 // Hero Width Calculation
@@ -1337,8 +1302,8 @@ function generateBlockBasedHeroLayout(
   
   // 1. Build hero unit block
   const heroBlock = buildHeroUnitBlock(
-    hero as BlockPhotoDimension,
-    candidates as BlockPhotoDimension[],
+    hero as PhotoDimension,
+    candidates as PhotoDimension[],
     canvasWidth,
     gap,
     packBesideAs2Rows,
@@ -1370,7 +1335,7 @@ function generateBlockBasedHeroLayout(
   // This allows shape-aware scoring to optimize the entire set
   const contentBlock = remaining.length > 0
     ? buildContentRowsBlock(
-      remaining as BlockPhotoDimension[],
+      remaining as PhotoDimension[],
       canvasWidth,
       gap,
       packPhotosIntoRegion,
@@ -1386,7 +1351,7 @@ function generateBlockBasedHeroLayout(
   
   // 5. Shuffle if randomizing (hero can end up anywhere!)
   if (randomize && allBlocks.length > 1) {
-    allBlocks = blockShuffleArray(allBlocks);
+    allBlocks = shuffleArray(allBlocks);
   }
   
   // 6. Stack blocks vertically
@@ -1628,8 +1593,8 @@ function generateContentOnlyLayout(
   // Shuffle photos when randomizing for variety
   const workingPhotos = randomize ? shuffleArray(photos) : photos;
   
-  // Convert to BlockPhotoDimension type for buildContentRowsBlock
-  const blockPhotos: BlockPhotoDimension[] = workingPhotos.map(p => ({
+  // Convert to PhotoDimension type for buildContentRowsBlock
+  const blockPhotos: PhotoDimension[] = workingPhotos.map(p => ({
     id: p.id,
     width: p.width,
     height: p.height,

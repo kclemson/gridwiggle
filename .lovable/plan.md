@@ -1,86 +1,49 @@
 
-# Fix: Touch Events Triggering Drag on Star Button Tap
 
-## Problem
+# Update Photo Grid Header with Smart Crop Count
 
-When tapping the star button on mobile:
-1. The cell's `onTouchStart` fires first, setting `touchDragId`
-2. This immediately shows a floating 100x100px drag preview thumbnail
-3. The star button's `stopPropagation()` is too late to prevent this
-4. User sees the original cell PLUS a floating thumbnail at their finger position
+## Overview
 
-The "two stars" appearance is the original hero star badge PLUS the floating drag preview (which shows the photo, potentially with its star visible).
+Add a smart crop count to the photos grid header, showing how many photos have been auto-cropped by the AI face/subject detection.
 
-## Root Cause
+## Current vs New Header
 
-React's `stopPropagation()` on the star button's `onTouchStart` doesn't prevent the parent's `onTouchStart` from firing because:
-- Events bubble from target to ancestors
-- The parent handler fires during the bubbling phase
-- By the time the child's handler runs, the parent already received the event
+| Current | New |
+|---------|-----|
+| `PHOTOS (10) (tap to adjust crop)` | `PHOTOS (10, 7 smartcropped) (tap to adjust crop)` |
 
-## Solution
+## Implementation
 
-Modify `handleTouchStart` in `CollagePreview.tsx` to check if the touch target is an interactive element (button) before initiating drag:
+### File: `src/components/PhotoGrid.tsx`
+
+**Add a computed count** using `useMemo`:
 
 ```typescript
-const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
-  // Don't start drag if touching an interactive element (like the star button)
-  const target = e.target as HTMLElement;
-  if (target.closest('button')) {
-    return;
-  }
-  
-  const touch = e.touches[0];
-  setTouchDragId(photoId);
-  setTouchPosition({ x: touch.clientX, y: touch.clientY });
-}, []);
+const smartCroppedCount = useMemo(() => {
+  return photos.filter(p => p.smartCrop !== null).length;
+}, [photos]);
 ```
 
-This check ensures:
-- Tapping the star button → no drag initiated → just toggles hero
-- Tapping anywhere else on the cell → drag works as expected
+**Update the header** to conditionally show the smart crop count:
 
-## Secondary Issue: Duplicate Remove Buttons in PhotoThumbnail
-
-`PhotoThumbnail.tsx` has **two remove buttons** at the same position (lines 77-98):
-1. Desktop version with hover opacity
-2. Mobile version with `md:hidden`
-
-On mobile, both can be visible due to touch triggering CSS `:hover` states. This should be consolidated to a single button with responsive styling.
-
-### Fix
-
-Replace the two buttons with one that works for both:
-
-```typescript
-<button
-  onClick={(e) => {
-    e.stopPropagation();
-    onRemove();
-  }}
-  className={cn(
-    "absolute top-1 right-1 rounded-full bg-background/80 text-foreground transition-all",
-    "hover:bg-destructive hover:text-destructive-foreground",
-    // Mobile: always visible, touch-friendly size
-    "p-2 opacity-100",
-    // Desktop: smaller, hover-only
-    "md:p-1.5 md:opacity-0 md:group-hover:opacity-100"
+```tsx
+<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+  {title} ({photos.length}{smartCroppedCount > 0 && `, ${smartCroppedCount} smartcropped`})
+  {hint && (
+    <span className="normal-case font-normal italic ml-1">({hint})</span>
   )}
-  aria-label="Remove photo"
->
-  <X className="h-4 w-4" />
-</button>
+</h3>
 ```
 
-## Files Changed
+## Behavior
 
-| File | Change |
-|------|--------|
-| `src/components/CollagePreview.tsx` | Add `target.closest('button')` check in `handleTouchStart` |
-| `src/components/PhotoThumbnail.tsx` | Consolidate two remove buttons into one with responsive styling |
+- **10 photos, 7 smart cropped**: `PHOTOS (10, 7 smartcropped)`
+- **10 photos, 0 smart cropped**: `PHOTOS (10)` (no suffix shown)
+- **All 10 smart cropped**: `PHOTOS (10, 10 smartcropped)`
 
-## Summary
+## Notes
 
-- **Primary fix**: 2-line addition to skip drag when touching buttons
-- **Secondary fix**: Remove duplicate button, use responsive classes instead
-- Both issues stem from mobile touch events behaving differently than desktop pointer events
+- Only shows the smart crop count when at least 1 photo has a smart crop
+- The count updates reactively as photos are processed or removed
+- No props changes needed - `PhotoGrid` already has access to the full `PhotoItem[]`
+

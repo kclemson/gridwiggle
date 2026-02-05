@@ -1,4 +1,4 @@
-import { LayoutTuning } from '@/types/collage';
+import { LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -19,12 +19,18 @@ interface TuningInputProps {
   step?: number;
   min?: number;
   max?: number;
+  defaultValue?: number;
 }
 
-function TuningInput({ label, tooltip, value, onChange, step = 1, min, max }: TuningInputProps) {
+function TuningInput({ label, tooltip, value, onChange, step = 1, min, max, defaultValue }: TuningInputProps) {
   return (
     <div className="flex flex-col gap-1" title={tooltip}>
-      <Label className="text-[10px] text-muted-foreground font-normal">{label}</Label>
+      <Label className="text-[10px] text-muted-foreground font-normal">
+        {label}
+        {defaultValue !== undefined && (
+          <span className="text-muted-foreground/60 ml-1">({defaultValue})</span>
+        )}
+      </Label>
       <Input
         type="number"
         value={value}
@@ -144,6 +150,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
               step={0.05}
               min={0.3}
               max={0.9}
+              defaultValue={DEFAULT_TUNING.maxBesideFraction}
             />
             <TuningInput
               label="Min Content"
@@ -152,6 +159,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
               onChange={(v) => onTuningChange('minContentPhotos', v)}
               min={0}
               max={10}
+              defaultValue={DEFAULT_TUNING.minContentPhotos}
             />
             <TuningInput
               label="Min/Row"
@@ -160,6 +168,7 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
               onChange={(v) => onTuningChange('minPhotosPerRow', v)}
               min={1}
               max={4}
+              defaultValue={DEFAULT_TUNING.minPhotosPerRow}
             />
           </div>
           

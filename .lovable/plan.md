@@ -1,59 +1,92 @@
 
-# Plan: Add Canvas Area Percentage to Layout Visualization
 
-## Summary
+# Plan: Add Per-Cell Area Percentages to Export
 
-Add a percentage display to each cell in the layout visualization showing what portion of the total canvas area that photo occupies. This will help with rating decisions — for example, understanding why a hero might feel "not prominent" even if it has slightly more area than other large cells.
+## Current State
 
-## Changes
+The export already includes `heroCoverage` (hero's % of canvas), but lacks:
+- Individual cell percentages for all photos
+- The hero-to-runner-up ratio that determines perceived prominence
 
-### File: `src/components/layout-rating/LayoutVisualization.tsx`
+## What to Add
 
-**Add area percentage calculation inside the map:**
+### New fields in `RatedLayout` interface:
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `cellAreaPercents` | `number[]` | All cell areas as % of canvas, sorted descending |
+| `heroToRunnerUpRatio` | `number \| null` | Hero area / largest non-hero area (null if no hero) |
+
+### Example in exported JSON:
+
+```json
+{
+  "heroCoverage": 0.17,
+  "cellAreaPercents": [17, 13, 13, 13, 11, 11, 11, 11],
+  "heroToRunnerUpRatio": 1.31,
+  "tags": ["hero-not-prominent"],
+  ...
+}
+```
+
+## Files to Change
+
+### 1. `src/test/layout/types.ts`
+
+Add to `LayoutTestResult` interface:
 ```typescript
-const totalArea = layout.width * layout.height;
-const cellArea = cell.width * cell.height;
-const areaPercent = (cellArea / totalArea) * 100;
+cellAreaPercents: number[];      // All cell areas as %, sorted descending
+heroToRunnerUpRatio: number | null;  // Hero area / runner-up area
 ```
 
-**Update the label to show both metrics:**
-
-Currently shows:
-```
-⭐ 1.00   (aspect ratio only)
-```
-
-Will show:
-```
-⭐ 1.00 · 17%   (aspect ratio + area percentage)
+Add to `RatedLayout` interface:
+```typescript
+cellAreaPercents: number[];
+heroToRunnerUpRatio: number | null;
 ```
 
-**Visual design:**
-- Keep existing aspect ratio format (2 decimal places)
-- Add separator (·) and percentage 
-- Percentage shown as whole number with % symbol
-- Same styling/background as current label
+### 2. `src/test/layout/layoutAdapter.ts`
 
-## Technical Details
+Update `calculateMetrics` to compute:
+```typescript
+// Calculate all cell area percentages
+const cellAreaPercents = layout.cells
+  .map(cell => Math.round((cell.width * cell.height) / canvasArea * 100))
+  .sort((a, b) => b - a); // Descending
 
-The calculation is straightforward:
-- `cellArea = cell.width * cell.height`  
-- `canvasArea = layout.width * layout.height`
-- `percentage = (cellArea / canvasArea) * 100`
-
-This uses the layout's coordinate system values directly, so it's already normalized and doesn't need any unit conversion.
-
-## Expected Result
-
-From your screenshot example, the hero (starred cell with 1.00 aspect ratio) would show something like:
-```
-⭐ 1.00 · 17%
-```
-
-And you'd be able to compare that against the large pink cell (1.36 aspect) which might show:
-```
-1.36 · 15%
+// Calculate hero-to-runner-up ratio
+let heroToRunnerUpRatio: number | null = null;
+if (heroPhoto && heroCoverage !== null) {
+  const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
+  const nonHeroCells = layout.cells.filter(c => c.photoId !== heroPhoto.id);
+  if (heroCell && nonHeroCells.length > 0) {
+    const heroArea = heroCell.width * heroCell.height;
+    const runnerUpArea = Math.max(...nonHeroCells.map(c => c.width * c.height));
+    heroToRunnerUpRatio = heroArea / runnerUpArea;
+  }
+}
 ```
 
-This helps you understand if the hero is mathematically larger but visually doesn't feel prominent.
+### 3. `src/pages/LayoutRating.tsx`
+
+Update `handleRate` to include new fields:
+```typescript
+const ratedLayout: RatedLayout = {
+  // ...existing fields...
+  cellAreaPercents: currentResult.cellAreaPercents,
+  heroToRunnerUpRatio: currentResult.heroToRunnerUpRatio,
+};
+```
+
+## Analysis Value
+
+With this data, you can correlate ratings like:
+
+| heroCoverage | heroToRunnerUpRatio | Tag | Interpretation |
+|--------------|---------------------|-----|----------------|
+| 17% | 1.31 | hero-not-prominent | Ratio too low - runner-ups compete |
+| 25% | 2.08 | hero-works | Clear dominance |
+| 15% | 1.67 | good | Acceptable ratio despite modest coverage |
+
+This helps derive a threshold like "heroToRunnerUpRatio < 1.5 should be penalized."
+

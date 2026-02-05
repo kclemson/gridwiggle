@@ -1,81 +1,191 @@
 
 
-# Clean Up Tuning Parameter - Make It Required
+# Unify Layout Generation into Single Block-Based Path
 
 ## Problem
 
-The `tuning` parameter is marked optional (`tuning?: LayoutTuning`) with fallback logic (`effectiveTuning = tuning ?? DEFAULT_TUNING`), but this is defensive coding for a case that never happens. We control all calling code, and tuning is always passed.
+We have two divergent code paths:
 
-## Changes
+1. **Standard path** (`collageLayout.ts`): Uses `findBestRowSplit` → `calculateLayout` directly
+2. **Hero path** (`heroLayout.ts`): Uses block architecture with `buildContentRowsBlock` → `stackBlocks`
 
-### 1. Make tuning required in function signatures
+As features evolve (variety randomization, tuning parameters, new block types), maintaining both paths becomes increasingly difficult. They'll drift apart.
 
-**`src/lib/collageLayout.ts`**
+## Key Insight
 
-```typescript
-// Line 67: Change from optional to required
-export interface LayoutOptions {
-  photoWeights: Record<string, number>;
-  randomize?: boolean;
-  tuning: LayoutTuning;  // Remove the ?
-}
+The block-based architecture in `layoutBlocks.ts` is **already more general** than the standard path:
+
+- A layout with heroes = hero-unit block(s) + content-rows block(s)
+- A layout **without** heroes = just content-rows block(s)
+
+The "no hero" case is simply the hero case with zero hero-unit blocks.
+
+## Proposed Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                   generateCollageLayout()                        │
+│         (single entry point in collageLayout.ts)                 │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Unified Layout Generation Flow                      │
+│                                                                  │
+│  1. Extract dimensions, determine orientation/target             │
+│  2. Apply variety randomization (minPhotosPerRow, etc.)          │
+│  3. Separate heroes from standards                               │
+│  4. Build blocks:                                                │
+│     - For each hero: buildHeroUnitBlock()                        │
+│     - Remaining photos: buildContentRowsBlock()                  │
+│  5. stackBlocks() → final layout                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**`src/lib/heroLayout.ts`**
+## Technical Changes
+
+### 1. Rename and Generalize `generateHeroLayout`
+
+Rename to `generateBlockBasedLayout` and make it work for the zero-hero case:
 
 ```typescript
-// Line 1594: Change from optional to required
-export function generateHeroLayout(
+// src/lib/heroLayout.ts → becomes the unified layout generator
+
+export function generateBlockBasedLayout(
   photos: PhotoItem[],
   settings: CollageSettings,
   targetAspect: number | undefined,
   weights: Record<string, number>,
   randomize: boolean,
-  tuning: LayoutTuning  // Remove the ?
+  tuning: LayoutTuning
 ): CollageLayout {
-```
+  const gap = settings.gapSize;
+  const dims = getPhotoDimensions(photos, weights);
+  const heroes = dims.filter(d => d.weight >= 2.0);
+  const standards = dims.filter(d => d.weight < 2.0);
 
-### 2. Remove fallback logic
+  // Apply variety randomization (works for both hero and no-hero cases)
+  let layoutTuning = tuning;
+  if (targetAspect === undefined && randomize) {
+    const minRowOptions = [2, 3, 4, 5];
+    const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
+    layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
+  }
 
-**`src/lib/heroLayout.ts`**
+  // Route based on hero count
+  if (heroes.length === 0) {
+    // No heroes: just content rows
+    return generateContentOnlyLayout(standards, canvasWidth, gap, layoutTuning);
+  }
 
-```typescript
-// REMOVE this line (~1597):
-const effectiveTuning = tuning ?? DEFAULT_TUNING;
+  if (heroes.length === 1) {
+    return generateSingleHeroLayout(heroes[0], standards, canvasWidth, gap, randomize, targetAspect, layoutTuning);
+  }
 
-// Just use `tuning` directly throughout the function
-```
-
-### 3. Update all usages of effectiveTuning to just tuning
-
-Replace all references to `effectiveTuning` with `tuning` in `heroLayout.ts`.
-
-## Then: Add minPhotosPerRow Randomization
-
-After cleanup, implement the variety feature:
-
-```typescript
-// In generateHeroLayout, after the function signature
-let layoutTuning = tuning;
-
-// For auto mode: randomize minPhotosPerRow for shape variety
-if (targetAspect === undefined && randomize) {
-  const minRowOptions = [2, 3, 4, 5];
-  const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
-  layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
+  return generateMultiHeroLayout(heroes, standards, canvasWidth, gap, randomize);
 }
-
-// Pass layoutTuning to downstream functions
 ```
+
+### 2. Add Content-Only Layout Function
+
+```typescript
+function generateContentOnlyLayout(
+  photos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  tuning: LayoutTuning
+): CollageLayout {
+  // Build content rows using the same block primitive
+  const contentBlock = buildContentRowsBlock(
+    photos,
+    canvasWidth,
+    gap,
+    packPhotosIntoRegion,
+    tuning.minPhotosPerRow
+  );
+  
+  if (!contentBlock) {
+    return { width: canvasWidth, height: 800, cells: [] };
+  }
+  
+  // Single block, no need for stackBlocks
+  return {
+    width: canvasWidth,
+    height: contentBlock.height,
+    cells: contentBlock.cells,
+  };
+}
+```
+
+### 3. Simplify `generateCollageLayout`
+
+```typescript
+// src/lib/collageLayout.ts
+
+export function generateCollageLayout(
+  photos: PhotoItem[],
+  settings: CollageSettings,
+  options?: LayoutOptions
+): CollageLayout {
+  if (photos.length === 0) {
+    return { width: 1200, height: 800, cells: [] };
+  }
+  
+  // Handle single photo edge case
+  if (photos.length === 1) {
+    // ... existing single-photo logic
+  }
+  
+  const weights = options?.photoWeights ?? {};
+  const dims = getPhotoDimensions(photos, weights);
+  
+  // Determine target aspect ratio
+  const targetAspect = determineTargetAspect(settings.orientation, dims);
+  
+  // Single unified path for all layouts
+  return generateBlockBasedLayout(
+    photos,
+    settings,
+    targetAspect,
+    weights,
+    options?.randomize ?? false,
+    options?.tuning
+  );
+}
+```
+
+### 4. Remove Duplicated Helper: `hasHeroPhotos`
+
+The check for heroes happens inside `generateBlockBasedLayout`, so `hasHeroPhotos` is no longer needed as a separate routing decision.
+
+## Benefits
+
+| Before | After |
+|--------|-------|
+| Two code paths with separate variety logic | Single path with shared variety logic |
+| Hero-only minPhotosPerRow randomization | Randomization works for ALL layouts |
+| Different helper functions used | Shared block primitives everywhere |
+| `hasHeroPhotos` routing decision in caller | Internal routing inside single function |
 
 ## Files to Modify
 
-1. **`src/lib/collageLayout.ts`** - Make `tuning` required in `LayoutOptions` interface
-2. **`src/lib/heroLayout.ts`** - Make `tuning` required, remove fallback, add randomization
+1. **`src/lib/heroLayout.ts`**
+   - Rename `generateHeroLayout` → `generateBlockBasedLayout`
+   - Add `generateContentOnlyLayout` for zero-hero case
+   - Move variety randomization to work for all cases
 
-## Result
+2. **`src/lib/collageLayout.ts`**
+   - Remove `findBestRowSplit` / `calculateLayout` direct usage
+   - Remove `hasHeroPhotos` routing check
+   - Call `generateBlockBasedLayout` for all multi-photo layouts
+   - Keep utility functions (`reflowAfterSwap`, `swapPhotosInLayout`)
 
-- Cleaner code that reflects reality
-- No defensive fallbacks for impossible cases
-- Clear immutable pattern for per-layout tuning overrides
+## Incremental Approach
+
+This can be done in phases:
+
+**Phase 1**: Add `generateContentOnlyLayout` that uses block primitives
+**Phase 2**: Route zero-hero case through it inside existing `generateHeroLayout`
+**Phase 3**: Rename and clean up once both paths work
+**Phase 4**: Remove dead code from `collageLayout.ts`
 

@@ -1328,7 +1328,8 @@ function generateBlockBasedHeroLayout(
       chunk,
       canvasWidth,
       gap,
-      packPhotosIntoRegion
+       packPhotosIntoRegion,
+       tuning.minPhotosPerRow
     );
     if (block) {
       contentBlocks.push(block);

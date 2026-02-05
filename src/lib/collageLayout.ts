@@ -53,6 +53,9 @@ export interface RegionPackOptions {
   
   /** Whether this is a landscape-oriented region */
   isLandscape?: boolean;
+   
+   /** Minimum photos per row for scoring (default: 2) */
+   minPhotosPerRow?: number;
 }
 
 export interface LayoutOptions {
@@ -259,7 +262,8 @@ function findBestRowSplit(
   dims: PhotoDimension[],
   targetAspect: number,
   isLandscape: boolean,
-  randomize: boolean = false
+   randomize: boolean = false,
+   minPhotosPerRow: number = 2
 ): PhotoDimension[][] {
   // Shuffle photo order when randomizing for variety
   const workingDims = randomize ? shuffleArray(dims) : dims;
@@ -290,14 +294,14 @@ function findBestRowSplit(
     // For small partition counts, enumerate all
     if (partitionCount <= 500) {
       for (const partition of generatePartitions(workingDims, numRows)) {
-        const score = scorePartition(partition, targetAspect, isLandscape);
+         const score = scorePartition(partition, targetAspect, isLandscape, 1200, minPhotosPerRow);
         insertIntoTopN(topScores, score, TOP_N);
       }
     } else {
       // For large sets, use sampling + heuristic approach
       const sampledPartitions = samplePartitions(workingDims, numRows, 100);
       for (const partition of sampledPartitions) {
-        const score = scorePartition(partition, targetAspect, isLandscape);
+         const score = scorePartition(partition, targetAspect, isLandscape, 1200, minPhotosPerRow);
         insertIntoTopN(topScores, score, TOP_N);
       }
     }
@@ -463,7 +467,8 @@ export function packPhotosIntoRegion(
     offsetX = 0,
     offsetY = 0,
     targetAspect,
-    isLandscape = true 
+     isLandscape = true,
+     minPhotosPerRow = 2
   } = options;
   
   // Handle empty case
@@ -494,7 +499,7 @@ export function packPhotosIntoRegion(
   
   // Use existing row-split logic (no randomization for region packing)
   const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : (isLandscape ? 1.5 : 0.75));
-  const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape, false);
+   const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape, false, minPhotosPerRow);
   
   // Calculate layout with offsets
   const cells = calculateLayoutWithOffset(partition, width, gap, offsetX, offsetY);

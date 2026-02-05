@@ -123,7 +123,29 @@ export const DEFAULT_TUNING: LayoutTuning = {
 };
 
 /**
- * Minimum photos required to allow shape control.
+ * Minimum photos required for each shape option.
+ * Square is hardest to satisfy, requiring more photos.
+ */
+export const MIN_PHOTOS_FOR_SHAPE: Record<'landscape' | 'portrait' | 'square', number> = {
+  landscape: 6,
+  portrait: 6,
+  square: 10,
+};
+
+/**
+ * Minimum photos required to allow any shape control (the lowest threshold).
  * With fewer photos, aspect ratio constraints are too hard to satisfy.
  */
 export const MIN_PHOTOS_FOR_SHAPE_CONTROL = 6;
+
+/**
+ * Check if a shape is available for a given photo count.
+ * 'auto' is always available.
+ */
+export function isShapeAvailable(
+  shape: 'auto' | 'landscape' | 'portrait' | 'square',
+  photoCount: number
+): boolean {
+  if (shape === 'auto') return true;
+  return photoCount >= MIN_PHOTOS_FOR_SHAPE[shape];
+}

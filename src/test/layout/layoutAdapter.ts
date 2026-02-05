@@ -5,7 +5,7 @@ import {
   PhotoItem, 
   DEFAULT_TUNING,
   CollageLayout,
-  MIN_PHOTOS_FOR_SHAPE_CONTROL,
+  isShapeAvailable,
 } from '@/types/collage';
 import { 
   SyntheticPhoto, 
@@ -187,11 +187,11 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
   
   // Generate cases covering all combinations
   for (const photoCount of TEST_PHOTO_COUNTS) {
-    // Only allow shape control when we have enough photos
-    const shapes: CollageSettings['shape'][] = 
-      photoCount < MIN_PHOTOS_FOR_SHAPE_CONTROL 
-        ? ['auto'] 
-        : ['auto', 'landscape', 'portrait', 'square'];
+    // Build list of available shapes for this photo count
+    const shapes: CollageSettings['shape'][] = ['auto'];
+    if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
+    if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
+    if (isShapeAvailable('square', photoCount)) shapes.push('square');
     
     for (const shape of shapes) {
       // Weight toward hero layouts since no-hero consistently works well

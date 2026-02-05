@@ -12,7 +12,7 @@ import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { captureHeroLogs, HeroLogEntry } from '@/lib/debugLogger';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, MIN_PHOTOS_FOR_SHAPE_CONTROL } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -166,8 +166,8 @@ export default function Index() {
     removePhoto(photoId);
     const remainingCount = state.photos.length - 1;
     
-    // Reset to auto if we drop below threshold and have a fixed shape
-    if (remainingCount < MIN_PHOTOS_FOR_SHAPE_CONTROL && state.settings.shape !== 'auto') {
+    // Reset to auto if current shape is no longer available for the remaining count
+    if (!isShapeAvailable(state.settings.shape, remainingCount)) {
       updateSettings({ shape: 'auto' });
     }
     

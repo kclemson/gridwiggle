@@ -94,7 +94,7 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
           </div>
           <div className="text-center">
             <p className="text-lg font-medium text-foreground">Tap to add photos</p>
-            <p className="text-sm text-muted-foreground mt-1">Select 2-8 photos for best results</p>
+            <p className="text-sm text-muted-foreground mt-1">Turn any collection of photos into a perfectly arranged collage</p>
           </div>
         </div>
       </button>

@@ -1155,7 +1155,8 @@ function generateBlockBasedHeroLayout(
   canvasWidth: number,
   gap: number,
   randomize: boolean,
-  tuning: LayoutTuning
+  tuning: LayoutTuning,
+  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
 ): CollageLayout | null {
   // Shuffle candidates if randomizing
   const candidates = randomize ? shuffleArray(standards) : standards;
@@ -1213,7 +1214,8 @@ function generateBlockBasedHeroLayout(
       canvasWidth,
       gap,
        packPhotosIntoRegion,
-       tuning.minPhotosPerRow
+       tuning.minPhotosPerRow,
+       shape
     );
     if (block) {
       contentBlocks.push(block);
@@ -1257,12 +1259,13 @@ function generateSingleHeroLayout(
   canvasWidth: number,
   gap: number,
   randomize: boolean,
-  tuning: LayoutTuning
+  tuning: LayoutTuning,
+  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
 ): CollageLayout {
   // Try block-based layout for larger photosets (provides shuffled variety)
   if (standards.length >= BLOCK_BASED_MIN_PHOTOS) {
     const blockLayout = generateBlockBasedHeroLayout(
-      hero, standards, canvasWidth, gap, randomize, tuning
+      hero, standards, canvasWidth, gap, randomize, tuning, shape
     );
     
     if (blockLayout) {
@@ -1295,7 +1298,8 @@ function generateMultiHeroLayout(
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean
+  randomize: boolean,
+  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
 ): CollageLayout {
   const orderedHeroes = randomize ? shuffleArray([...heroes]) : heroes;
 
@@ -1521,7 +1525,8 @@ export function generateHeroLayout(
       BASE_WIDTH,
       gap,
       randomize,
-      tuning
+      tuning,
+      settings.shape
     );
   }
 
@@ -1530,7 +1535,8 @@ export function generateHeroLayout(
     standards,
     BASE_WIDTH,
     gap,
-    randomize
+    randomize,
+    settings.shape
   );
 }
 

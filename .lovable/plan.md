@@ -1,87 +1,156 @@
 
 
-# Show Default Values in Balance Control Inputs
+# Thread minPhotosPerRow Through the Call Chain
 
-## Overview
+## Problem
 
-Add visual indication of default values for the three balance tuning parameters (`maxBesideFraction`, `minContentPhotos`, `minPhotosPerRow`) so users can easily see what the recommended defaults are while experimenting.
+`minPhotosPerRow` is defined in `scorePartition` but never actually passed - all callers use the hardcoded default of `2`. This explains why setting it to `6` in the UI has no effect.
 
-## Approach
+## Call Chain to Fix
 
-Extend the `TuningInput` component to accept an optional `defaultValue` prop, then display it in the label (e.g., "Max Beside % (0.6)"). This keeps the UI clean while providing the reference.
+```text
+TuningSection (UI)
+    ↓
+generateBlockBasedHeroLayout (heroLayout.ts)
+    ↓
+buildContentRowsBlock (layoutBlocks.ts)
+    ↓
+packPhotosIntoRegion (collageLayout.ts)
+    ↓
+findBestRowSplit (collageLayout.ts)
+    ↓
+scorePartition (collageLayout.ts) ← only place that uses minPhotosPerRow
+```
 
-## Implementation
+## Technical Changes
 
-### Update TuningInput Component
+### 1. Update `RegionPackOptions` interface (collageLayout.ts)
 
-Add `defaultValue` prop and display it in the label:
+Add `minPhotosPerRow` to the options:
 
-```tsx
-interface TuningInputProps {
-  label: string;
-  tooltip: string;
-  value: number;
-  onChange: (value: number) => void;
-  step?: number;
-  min?: number;
-  max?: number;
-  defaultValue?: number;  // NEW
+```typescript
+export interface RegionPackOptions {
+  // ... existing fields ...
+  
+  /** Minimum photos per row for scoring (default: 2) */
+  minPhotosPerRow?: number;
 }
+```
 
-function TuningInput({ label, tooltip, value, onChange, step = 1, min, max, defaultValue }: TuningInputProps) {
-  return (
-    <div className="flex flex-col gap-1" title={tooltip}>
-      <Label className="text-[10px] text-muted-foreground font-normal">
-        {label}
-        {defaultValue !== undefined && (
-          <span className="text-muted-foreground/60 ml-1">({defaultValue})</span>
-        )}
-      </Label>
-      {/* ... rest unchanged ... */}
-    </div>
+### 2. Update `findBestRowSplit` signature (collageLayout.ts)
+
+Add parameter and pass to all `scorePartition` calls:
+
+```typescript
+function findBestRowSplit(
+  dims: PhotoDimension[],
+  targetAspect: number,
+  isLandscape: boolean,
+  randomize: boolean = false,
+  minPhotosPerRow: number = 2  // NEW
+): PhotoDimension[][] {
+  // ...
+  
+  // Inside enumeration loop:
+  const score = scorePartition(partition, targetAspect, isLandscape, 1200, minPhotosPerRow);
+  
+  // Inside sampling loop:
+  const score = scorePartition(partition, targetAspect, isLandscape, 1200, minPhotosPerRow);
+}
+```
+
+### 3. Update `packPhotosIntoRegion` (collageLayout.ts)
+
+Extract option and pass to `findBestRowSplit`:
+
+```typescript
+export function packPhotosIntoRegion(
+  dims: PhotoDimension[],
+  options: RegionPackOptions
+): RegionPackResult {
+  const { 
+    // ... existing ...
+    minPhotosPerRow = 2  // NEW
+  } = options;
+  
+  // ...
+  
+  const partition = findBestRowSplit(
+    dims, 
+    effectiveTargetAspect, 
+    isLandscape, 
+    false,
+    minPhotosPerRow  // Pass through
   );
 }
 ```
 
-### Update Balance Control Inputs
+### 4. Update `buildContentRowsBlock` type signature (layoutBlocks.ts)
 
-Pass the default values from `DEFAULT_TUNING`:
+The function receives `packPhotosIntoRegion` as a parameter, so update the type:
 
-```tsx
-import { LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
+```typescript
+export function buildContentRowsBlock(
+  photos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  packPhotosIntoRegion: (
+    dims: PhotoDimension[], 
+    options: { 
+      width: number; 
+      gap: number; 
+      offsetX: number; 
+      offsetY: number; 
+      isLandscape: boolean;
+      minPhotosPerRow?: number;  // NEW
+    }
+  ) => { cells: CollageCell[]; achievedHeight: number; partition: PhotoDimension[][] },
+  minPhotosPerRow: number = 2  // NEW parameter
+): ContentRowsBlock | null {
+  // ...
+  
+  const result = packPhotosIntoRegion(photos, {
+    width: canvasWidth,
+    gap,
+    offsetX: 0,
+    offsetY: 0,
+    isLandscape: true,
+    minPhotosPerRow,  // Pass through
+  });
+}
+```
 
-// ... in Row 3: Balance controls ...
-<TuningInput
-  label="Max Beside %"
-  tooltip="Hero row can consume at most this fraction of total photos (0.6 = 60%)"
-  value={tuning.maxBesideFraction}
-  onChange={(v) => onTuningChange('maxBesideFraction', v)}
-  step={0.05}
-  min={0.3}
-  max={0.9}
-  defaultValue={DEFAULT_TUNING.maxBesideFraction}
-/>
-<TuningInput
-  label="Min Content"
-  tooltip="Always reserve at least this many photos for content rows"
-  value={tuning.minContentPhotos}
-  onChange={(v) => onTuningChange('minContentPhotos', v)}
-  min={0}
-  max={10}
-  defaultValue={DEFAULT_TUNING.minContentPhotos}
-/>
-<TuningInput
-  label="Min/Row"
-  tooltip="Content rows must have at least this many photos"
-  value={tuning.minPhotosPerRow}
-  onChange={(v) => onTuningChange('minPhotosPerRow', v)}
-  min={1}
-  max={4}
-  defaultValue={DEFAULT_TUNING.minPhotosPerRow}
-/>
+### 5. Update `generateBlockBasedHeroLayout` (heroLayout.ts)
+
+Pass `tuning.minPhotosPerRow` when building content blocks:
+
+```typescript
+// When calling buildContentRowsBlock:
+const contentBlock = buildContentRowsBlock(
+  remainingPhotos,
+  canvasWidth,
+  gap,
+  packPhotosIntoRegion,
+  tuning.minPhotosPerRow  // NEW
+);
 ```
 
 ## Files to Modify
 
-1. `src/components/TuningSection.tsx` - Add `defaultValue` prop to `TuningInput` and pass it for the three balance controls
+1. **`src/lib/collageLayout.ts`**
+   - Add `minPhotosPerRow` to `RegionPackOptions` interface
+   - Add parameter to `findBestRowSplit`, pass to `scorePartition` calls
+   - Extract and pass in `packPhotosIntoRegion`
+
+2. **`src/lib/layoutBlocks.ts`**
+   - Add `minPhotosPerRow` parameter to `buildContentRowsBlock`
+   - Update the `packPhotosIntoRegion` type to include `minPhotosPerRow`
+   - Pass through to the function call
+
+3. **`src/lib/heroLayout.ts`**
+   - Pass `tuning.minPhotosPerRow` to `buildContentRowsBlock` calls
+
+## Result
+
+After this change, setting `minPhotosPerRow=6` in the UI will actually influence the scoring. We can then evaluate if the penalty weight (currently `0.5`) is sufficient or needs adjustment.
 

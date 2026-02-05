@@ -18,7 +18,6 @@ const TAG_LABELS: Record<LayoutTag, string> = {
   'wasted-space': 'Wasted space',
   'well-balanced': 'Well balanced',
   'hero-works': 'Hero works well',
-  'good-variety': 'Good variety',
 };
 
 /**

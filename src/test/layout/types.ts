@@ -17,7 +17,6 @@ export const LAYOUT_ISSUE_TAGS = [
 export const LAYOUT_POSITIVE_TAGS = [
   'well-balanced',
   'hero-works',
-  'good-variety',
 ] as const;
 
 export type LayoutTag =

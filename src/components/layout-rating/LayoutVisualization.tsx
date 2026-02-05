@@ -48,6 +48,11 @@ export function LayoutVisualization({ layout, photos }: LayoutVisualizationProps
         const photo = photos.find(p => p.id === cell.photoId);
         const isHero = photo?.priority === 1;
         
+        // Calculate area percentage
+        const totalArea = layout.width * layout.height;
+        const cellArea = cell.width * cell.height;
+        const areaPercent = Math.round((cellArea / totalArea) * 100);
+        
         return (
           <div
             key={cell.photoId}
@@ -66,7 +71,7 @@ export function LayoutVisualization({ layout, photos }: LayoutVisualizationProps
           >
             <span className="flex items-center gap-1 px-1 py-0.5 bg-background/70 rounded text-foreground text-[10px]">
               {isHero && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
-              {photo?.aspectRatio.toFixed(2)}
+              {photo?.aspectRatio.toFixed(2)} · {areaPercent}%
             </span>
           </div>
         );

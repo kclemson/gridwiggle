@@ -1,86 +1,236 @@
 
-# Fix Square Tolerance + Investigation Findings
 
-## Immediate Fix: Square Tolerance
+# Unified `scoreConfiguration` Function
+
+## Core Insight
+
+Both content-only and hero layouts need to be scored using the **same metrics**. The difference is just which metrics apply:
+
+| Metric | Content-Only | Hero Layout |
+|--------|--------------|-------------|
+| Direction penalty (shape) | ✓ | ✓ |
+| Area CV (uniformity) | ✓ | ✓ (for content rows) |
+| Height CV | ✓ | ✓ (for content rows) |
+| Sparse row penalty | ✓ | ✓ (for content rows) |
+| Scale factor penalty | — | ✓ (deviation from 1.0) |
+| Hero coverage | — | ✓ (optional soft preference) |
+
+---
+
+## Proposed Design
+
+### Single Scoring Function
+
+```typescript
+export interface ConfigurationScore {
+  directionPenalty: number;  // Shape compliance (10.0 weight)
+  areaCV: number;            // Cell size uniformity
+  heightCV: number;          // Row height uniformity
+  rowBalancePenalty: number; // Sparse/overfull rows
+  scalePenalty: number;      // For hero: deviation from 1.0
+  totalScore: number;        // Combined (lower = better)
+}
+
+export interface ScoreConfigurationOptions {
+  shape: CollageSettings['shape'];
+  hasHero: boolean;
+  scaleFactor?: number;      // Only for hero layouts
+  heroCoverage?: number;     // Optional: hero area / total area
+  minPhotosPerRow?: number;
+}
+
+export function scoreConfiguration(
+  layout: CollageLayout,
+  options: ScoreConfigurationOptions
+): ConfigurationScore
+```
+
+### What It Calculates
+
+1. **Direction penalty** — Always calculated from `layout.width / layout.height` vs target `shape`
+2. **Scale penalty** — Only when `hasHero: true`, penalizes `scaleFactor` deviating from 1.0
+3. **Row metrics** — Calculated from the layout cells (grouping by y-position to identify rows)
+
+---
+
+## Implementation
 
 ### File: `src/lib/collageLayout.ts`
 
-**Line 104-105** — Change square bounds from ±15% to ±5%:
+#### 1. Extract direction penalty (small helper)
 
 ```typescript
-// Before
-case 'square':
-  return [0.85, 1.15];  // Near 1:1
+function calculateDirectionPenalty(
+  resultAspect: number,
+  shape: CollageSettings['shape']
+): number {
+  if (shape === 'portrait' && resultAspect >= 1.0) {
+    return 10.0 * (resultAspect - 0.9);
+  } else if (shape === 'landscape' && resultAspect <= 1.0) {
+    return 10.0 * (1.1 - resultAspect);
+  } else if (shape === 'square') {
+    return 10.0 * Math.abs(resultAspect - 1.0);
+  }
+  return 0;
+}
+```
 
-// After
-case 'square':
-  return [0.95, 1.05];  // Strict 1:1 (±5%)
+#### 2. New unified `scoreConfiguration` function
+
+```typescript
+export function scoreConfiguration(
+  layout: CollageLayout,
+  options: ScoreConfigurationOptions
+): ConfigurationScore {
+  const { shape, hasHero, scaleFactor = 1.0, minPhotosPerRow = 2 } = options;
+  
+  const resultAspect = layout.width / layout.height;
+  const directionPenalty = calculateDirectionPenalty(resultAspect, shape);
+  
+  // Scale penalty for hero layouts (deviation from 1.0)
+  const scalePenalty = hasHero 
+    ? 2.0 * Math.abs(scaleFactor - 1.0) 
+    : 0;
+  
+  // Calculate row-based metrics from layout cells
+  const { areaCV, heightCV, rowBalancePenalty } = calculateRowMetrics(
+    layout.cells, 
+    layout.width,
+    minPhotosPerRow,
+    shape
+  );
+  
+  const totalScore = 
+    directionPenalty +
+    scalePenalty +
+    areaCV * 1.0 +
+    heightCV * 0.2 +
+    rowBalancePenalty;
+  
+  return { directionPenalty, areaCV, heightCV, rowBalancePenalty, scalePenalty, totalScore };
+}
+```
+
+#### 3. Update `scorePartition` to use the shared logic
+
+The existing `scorePartition` can call into the shared direction penalty calculation, or be refactored to use `scoreConfiguration` internally by first building the layout from the partition.
+
+---
+
+### File: `src/lib/heroLayout.ts`
+
+#### Update hero layout functions to use unified scoring
+
+```typescript
+import { scoreConfiguration } from '@/lib/collageLayout';
+
+// In generateEdgeAnchoredHeroLayout, change from "return first valid" to "collect and score":
+
+const candidates: Array<{ layout: CollageLayout; score: ConfigurationScore }> = [];
+
+// Inside the loop, after building layout:
+if (accepted) {
+  const layout = { width: canvasWidth, height: finalHeight, cells: allCells };
+  const score = scoreConfiguration(layout, {
+    shape,
+    hasHero: true,
+    scaleFactor,
+  });
+  candidates.push({ layout, score });
+}
+
+// After loop: pick best
+if (candidates.length > 0) {
+  candidates.sort((a, b) => a.score.totalScore - b.score.totalScore);
+  return candidates[0].layout;
+}
 ```
 
 ---
 
-## Investigation Findings: Hero Layout Shape Violations
+## Benefits
 
-### Root Cause Identified
-
-The hero layout system **completely ignores shape constraints** in most code paths:
-
-1. **`generateEdgeAnchoredHeroLayout`** (lines 588-836) — Has NO shape parameter at all. The hero height is determined purely by the beside photos' natural dimensions.
-
-2. **`generateFloatingHeroLayout`** (lines 899-1100) — Also has NO shape parameter. Same issue.
-
-3. **`generateEdgeAnchoredHeroLayout1Row`** (lines 841-887) — No shape parameter.
-
-4. **Shape is only passed to these functions:**
-   - `generateSingleHeroLayout` → passes shape to `generateBlockBasedHeroLayout` only
-   - `generateContentOnlyLayout` → uses shape in `buildContentRowsBlock`
-   - `generateMultiHeroLayout` → receives shape but never uses it
-
-### How Shape Violations Happen
-
-When a user requests "portrait" with a hero:
-
-1. `generateHeroLayout` receives `settings.shape = 'portrait'`
-2. Calls `generateSingleHeroLayout(hero, standards, ..., shape)`
-3. For < 6 standards, falls back to `generateEdgeAnchoredHeroLayout` **without shape**
-4. The hero unit is built purely based on photo aspect ratios
-5. Wide hero + 2-row beside packing → extreme landscape aspect ratio
-6. No `directionPenalty` is ever applied to penalize wrong orientation
-
-### The Scoring System Disconnect
-
-The `directionPenalty` in `scorePartition()` (collageLayout.ts lines 276-288) is excellent — it heavily penalizes wrong orientations. **But hero layouts never use this scoring.** Hero layouts use fixed geometric formulas (`calculateOptimalHeroFraction`) that ignore target shape.
-
-### Why Content-Only Layouts Work
-
-When there's no hero, `generateContentOnlyLayout` → `buildContentRowsBlock` → `packPhotosIntoRegion` → `findBestRowSplit` → **`scorePartition` with directionPenalty**.
-
-The content rows use the scoring system. Hero layouts don't.
+1. **Single source of truth** — All scoring logic in one function
+2. **Consistent behavior** — Content-only and hero layouts scored identically
+3. **Easy to tune** — Change weights in one place
+4. **Testable** — Can unit test `scoreConfiguration` with mock layouts
+5. **Extensible** — Adding new metrics (e.g., "whitespace penalty") is trivial
 
 ---
 
-## Summary of Issues
+## Technical Details
 
-| Issue | Cause | Severity |
-|-------|-------|----------|
-| Square tolerance too loose | `[0.85, 1.15]` bounds | Fixed in this PR |
-| Hero layouts ignore shape | No shape parameter in hero functions | High — causes extreme violations |
-| Hero coverage too low | Fixed 30-60% hero fraction range | Medium — heroes sometimes too small |
+### Row Metrics From Layout Cells
+
+Since hero layouts don't have a `partition` array, we need to derive row information from the layout cells:
+
+```typescript
+function calculateRowMetrics(
+  cells: CollageCell[],
+  canvasWidth: number,
+  minPhotosPerRow: number,
+  shape: CollageSettings['shape']
+): { areaCV: number; heightCV: number; rowBalancePenalty: number } {
+  // Group cells by y-position to identify rows
+  const rowMap = new Map<number, CollageCell[]>();
+  for (const cell of cells) {
+    const key = cell.y;
+    if (!rowMap.has(key)) rowMap.set(key, []);
+    rowMap.get(key)!.push(cell);
+  }
+  
+  const rows = Array.from(rowMap.values());
+  
+  // Calculate areas and heights
+  const areas = cells.map(c => c.width * c.height);
+  const heights = rows.map(row => Math.max(...row.map(c => c.height)));
+  
+  const areaCV = coefficientOfVariation(areas);
+  const heightCV = coefficientOfVariation(heights);
+  
+  // Row balance penalty
+  const rowSizes = rows.map(r => r.length);
+  const minRowSize = Math.min(...rowSizes);
+  const maxRowSize = Math.max(...rowSizes);
+  
+  const sparsePenalty = minRowSize < minPhotosPerRow 
+    ? 5.0 * (minPhotosPerRow - minRowSize) 
+    : 0;
+  
+  const maxPhotosPerRow = getMaxPhotosPerRow(cells.length, shape);
+  const overMaxPenalty = maxRowSize > maxPhotosPerRow
+    ? 3.0 * (maxRowSize - maxPhotosPerRow)
+    : 0;
+  
+  return { areaCV, heightCV, rowBalancePenalty: sparsePenalty + overMaxPenalty };
+}
+```
 
 ---
 
-## Recommended Next Steps
+## Migration Path
 
-Before making code changes for hero shape enforcement:
+### Phase 1: Add `scoreConfiguration` alongside existing `scorePartition`
+- Both use the same `calculateDirectionPenalty` helper
+- `scorePartition` continues working for content-only path
+- No behavior change yet
 
-1. **Decide on approach:**
-   - **Option A:** Add shape-aware scoring to hero layouts (evaluate multiple hero configurations, pick best)
-   - **Option B:** Add post-hoc shape correction (scale/reflow hero unit to fit target bounds)
-   - **Option C:** Clamp hero fraction based on target shape (e.g., smaller hero for portrait)
+### Phase 2: Thread `shape` through hero functions + use scoring
+- Hero functions receive `shape` parameter
+- Change from "return first valid" to "collect candidates, score, pick best"
+- Uses `scoreConfiguration` for hero candidates
 
-2. **Key questions to answer:**
-   - Should heroes be smaller/larger based on target shape?
-   - Should we reject hero configurations that violate shape, or adjust them?
-   - What's the acceptable trade-off between hero prominence and shape compliance?
+### Phase 3: Optionally refactor `scorePartition` to use `scoreConfiguration`
+- `scorePartition` could build a temporary layout and call `scoreConfiguration`
+- Or keep it as-is since it's already well-tested
 
-I'll apply the square tolerance fix now. The hero shape investigation reveals this is a structural issue requiring a design decision before implementation.
+---
+
+## Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/lib/collageLayout.ts` | Add `scoreConfiguration`, `calculateDirectionPenalty`, `calculateRowMetrics`. Export them. |
+| `src/lib/heroLayout.ts` | Import `scoreConfiguration`. Add `shape` to 4 function signatures. Change loops to collect-and-score. |
+| `src/lib/layoutBlocks.ts` | Add `shape` to `HeroUnitOptions`. Pass through in `buildHeroUnitBlock`. |
+

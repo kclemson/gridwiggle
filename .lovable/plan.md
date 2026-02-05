@@ -1,103 +1,102 @@
 
-# Remove targetAspect from Auto Mode Flow
+# Remove Legacy `idealRows` and `isLandscape` from Row Search
 
-## Problem Identified
+## Problem Summary
 
-You're right - we previously decided that `minPhotosPerRow` should be the sole shape control lever. But the current code still has `targetAspect` influencing layouts through hardcoded defaults:
-
-1. **`buildContentRowsBlock`** passes `isLandscape: true` to `packPhotosIntoRegion`
-2. **`packPhotosIntoRegion`** (line 501) defaults to `isLandscape ? 1.5 : 0.75` when no `targetAspect` is provided
-3. **`scorePartition`** penalizes layouts that deviate from this 1.5 target via `aspectDiff * 2.0`
-
-Result: Even with `minPhotosPerRow` randomization, the algorithm optimizes toward 1.5 aspect ratio.
-
-## Solution
-
-Remove `targetAspect` influence when in auto mode (no explicit shape target):
-
-### Change 1: Update `scorePartition` to handle undefined target
-
-When `targetAspect` is `undefined`, skip the aspect penalty entirely:
+The `findBestRowSplit` function has hardcoded logic that ignores `minPhotosPerRow`:
 
 ```typescript
-// src/lib/collageLayout.ts - scorePartition
-function scorePartition(
-  partition: PhotoDimension[][],
-  targetAspect: number | undefined,  // Change to optional
-  isLandscape: boolean,
-  baseWidth: number = 1200,
-  minPhotosPerRow: number = 2
-): PartitionScore {
-  // ...existing calculations...
-  
-  // Only penalize aspect deviation when we have a target
-  const aspectDiff = targetAspect !== undefined 
-    ? Math.abs(resultAspect - targetAspect) / targetAspect 
-    : 0;
-  
-  // Only apply direction penalty when we have an explicit target
-  const directionPenalty = targetAspect !== undefined && wrongDirection ? 10.0 : 0;
-  
-  // ...rest unchanged...
-}
+// Lines 278-289 - THE PROBLEM
+const idealPhotosPerRow = isLandscape ? 5 : 3;  // Hardcoded!
+const idealRows = Math.ceil(n / idealPhotosPerRow);
+
+const minRows = isLandscape ? ... : Math.max(1, idealRows - 1);
+const maxRows = isLandscape ? ... : Math.min(n, idealRows + 3, 10);
 ```
 
-### Change 2: Update `findBestRowSplit` to accept undefined target
+With `isLandscape: false` and 24 photos, this always searches 7-10 rows regardless of `minPhotosPerRow`.
+
+## Solution: Replace with Simple Range from `minPhotosPerRow`
+
+### Change 1: Simplify `findBestRowSplit` search range
+
+**File: `src/lib/collageLayout.ts` (lines 278-289)**
+
+Replace the entire `idealPhotosPerRow`/`idealRows` block with:
 
 ```typescript
-// src/lib/collageLayout.ts - findBestRowSplit
+// Derive row count range from minPhotosPerRow
+// maxRows = point where rows become too sparse (violate min threshold)
+// minRows = 1 (allow exploring very wide layouts)
+const maxRows = Math.min(n, Math.ceil(n / minPhotosPerRow) + 2);
+const minRows = Math.max(1, Math.floor(n / 8)); // At least explore some rows
+```
+
+This gives for 24 photos:
+- `minPhotosPerRow = 2` → maxRows = 14, explores 3-14 rows
+- `minPhotosPerRow = 5` → maxRows = 7, explores 3-7 rows
+
+### Change 2: Remove `isLandscape` parameter from `findBestRowSplit`
+
+Since `isLandscape` is no longer needed for the search range:
+
+```typescript
 function findBestRowSplit(
   dims: PhotoDimension[],
-  targetAspect: number | undefined,  // Change to optional
-  isLandscape: boolean,
+  targetAspect: number | undefined,
+  // REMOVE: isLandscape: boolean,
   randomize: boolean = false,
   minPhotosPerRow: number = 2
 ): PhotoDimension[][] {
-  // Pass through to scorePartition (which now handles undefined)
-}
 ```
 
-### Change 3: Update `packPhotosIntoRegion` to not default targetAspect
+### Change 3: Update `scorePartition` to not need `isLandscape`
+
+The `wrongDirection` penalty is already gated by `targetAspect !== undefined`. When `targetAspect` is defined (explicit orientation mode), we can derive `isLandscape` from it:
 
 ```typescript
-// src/lib/collageLayout.ts - packPhotosIntoRegion
-// Remove the default - pass undefined through
-const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : undefined);
-const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape, false, minPhotosPerRow);
+function scorePartition(
+  partition: PhotoDimension[][],
+  targetAspect: number | undefined,
+  // REMOVE: isLandscape: boolean,
+  baseWidth: number = 1200,
+  minPhotosPerRow: number = 2
+): PartitionScore {
+  // ...
+  
+  // Derive orientation from targetAspect if present
+  const wrongDirection = targetAspect !== undefined && (
+    targetAspect >= 1.0 
+      ? resultAspect < 1.0   // Target is landscape, result is portrait
+      : resultAspect > 1.0   // Target is portrait, result is landscape
+  );
+  const directionPenalty = wrongDirection ? 10.0 : 0;
 ```
 
-### Change 4: Update `buildContentRowsBlock` to not force isLandscape
+### Change 4: Update call sites
+
+**`packPhotosIntoRegion`**: Remove `isLandscape` from the call to `findBestRowSplit`
 
 ```typescript
-// src/lib/layoutBlocks.ts - buildContentRowsBlock
-const result = packPhotosIntoRegion(photos, {
-  width: canvasWidth,
-  gap,
-  offsetX: 0,
-  offsetY: 0,
-  isLandscape: false,  // Neutral - let minPhotosPerRow drive shape
-  minPhotosPerRow,
-  // No targetAspect - let it be undefined
-});
+const partition = findBestRowSplit(dims, effectiveTargetAspect, false, minPhotosPerRow);
 ```
 
-## Result
+**`RegionPackOptions` interface**: Remove `isLandscape` field (it's no longer used)
 
-In auto mode with no heroes:
-- `targetAspect` is `undefined` throughout
-- `aspectDiff` becomes 0 (no aspect penalty)
-- `directionPenalty` becomes 0 (no orientation gate)
-- **Only `minPhotosPerRow` penalty affects scoring**
-- Low `minPhotosPerRow` (2) allows many rows → taller layouts
-- High `minPhotosPerRow` (5) forces fewer rows → wider layouts
+**`buildContentRowsBlock`**: Remove `isLandscape: false` from options
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/collageLayout.ts` | Make `targetAspect` optional in `scorePartition`, `findBestRowSplit`; remove default in `packPhotosIntoRegion` |
-| `src/lib/layoutBlocks.ts` | Remove `isLandscape: true` hardcode, don't pass `targetAspect` |
+| `src/lib/collageLayout.ts` | Remove `isLandscape` from `scorePartition` and `findBestRowSplit` signatures; replace `idealRows` logic with `minPhotosPerRow`-based range |
+| `src/lib/layoutBlocks.ts` | Remove `isLandscape` from `packPhotosIntoRegion` calls |
 
-## Why This Is Different From My Earlier Plan
+## Expected Result
 
-My earlier plan was **wrong** - I was suggesting to *thread* `targetAspect` through and randomize it. But your earlier analysis was correct: we should use `minPhotosPerRow` as the **sole** lever and **remove** `targetAspect` from the auto-mode flow entirely.
+After this change:
+- **No "ideal"** - just a search range
+- **`minPhotosPerRow` directly controls** how many rows are explored
+- Low values (2) allow many rows → tall layouts
+- High values (5) limit rows → wide layouts
+- Scoring picks the best based on area uniformity (the sparsePenalty ensures rows meet the minimum threshold)

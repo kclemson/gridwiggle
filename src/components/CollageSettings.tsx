@@ -1,4 +1,4 @@
-import { CollageSettings as CollageSettingsType } from '@/types/collage';
+import { CollageSettings as CollageSettingsType, MIN_PHOTOS_FOR_SHAPE_CONTROL } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import {
   Select,
@@ -11,9 +11,12 @@ import {
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
+  photoCount: number;
 }
 
-export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, onUpdate, photoCount }: CollageSettingsProps) {
+  const canControlShape = photoCount >= MIN_PHOTOS_FOR_SHAPE_CONTROL;
+  
   return (
     <div className="space-y-2">
       {/* Header - matching PhotoGrid style */}
@@ -29,17 +32,25 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
           <Select
             value={settings.shape}
             onValueChange={(value) => onUpdate({ shape: value as CollageSettingsType['shape'] })}
+            disabled={!canControlShape}
           >
             <SelectTrigger className="h-7 w-24 text-xs border-0 bg-transparent focus:ring-0 focus:ring-offset-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="auto">Auto</SelectItem>
-              <SelectItem value="landscape">Landscape</SelectItem>
-              <SelectItem value="portrait">Portrait</SelectItem>
-              <SelectItem value="square">Square</SelectItem>
+              {canControlShape && (
+                <>
+                  <SelectItem value="landscape">Landscape</SelectItem>
+                  <SelectItem value="portrait">Portrait</SelectItem>
+                  <SelectItem value="square">Square</SelectItem>
+                </>
+              )}
             </SelectContent>
           </Select>
+          {!canControlShape && (
+            <span className="text-xs text-muted-foreground/60 italic">(6+ photos)</span>
+          )}
         </div>
         
         {/* Separator */}

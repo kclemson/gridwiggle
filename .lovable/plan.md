@@ -1,73 +1,67 @@
 
 
-# Plan: Add rowHeroAdjacent to Export
+# Plan: Reduce No-Hero Test Cases in Generation
 
-## Summary
+## Problem
 
-Add the `rowHeroAdjacent` boolean array to the exported JSON so the AI can reason about which rows were next to the hero when analyzing ratings.
+Currently `generateTestBatch` generates a 50/50 split between `hasHero: true` and `hasHero: false` cases. Since no-hero layouts are consistently good, we're spending half our rating time on cases that rarely reveal issues.
 
-## Changes
-
-### 1. `src/test/layout/types.ts`
-
-Add `rowHeroAdjacent` to the `RatedLayout` interface:
+## Current Logic (lines 196-205)
 
 ```typescript
-export interface RatedLayout {
-  // ... existing fields ...
-  
-  // Layout metrics
-  rowCount: number;
-  rowSizes: number[];
-  rowHeroAdjacent: boolean[];  // NEW: Which rows overlap vertically with hero
-  canvasAspect: number;
-  // ... rest of fields ...
+for (const shape of shapes) {
+  for (const hasHero of [true, false]) {  // 50/50 split
+    const distribution = weightedRandomDistribution();
+    cases.push({
+      photos: generatePhotoSet(photoCount, distribution, hasHero),
+      shape,
+      hasHero,
+      distribution,
+    });
+  }
 }
 ```
 
-### 2. `src/pages/LayoutRating.tsx`
+## Proposed Change
 
-Include `rowHeroAdjacent` when building the `ratedLayout` object:
+Replace the deterministic 50/50 loop with weighted random selection that heavily favors hero layouts:
+
+- **80% hero** - where most issues occur
+- **20% no-hero** - enough for regression coverage
 
 ```typescript
-const ratedLayout: RatedLayout = {
-  photoCount: currentResult.testCase.photos.length,
-  distribution: currentResult.testCase.distribution,
-  shape: currentResult.testCase.shape,
-  hasHero: currentResult.testCase.hasHero,
-  rowCount: currentResult.rowCount,
-  rowSizes: currentResult.rowSizes,
-  rowHeroAdjacent: currentResult.rowHeroAdjacent,  // NEW
-  canvasAspect: currentResult.canvasAspect,
-  // ... rest of fields ...
-};
-```
-
-## Exported JSON Example
-
-Before:
-```json
-{
-  "rowSizes": [5, 4, 4, 6, 5, 6, 5, 5, 5, 5],
-  "tags": ["row-too-dense"]
+for (const shape of shapes) {
+  // Weight toward hero layouts since no-hero consistently works well
+  // 80% hero, 20% no-hero for regression coverage
+  const hasHero = Math.random() < 0.8;
+  const distribution = weightedRandomDistribution();
+  cases.push({
+    photos: generatePhotoSet(photoCount, distribution, hasHero),
+    shape,
+    hasHero,
+    distribution,
+  });
 }
 ```
 
-After:
-```json
-{
-  "rowSizes": [5, 4, 4, 6, 5, 6, 5, 5, 5, 5],
-  "rowHeroAdjacent": [true, true, true, false, false, false, false, false, false, false],
-  "tags": ["row-too-dense"]
-}
-```
+## Trade-offs Considered
 
-This makes it clear that rows 0-2 (sizes 5, 4, 4) were packed next to the hero, which is the pattern you're flagging as problematic.
+| Approach | Hero % | Pros | Cons |
+|----------|--------|------|------|
+| Current 50/50 | 50% | Maximum coverage | Wastes time on known-good cases |
+| **80/20 weighted** | ~80% | Focus on problem areas, still catches regressions | Slightly less no-hero coverage |
+| 90/10 weighted | ~90% | Maximum hero focus | Might miss no-hero regressions |
 
-## Files Changed
+The 80/20 ratio maintains enough no-hero cases for regression detection while focusing the bulk of rating effort where issues actually occur.
+
+## File Changed
 
 | File | Change |
 |------|--------|
-| `src/test/layout/types.ts` | Add `rowHeroAdjacent: boolean[]` to `RatedLayout` interface |
-| `src/pages/LayoutRating.tsx` | Include `rowHeroAdjacent` in `ratedLayout` object construction |
+| `src/test/layout/layoutAdapter.ts` | Replace `for (const hasHero of [true, false])` with weighted random selection |
+
+## Result
+
+Before: ~50% of test cases are no-hero (consistently rated "good")
+After: ~20% of test cases are no-hero (for regression coverage)
 

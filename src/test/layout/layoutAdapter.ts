@@ -50,9 +50,18 @@ function calculateMetrics(
   'rowCount' | 'rowSizes' | 'rowHeroAdjacent' | 'canvasAspect' | 'areaCoefficientOfVariation' | 
   'largestToSmallestRatio' | 'heroCoverage' | 'cellAreaPercents' | 'heroToRunnerUpRatio'
 > {
-  // Calculate cell areas
-  const areas = layout.cells.map(cell => cell.width * cell.height);
+  // Find hero photo ID if present
+  const heroPhoto = photos.find(p => p.priority === 1);
+  const heroId = heroPhoto?.id ?? null;
+  
+  // Calculate cell areas (all photos for cellAreaPercents)
+  const allAreas = layout.cells.map(cell => cell.width * cell.height);
   const canvasArea = layout.width * layout.height;
+  
+  // Calculate supporting photo areas (excludes hero for balance metrics)
+  const supportingAreas = heroId 
+    ? layout.cells.filter(c => c.photoId !== heroId).map(c => c.width * c.height)
+    : allAreas;
   
   // Calculate all cell area percentages, sorted descending
   const cellAreaPercents = layout.cells
@@ -60,7 +69,6 @@ function calculateMetrics(
     .sort((a, b) => b - a);
   
   // Find hero coverage and ratio
-  const heroPhoto = photos.find(p => p.priority === 1);
   let heroCoverage: number | null = null;
   let heroToRunnerUpRatio: number | null = null;
   
@@ -117,8 +125,10 @@ function calculateMetrics(
     rowSizes,
     rowHeroAdjacent,
     canvasAspect: layout.width / layout.height,
-    areaCoefficientOfVariation: coefficientOfVariation(areas),
-    largestToSmallestRatio: areas.length > 0 ? Math.max(...areas) / Math.min(...areas) : 1,
+    areaCoefficientOfVariation: coefficientOfVariation(supportingAreas),
+    largestToSmallestRatio: supportingAreas.length > 1 
+      ? Math.max(...supportingAreas) / Math.min(...supportingAreas) 
+      : 1,
     heroCoverage,
     cellAreaPercents,
     heroToRunnerUpRatio,

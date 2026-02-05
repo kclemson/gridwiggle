@@ -72,8 +72,8 @@ export interface LayoutTestResult {
   rowSizes: number[];           // Photos per row
   rowHeroAdjacent: boolean[];   // Which rows overlap vertically with hero
   canvasAspect: number;         // width / height
-  areaCoefficientOfVariation: number;  // Size uniformity (lower = more uniform)
-  largestToSmallestRatio: number;      // Max area / min area
+  areaCoefficientOfVariation: number;  // Size uniformity of SUPPORTING photos (excludes hero)
+  largestToSmallestRatio: number;      // Max/min area among SUPPORTING photos (excludes hero)
   heroCoverage: number | null;  // % of canvas area hero occupies
   cellAreaPercents: number[];   // All cell areas as %, sorted descending
   heroToRunnerUpRatio: number | null;  // Hero area / runner-up area
@@ -94,8 +94,8 @@ export interface RatedLayout {
   rowSizes: number[];
   rowHeroAdjacent: boolean[];  // Which rows overlap vertically with hero
   canvasAspect: number;
-  areaCoefficientOfVariation: number;
-  largestToSmallestRatio: number;
+  areaCoefficientOfVariation: number;  // Size uniformity of SUPPORTING photos (excludes hero)
+  largestToSmallestRatio: number;      // Max/min area among SUPPORTING photos (excludes hero)
   heroCoverage: number | null;
   cellAreaPercents: number[];
   heroToRunnerUpRatio: number | null;

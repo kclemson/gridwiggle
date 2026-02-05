@@ -16,6 +16,33 @@ interface PhotoDimension {
 }
 
 // ============================================================================
+// Configuration Scoring Types (Unified for all layout types)
+// ============================================================================
+
+/**
+ * Score breakdown for a layout configuration.
+ * Used for both content-only and hero layouts.
+ */
+export interface ConfigurationScore {
+  directionPenalty: number;  // Shape compliance (10.0 weight)
+  areaCV: number;            // Cell size uniformity
+  heightCV: number;          // Row height uniformity
+  rowBalancePenalty: number; // Sparse/overfull rows
+  scalePenalty: number;      // For hero: deviation from 1.0
+  totalScore: number;        // Combined (lower = better)
+}
+
+/**
+ * Options for scoring a layout configuration.
+ */
+export interface ScoreConfigurationOptions {
+  shape: CollageSettings['shape'];
+  hasHero: boolean;
+  scaleFactor?: number;      // Only for hero layouts
+  minPhotosPerRow?: number;
+}
+
+// ============================================================================
 // Dynamic minPhotosPerRow Range
 // ============================================================================
 
@@ -216,6 +243,129 @@ function coefficientOfVariation(values: number[]): number {
 }
 
 // ============================================================================
+// Unified Configuration Scoring
+// ============================================================================
+
+/**
+ * Calculate direction penalty based on shape preference.
+ * This is the single source of truth for shape-based scoring.
+ * Used by both content-only layouts (via scorePartition) and hero layouts.
+ * 
+ * @param resultAspect - The actual width/height ratio of the layout
+ * @param shape - The user's shape preference
+ * @returns Penalty value (0 = perfect, higher = worse)
+ */
+export function calculateDirectionPenalty(
+  resultAspect: number,
+  shape: CollageSettings['shape']
+): number {
+  if (shape === 'portrait' && resultAspect >= 1.0) {
+    // User wants portrait but result is landscape/square
+    return 10.0 * (resultAspect - 0.9);
+  } else if (shape === 'landscape' && resultAspect <= 1.0) {
+    // User wants landscape but result is portrait/square
+    return 10.0 * (1.1 - resultAspect);
+  } else if (shape === 'square') {
+    // Penalize deviation from 1.0 aspect ratio
+    return 10.0 * Math.abs(resultAspect - 1.0);
+  }
+  // shape === 'auto' --> no bias
+  return 0;
+}
+
+/**
+ * Calculate row-based metrics from layout cells.
+ * Works for both content-only and hero layouts since it derives
+ * row information from cell positions rather than partition arrays.
+ */
+function calculateRowMetrics(
+  cells: CollageCell[],
+  canvasWidth: number,
+  minPhotosPerRow: number,
+  shape: CollageSettings['shape']
+): { areaCV: number; heightCV: number; rowBalancePenalty: number } {
+  if (cells.length === 0) {
+    return { areaCV: 0, heightCV: 0, rowBalancePenalty: 0 };
+  }
+
+  // Group cells by y-position to identify rows (with tolerance for rounding)
+  const rowMap = new Map<number, CollageCell[]>();
+  for (const cell of cells) {
+    // Round to nearest 5px to group cells in the same visual row
+    const key = Math.round(cell.y / 5) * 5;
+    if (!rowMap.has(key)) rowMap.set(key, []);
+    rowMap.get(key)!.push(cell);
+  }
+  
+  const rows = Array.from(rowMap.values());
+  
+  // Calculate areas and heights
+  const areas = cells.map(c => c.width * c.height);
+  const heights = rows.map(row => Math.max(...row.map(c => c.height)));
+  
+  const areaCV = coefficientOfVariation(areas);
+  const heightCV = coefficientOfVariation(heights);
+  
+  // Row balance penalty
+  const rowSizes = rows.map(r => r.length);
+  const minRowSize = Math.min(...rowSizes);
+  const maxRowSize = Math.max(...rowSizes);
+  
+  const sparsePenalty = minRowSize < minPhotosPerRow 
+    ? 5.0 * (minPhotosPerRow - minRowSize) 
+    : 0;
+  
+  const maxPhotosPerRow = getMaxPhotosPerRow(cells.length, shape);
+  const overMaxPenalty = maxRowSize > maxPhotosPerRow
+    ? 3.0 * (maxRowSize - maxPhotosPerRow)
+    : 0;
+  
+  return { areaCV, heightCV, rowBalancePenalty: sparsePenalty + overMaxPenalty };
+}
+
+/**
+ * Score a layout configuration.
+ * 
+ * This is the UNIFIED scoring function used by both content-only and hero layouts.
+ * It provides a consistent way to evaluate how well a layout meets constraints.
+ * 
+ * @param layout - The layout to score
+ * @param options - Scoring options (shape, hasHero, scaleFactor)
+ * @returns Detailed score breakdown with totalScore (lower = better)
+ */
+export function scoreConfiguration(
+  layout: CollageLayout,
+  options: ScoreConfigurationOptions
+): ConfigurationScore {
+  const { shape, hasHero, scaleFactor = 1.0, minPhotosPerRow = 2 } = options;
+  
+  const resultAspect = layout.width / layout.height;
+  const directionPenalty = calculateDirectionPenalty(resultAspect, shape);
+  
+  // Scale penalty for hero layouts (deviation from 1.0)
+  const scalePenalty = hasHero 
+    ? 2.0 * Math.abs(scaleFactor - 1.0) 
+    : 0;
+  
+  // Calculate row-based metrics from layout cells
+  const { areaCV, heightCV, rowBalancePenalty } = calculateRowMetrics(
+    layout.cells, 
+    layout.width,
+    minPhotosPerRow,
+    shape
+  );
+  
+  const totalScore = 
+    directionPenalty +       // Shape enforcement (primary)
+    scalePenalty +           // Hero scale deviation
+    areaCV * 1.0 +           // Uniform cell sizes
+    heightCV * 0.2 +         // Uniform row heights
+    rowBalancePenalty;       // Sparse/overfull row penalties
+  
+  return { directionPenalty, areaCV, heightCV, rowBalancePenalty, scalePenalty, totalScore };
+}
+
+// ============================================================================
 // Row Aspect & Area Calculations
 // ============================================================================
 
@@ -272,21 +422,8 @@ function scorePartition(
   const areaCV = coefficientOfVariation(areas);
   const heightCV = coefficientOfVariation(heights);
   
-  // Shape-based direction penalty
-  // Penalizes results that contradict the user's shape selection
-  let directionPenalty = 0;
-  if (shape === 'portrait' && resultAspect >= 1.0) {
-    // User wants portrait but result is landscape/square
-    directionPenalty = 10.0 * (resultAspect - 0.9);
-  } else if (shape === 'landscape' && resultAspect <= 1.0) {
-    // User wants landscape but result is portrait/square
-    directionPenalty = 10.0 * (1.1 - resultAspect);
-  } else if (shape === 'square') {
-   // Penalize deviation from 1.0 aspect ratio
-   // Weight of 10.0 matches portrait/landscape to ensure shape dominates
-   directionPenalty = 10.0 * Math.abs(resultAspect - 1.0);
-  }
-  // shape === 'auto' --> directionPenalty stays 0 --> no bias
+  // Use shared direction penalty calculation
+  const directionPenalty = calculateDirectionPenalty(resultAspect, shape);
   
   // Penalize rows with very few or very many photos
   const rowSizes = partition.map(r => r.length);

@@ -1,6 +1,6 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { packPhotosIntoRegion } from '@/lib/collageLayout';
+import { packPhotosIntoRegion, scoreConfiguration, ConfigurationScore } from '@/lib/collageLayout';
 import {
   buildHeroUnitBlock,
   buildContentRowsBlock,
@@ -577,6 +577,15 @@ function fixRowAlignment3Row(
 }
 
 /**
+ * Candidate for hero layout scoring.
+ */
+interface HeroCandidate {
+  layout: CollageLayout;
+  score: ConfigurationScore;
+  scaleFactor: number;
+}
+
+/**
  * Generate layout with edge-anchored hero using 2-row or 3-row beside packing.
  * 
  * FEATURES:
@@ -584,13 +593,15 @@ function fixRowAlignment3Row(
  * 2. Explicit row alignment: Eliminates bottom gaps from rounding errors
  * 3. 3-row trigger: Relaxed tolerance (±20%) for 3-row layouts
  * 4. Hero spans 2-3 rows (2-3× height of individual photos)
+ * 5. SHAPE-AWARE: Collects candidates and picks best based on shape compliance
  */
 function generateEdgeAnchoredHeroLayout(
   hero: PhotoDimension,
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean
+  randomize: boolean,
+  shape: CollageSettings['shape'] = 'auto'
 ): CollageLayout {
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
@@ -624,7 +635,7 @@ function generateEdgeAnchoredHeroLayout(
 
   // For < 4 remaining standards, fall back to 1-row mode
   if (remainingPhotos.length < 4) {
-    const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
+    const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight, shape);
     // Offset all cells by currentY and add intro cells
     const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
     return {
@@ -633,6 +644,9 @@ function generateEdgeAnchoredHeroLayout(
       cells: [...introCells, ...offsetCells],
     };
   }
+
+  // Collect candidates and score them
+  const candidates: HeroCandidate[] = [];
 
   // ADAPTIVE APPROACH: Try 3-row first for large sets, then 2-row
   // Now using ALGEBRAIC FRACTION CALCULATION per configuration
@@ -719,17 +733,27 @@ function generateEdgeAnchoredHeroLayout(
       const belowY = currentY + scaledHeroHeight + gap;
       const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
 
-      // Assemble
+      // Assemble layout
       const allCells = [...introCells, heroCell, ...adjustedBesideCells, ...belowCells];
       const finalHeight = allCells.length > 0
         ? Math.max(...allCells.map(c => c.y + c.height))
         : currentY + scaledHeroHeight;
 
-      return {
+      const candidateLayout: CollageLayout = {
         width: canvasWidth,
         height: Math.round(finalHeight),
         cells: allCells,
       };
+      
+      // Score this candidate
+      const score = scoreConfiguration(candidateLayout, {
+        shape,
+        hasHero: true,
+        scaleFactor,
+        minPhotosPerRow: 2,
+      });
+      
+      candidates.push({ layout: candidateLayout, score, scaleFactor });
     }
   }
 
@@ -812,21 +836,44 @@ function generateEdgeAnchoredHeroLayout(
     const belowY = currentY + scaledHeroHeight + gap;
     const belowCells = packRowsFullWidth(belowPhotos, canvasWidth, gap, belowY);
 
-    // Assemble
+    // Assemble layout
     const allCells = [...introCells, heroCell, ...adjustedBesideCells, ...belowCells];
     const finalHeight = allCells.length > 0
       ? Math.max(...allCells.map(c => c.y + c.height))
       : currentY + scaledHeroHeight;
 
-    return {
+    const candidateLayout: CollageLayout = {
       width: canvasWidth,
       height: Math.round(finalHeight),
       cells: allCells,
     };
+    
+    // Score this candidate
+    const score = scoreConfiguration(candidateLayout, {
+      shape,
+      hasHero: true,
+      scaleFactor,
+      minPhotosPerRow: 2,
+    });
+    
+    candidates.push({ layout: candidateLayout, score, scaleFactor });
+  }
+
+  // Pick best candidate based on score
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => {
+      // Primary: direction penalty (shape compliance)
+      if (a.score.directionPenalty !== b.score.directionPenalty) {
+        return a.score.directionPenalty - b.score.directionPenalty;
+      }
+      // Secondary: scale factor closeness to 1.0
+      return Math.abs(a.scaleFactor - 1.0) - Math.abs(b.scaleFactor - 1.0);
+    });
+    return candidates[0].layout;
   }
 
   // No working multi-row config found - fallback to 1-row
-  const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
+  const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight, shape);
   const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
   return {
     width: canvasWidth,
@@ -837,13 +884,15 @@ function generateEdgeAnchoredHeroLayout(
 
 /**
  * 1-row fallback for edge-anchored hero (few photos).
+ * Now shape-aware for future scoring integration.
  */
 function generateEdgeAnchoredHeroLayout1Row(
   hero: PhotoDimension,
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  anchorRight: boolean
+  anchorRight: boolean,
+  _shape: CollageSettings['shape'] = 'auto' // Accept shape for API consistency
 ): CollageLayout {
   const widthFraction = calculateHeroWidthFraction(standards.length);
   const heroWidth = Math.round(canvasWidth * widthFraction);
@@ -895,13 +944,16 @@ function generateEdgeAnchoredHeroLayout1Row(
  * 
  * For many photos, hero is positioned between left and right zones.
  * Each side uses 2-row packing, hero spans the combined height.
+ * 
+ * Now shape-aware: falls back to edge-anchored which uses scoring.
  */
 function generateFloatingHeroLayout(
   hero: PhotoDimension,
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean
+  randomize: boolean,
+  shape: CollageSettings['shape'] = 'auto'
 ): CollageLayout {
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
@@ -977,7 +1029,7 @@ function generateFloatingHeroLayout(
 
   if (maxSideHeight === 0) {
     // Fallback if neither side could be packed
-    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, shape);
   }
 
   // UNIFIED SCALING: Hero height = side combined height (shared by construction)
@@ -998,7 +1050,7 @@ function generateFloatingHeroLayout(
   // RELAXED: ±20% tolerance for floating layout with 3-row options
   if (!accepted) {
     // Outside tolerance - fall back to edge-anchored
-    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, shape);
   }
 
   // Apply unified scale factor
@@ -1276,13 +1328,13 @@ function generateSingleHeroLayout(
   // Use edge-anchored layout for few photos (simpler, cleaner)
   if (standards.length < FEW_PHOTOS_THRESHOLD) {
     return generateEdgeAnchoredHeroLayout(
-      hero, standards, canvasWidth, gap, randomize
+      hero, standards, canvasWidth, gap, randomize, shape
     );
   }
 
   // Use floating layout for many photos (more variety)
   return generateFloatingHeroLayout(
-    hero, standards, canvasWidth, gap, randomize
+    hero, standards, canvasWidth, gap, randomize, shape
   );
 }
 

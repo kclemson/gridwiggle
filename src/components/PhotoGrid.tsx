@@ -39,7 +39,7 @@ export function PhotoGrid({
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
         {title} ({photos.length})
         {hint && (
-          <span className="normal-case font-normal italic ml-1">— {hint}</span>
+          <span className="normal-case font-normal italic ml-1">({hint})</span>
         )}
       </h3>
       <div className="flex flex-wrap gap-2">

@@ -193,7 +193,7 @@ function scorePartition(
   
   // Enhanced: penalize rows below minPhotosPerRow threshold
   const sparsePenalty = minRowSize < minPhotosPerRow 
-    ? 0.5 * (minPhotosPerRow - minRowSize) 
+    ? 5.0 * (minPhotosPerRow - minRowSize) 
     : 0;
   
   const rowBalancePenalty = 

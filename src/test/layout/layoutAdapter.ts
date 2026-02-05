@@ -194,15 +194,16 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
         : ['auto', 'landscape', 'portrait', 'square'];
     
     for (const shape of shapes) {
-      for (const hasHero of [true, false]) {
-        const distribution = weightedRandomDistribution();
-        cases.push({
-          photos: generatePhotoSet(photoCount, distribution, hasHero),
-          shape,
-          hasHero,
-          distribution,
-        });
-      }
+      // Weight toward hero layouts since no-hero consistently works well
+      // 80% hero, 20% no-hero for regression coverage
+      const hasHero = Math.random() < 0.8;
+      const distribution = weightedRandomDistribution();
+      cases.push({
+        photos: generatePhotoSet(photoCount, distribution, hasHero),
+        shape,
+        hasHero,
+        distribution,
+      });
     }
   }
   

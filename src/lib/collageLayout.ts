@@ -89,8 +89,8 @@ export interface RegionPackOptions {
   offsetX?: number;
   offsetY?: number;
   
-  /** Target aspect ratio for scoring (optional, inferred from width/targetHeight) */
-  targetAspect?: number;
+  /** Shape preference for scoring (default: 'auto') */
+  shape?: CollageSettings['orientation'];
   
    /** Minimum photos per row for scoring (default: 2) */
    minPhotosPerRow?: number;
@@ -123,7 +123,7 @@ interface PartitionScore {
   partition: PhotoDimension[][];
   areaCV: number;       // Coefficient of variation of cell areas (lower = more uniform)
   heightCV: number;     // CV of row heights
-  aspectDiff: number;   // How far from target aspect ratio
+  directionPenalty: number;   // Penalty for wrong orientation direction based on shape
   totalScore: number;   // Combined weighted score (lower = better)
 }
 
@@ -199,12 +199,12 @@ function calculateRowHeights(partition: PhotoDimension[][], baseWidth: number): 
 
 function scorePartition(
   partition: PhotoDimension[][],
-  targetAspect: number | undefined,
+  shape: CollageSettings['orientation'],
   baseWidth: number = 1200,
   minPhotosPerRow: number = 2
 ): PartitionScore {
   if (partition.length === 0) {
-    return { partition, areaCV: Infinity, heightCV: Infinity, aspectDiff: Infinity, totalScore: Infinity };
+    return { partition, areaCV: Infinity, heightCV: Infinity, directionPenalty: Infinity, totalScore: Infinity };
   }
   
   // Calculate metrics
@@ -215,18 +215,21 @@ function scorePartition(
   
   const areaCV = coefficientOfVariation(areas);
   const heightCV = coefficientOfVariation(heights);
-  // Only penalize aspect deviation when we have an explicit target
-  const aspectDiff = targetAspect !== undefined 
-    ? Math.abs(resultAspect - targetAspect) / targetAspect 
-    : 0;
   
-  // Hard penalty: wrong orientation direction (only when targetAspect is explicit)
-  const wrongDirection = targetAspect !== undefined && (
-    targetAspect >= 1.0 
-      ? resultAspect < 1.0   // Target is landscape/square, result is portrait
-      : resultAspect > 1.0   // Target is portrait, result is landscape
-  );
-  const directionPenalty = wrongDirection ? 10.0 : 0;
+  // Shape-based direction penalty
+  // Penalizes results that contradict the user's shape selection
+  let directionPenalty = 0;
+  if (shape === 'portrait' && resultAspect >= 1.0) {
+    // User wants portrait but result is landscape/square
+    directionPenalty = 10.0 * (resultAspect - 0.9);
+  } else if (shape === 'landscape' && resultAspect <= 1.0) {
+    // User wants landscape but result is portrait/square
+    directionPenalty = 10.0 * (1.1 - resultAspect);
+  } else if (shape === 'square') {
+    // Penalize deviation from 1.0 aspect ratio
+    directionPenalty = 5.0 * Math.abs(resultAspect - 1.0);
+  }
+  // shape === 'auto' --> directionPenalty stays 0 --> no bias
   
   // Penalize rows with very few or very many photos
   const rowSizes = partition.map(r => r.length);
@@ -243,15 +246,14 @@ function scorePartition(
     (maxRowSize > 6 ? 0.1 * (maxRowSize - 6) : 0);         // Penalize very long rows
   
   // Combined score (lower = better)
-  // Uniformity is primary, orientation direction is hard gate
+  // Shape enforcement is primary, uniformity is secondary
   const totalScore = 
-    aspectDiff * 2.0 +       // Tighter: respect target shape
-    directionPenalty +       // HARD: correct orientation direction
+    directionPenalty +       // Shape enforcement (based on user selection)
     areaCV * 1.0 +           // PRIMARY: uniform cell sizes
     heightCV * 0.2 +         // Light: uniform row heights
     rowBalancePenalty;       // Penalties for extreme rows
   
-  return { partition, areaCV, heightCV, aspectDiff, totalScore };
+  return { partition, areaCV, heightCV, directionPenalty, totalScore };
 }
 
 // ============================================================================
@@ -302,7 +304,7 @@ function countPartitions(n: number, k: number): number {
 
 function findBestRowSplit(
   dims: PhotoDimension[],
-  targetAspect: number | undefined,
+  shape: CollageSettings['orientation'],
    randomize: boolean = false,
    minPhotosPerRow: number = 2
 ): PhotoDimension[][] {
@@ -328,14 +330,14 @@ function findBestRowSplit(
     // For small partition counts, enumerate all
     if (partitionCount <= 500) {
       for (const partition of generatePartitions(workingDims, numRows)) {
-        const score = scorePartition(partition, targetAspect, 1200, minPhotosPerRow);
+        const score = scorePartition(partition, shape, 1200, minPhotosPerRow);
         insertIntoTopN(topScores, score, TOP_N);
       }
     } else {
       // For large sets, use sampling + heuristic approach
       const sampledPartitions = samplePartitions(workingDims, numRows, 100);
       for (const partition of sampledPartitions) {
-        const score = scorePartition(partition, targetAspect, 1200, minPhotosPerRow);
+        const score = scorePartition(partition, shape, 1200, minPhotosPerRow);
         insertIntoTopN(topScores, score, TOP_N);
       }
     }
@@ -500,7 +502,7 @@ export function packPhotosIntoRegion(
     tolerance = 2,
     offsetX = 0,
     offsetY = 0,
-    targetAspect,
+    shape,
      minPhotosPerRow = 2
   } = options;
   
@@ -531,10 +533,8 @@ export function packPhotosIntoRegion(
   }
   
   // Use existing row-split logic (no randomization for region packing)
-  // Only derive targetAspect from dimensions if we have an explicit targetHeight
-  // Otherwise pass undefined to let minPhotosPerRow drive the shape
-  const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : undefined);
-  const partition = findBestRowSplit(dims, effectiveTargetAspect, false, minPhotosPerRow);
+  // Pass shape directly to let it drive the scoring
+  const partition = findBestRowSplit(dims, shape ?? 'auto', false, minPhotosPerRow);
   
   // Calculate layout with offsets
   const cells = calculateLayoutWithOffset(partition, width, gap, offsetX, offsetY);
@@ -622,11 +622,10 @@ export function generateCollageLayout(
     minPhotosPerRow: effectiveMinPhotosPerRow,
   };
   
-  // targetAspect is now always undefined - orientation is driven by minPhotosPerRow
+  // Pass settings through - shape is now driven by settings.orientation
   return generateHeroLayout(
     photos,
     settings,
-    undefined,
     weights,
     options?.randomize ?? false,
     layoutTuning

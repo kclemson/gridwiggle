@@ -883,6 +883,89 @@ function generateEdgeAnchoredHeroLayout(
 }
 
 /**
+ * Dedicated layout for hero + 0-3 standard photos.
+ * 
+ * Uses simple proportional width allocation to guarantee a 2-column layout
+ * (hero + companion side-by-side). Avoids the complex tolerance-based packing
+ * that often fails with very few photos, causing "wasted space" (side gaps).
+ * 
+ * Layout patterns:
+ * - 0 standards: Solo hero full-width
+ * - 1 standard: [2] - hero + photo side-by-side
+ * - 2 standards: [2,1] - hero + photo side-by-side, 1 full-width below
+ * - 3 standards: [2,2] - hero + photo side-by-side, 2 full-width below
+ */
+function generateTinyHeroLayout(
+  hero: PhotoDimension,
+  standards: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  anchorRight: boolean
+): CollageLayout {
+  if (standards.length === 0) {
+    // Solo hero - full width
+    const heroHeight = canvasWidth / hero.aspectRatio;
+    return {
+      width: canvasWidth,
+      height: Math.round(heroHeight),
+      cells: [{
+        photoId: hero.id,
+        x: 0,
+        y: 0,
+        width: canvasWidth,
+        height: Math.round(heroHeight),
+      }],
+    };
+  }
+
+  const companion = standards[0];
+  const remaining = standards.slice(1);
+
+  // Proportional width: each gets width based on its aspect ratio share
+  // This ensures both photos have the same height
+  const availableWidth = canvasWidth - gap;
+  const combinedAspect = hero.aspectRatio + companion.aspectRatio;
+  
+  const heroWidth = Math.round(availableWidth * (hero.aspectRatio / combinedAspect));
+  const companionWidth = canvasWidth - heroWidth - gap;
+  
+  // Shared height (both columns same height by construction)
+  const sharedHeight = heroWidth / hero.aspectRatio;
+
+  // Position hero and companion
+  const heroCell: CollageCell = {
+    photoId: hero.id,
+    x: anchorRight ? canvasWidth - heroWidth : 0,
+    y: 0,
+    width: heroWidth,
+    height: Math.round(sharedHeight),
+  };
+
+  const companionCell: CollageCell = {
+    photoId: companion.id,
+    x: anchorRight ? 0 : heroWidth + gap,
+    y: 0,
+    width: companionWidth,
+    height: Math.round(sharedHeight),
+  };
+
+  // Pack remaining photos below as full-width rows
+  const belowY = Math.round(sharedHeight) + gap;
+  const belowCells = packRowsFullWidth(remaining, canvasWidth, gap, belowY);
+
+  const allCells = [heroCell, companionCell, ...belowCells];
+  const finalHeight = allCells.length > 0
+    ? Math.max(...allCells.map(c => c.y + c.height))
+    : sharedHeight;
+
+  return {
+    width: canvasWidth,
+    height: Math.round(finalHeight),
+    cells: allCells,
+  };
+}
+
+/**
  * 1-row fallback for edge-anchored hero (few photos).
  * Now shape-aware for future scoring integration.
  */
@@ -894,6 +977,14 @@ function generateEdgeAnchoredHeroLayout1Row(
   anchorRight: boolean,
   _shape: CollageSettings['shape'] = 'auto' // Accept shape for API consistency
 ): CollageLayout {
+  // ============================================
+  // EARLY EXIT: Very small sets (0-3 standards)
+  // Use dedicated simple layout to avoid wasted space
+  // ============================================
+  if (standards.length <= 3) {
+    return generateTinyHeroLayout(hero, standards, canvasWidth, gap, anchorRight);
+  }
+
   const widthFraction = calculateHeroWidthFraction(standards.length);
   const heroWidth = Math.round(canvasWidth * widthFraction);
   const heroHeight = heroWidth / hero.aspectRatio;

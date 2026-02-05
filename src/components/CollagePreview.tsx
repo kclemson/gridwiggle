@@ -68,6 +68,12 @@ export function CollagePreview({
   const [touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
 
   const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
+    // Don't start drag if touching an interactive element (like the star button)
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) {
+      return;
+    }
+    
     const touch = e.touches[0];
     setTouchDragId(photoId);
     setTouchPosition({ x: touch.clientX, y: touch.clientY });

@@ -14,6 +14,7 @@ const TAG_LABELS: Record<LayoutTag, string> = {
   'row-too-dense': 'Row too dense',
   'uneven-sizes': 'Uneven sizes',
   'wrong-shape': 'Wrong shape',
+  'extreme-aspect': 'Extreme aspect',
   'wasted-space': 'Wasted space',
   'well-balanced': 'Well balanced',
   'hero-works': 'Hero works well',

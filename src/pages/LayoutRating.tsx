@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { cn } from '@/lib/utils';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { MetricsBadges } from '@/components/layout-rating/MetricsBadges';
 import { RatingControls } from '@/components/layout-rating/RatingControls';
@@ -190,6 +191,17 @@ export default function LayoutRating() {
             <span>Progress</span>
             <span>{Math.round(progress)}%</span>
           </div>
+        </div>
+        
+        {/* Shape indicator banner */}
+        <div className={cn(
+          "text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider",
+          currentResult.testCase.shape === 'landscape' && "bg-blue-500/20 text-blue-400",
+          currentResult.testCase.shape === 'portrait' && "bg-purple-500/20 text-purple-400",
+          currentResult.testCase.shape === 'square' && "bg-green-500/20 text-green-400",
+          currentResult.testCase.shape === 'auto' && "bg-muted text-muted-foreground",
+        )}>
+          {currentResult.testCase.shape}
         </div>
         
         {/* Layout visualization */}

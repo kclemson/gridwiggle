@@ -17,10 +17,6 @@ export function MetricsBadges({ result }: MetricsBadgesProps) {
         Photos: {testCase.photos.length}
       </Badge>
       
-      <Badge variant="outline" className="font-mono capitalize">
-        Shape: {testCase.shape}
-      </Badge>
-      
       <Badge variant="outline" className="font-mono">
         Hero: {testCase.hasHero ? 'Yes' : 'No'}
       </Badge>

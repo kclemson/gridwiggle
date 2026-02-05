@@ -1,4 +1,4 @@
-import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning, DEFAULT_TUNING } from '@/types/collage';
+import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { packPhotosIntoRegion } from '@/lib/collageLayout';
 import {
@@ -1591,10 +1591,9 @@ export function generateHeroLayout(
   targetAspect: number | undefined,
   weights: Record<string, number>,
   randomize: boolean,
-  tuning?: LayoutTuning
+  tuning: LayoutTuning
 ): CollageLayout {
   const gap = settings.gapSize;
-  const effectiveTuning = tuning ?? DEFAULT_TUNING;
 
   const dims = getPhotoDimensions(photos, weights);
   const heroes = dims.filter(d => d.weight >= 2.0);
@@ -1613,12 +1612,15 @@ export function generateHeroLayout(
     return { width: BASE_WIDTH, height: 800, cells: [] };
   }
 
-  // For auto mode: pick random target for variety on each shuffle
-  // This ensures hero layouts don't always produce the same landscape aspect
-  let effectiveTarget = targetAspect;
-  if (effectiveTarget === undefined && randomize) {
-    const autoTargets = [0.8, 1.0, 1.2, 1.5];
-    effectiveTarget = autoTargets[Math.floor(Math.random() * autoTargets.length)];
+  // For auto mode: randomize minPhotosPerRow for shape variety
+  // Low values (2-3) allow more rows → portrait layouts
+  // High values (4-5) force fewer rows → landscape layouts
+  let layoutTuning = tuning;
+  if (targetAspect === undefined && randomize) {
+    const minRowOptions = [2, 3, 4, 5];
+    const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
+    layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
+    console.log('[Collage] Auto mode: randomized minPhotosPerRow to', randomMinPerRow);
   }
 
   if (heroes.length === 1) {
@@ -1628,8 +1630,8 @@ export function generateHeroLayout(
       BASE_WIDTH,
       gap,
       randomize,
-      effectiveTarget,
-      effectiveTuning
+      targetAspect,
+      layoutTuning
     );
   }
 

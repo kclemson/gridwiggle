@@ -64,7 +64,7 @@ export interface LayoutOptions {
   /** When true, shuffle photo order and pick from top-N layouts for variety */
   randomize?: boolean;
   /** Layout tuning parameters (for real-time experimentation) */
-  tuning?: LayoutTuning;
+  tuning: LayoutTuning;
 }
 
 // ============================================================================

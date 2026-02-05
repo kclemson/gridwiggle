@@ -1,6 +1,6 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { generateHeroLayout, hasHeroPhotos } from '@/lib/heroLayout';
+import { generateHeroLayout } from '@/lib/heroLayout';
 
 // ============================================================================
 // Types
@@ -596,26 +596,19 @@ export function generateCollageLayout(
       break;
   }
   
-  // Check for heroes and route to hero layout
-  if (hasHeroPhotos(photos, weights)) {
-    // For Auto mode with heroes: let the layout height emerge naturally
-    // Pass undefined targetAspect so hero layout doesn't get pulled toward a square
-    const heroTargetAspect = settings.orientation === 'auto' ? undefined : targetAspect;
-    return generateHeroLayout(
-      photos,
-      settings,
-      heroTargetAspect,
-      weights,
-      options?.randomize ?? false,
-      options?.tuning
-    );
-  }
+  // Unified path: all multi-photo layouts go through generateHeroLayout
+  // which handles both hero and non-hero cases using block-based architecture
+  // For Auto mode: let the layout height emerge naturally (pass undefined targetAspect)
+  const unifiedTargetAspect = settings.orientation === 'auto' ? undefined : targetAspect;
   
-  // Standard path: no heroes
-  const rows = findBestRowSplit(dims, targetAspect, isLandscape, options?.randomize ?? false);
-  const layout = calculateLayout(rows, settings);
-  
-  return layout;
+  return generateHeroLayout(
+    photos,
+    settings,
+    unifiedTargetAspect,
+    weights,
+    options?.randomize ?? false,
+    options?.tuning
+  );
 }
 
 /** Swap two photos in the layout (positions swap, layout geometry unchanged) */

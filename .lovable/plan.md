@@ -2,6 +2,8 @@
 
 # Unify Layout Generation into Single Block-Based Path
 
+## Status: ✅ COMPLETED
+
 ## Problem
 
 We have two divergent code paths:

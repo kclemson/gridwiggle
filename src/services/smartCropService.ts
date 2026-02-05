@@ -100,11 +100,17 @@ export async function getSmartCrop(
     };
     
     // Handle worker-level crashes (OOM, uncaught exceptions)
+    // Resolve with fallback instead of rejecting - allows processing to continue
     const handleError = (errorEvent: ErrorEvent) => {
       console.error('Vision worker crashed:', errorEvent);
       cleanup();
       resetWorker();
-      reject(new Error('AI processing failed - please try again'));
+      resolve({
+        crop: { x: 0, y: 0, width, height },
+        confidence: 0,
+        subjects: 'AI unavailable',
+        skipCrop: true,
+      });
     };
     
     currentWorker.addEventListener('message', handleMessage);

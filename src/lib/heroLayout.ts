@@ -507,7 +507,6 @@ function packRowsFullWidth(
     gap,
     offsetX: 0,
     offsetY,
-    isLandscape: true,
   });
 
   return result.cells;
@@ -642,7 +641,6 @@ function generateEdgeAnchoredHeroLayout(
       gap,
       offsetX: 0,
       offsetY: 0,
-      isLandscape: true,
     });
     introCells = introResult.cells;
     if (introCells.length > 0) {
@@ -994,7 +992,6 @@ function generateFloatingHeroLayout(
       gap,
       offsetX: 0,
       offsetY: 0,
-      isLandscape: true,
     });
     introCells = introResult.cells;
     if (introCells.length > 0) {

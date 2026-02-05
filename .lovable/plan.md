@@ -1,85 +1,75 @@
 
-# Make Layout Algorithm Self-Sufficient for Hero Detection
+
+# Make Shape Indicator Highly Visible in Layout Rating Tool
 
 ## Problem
 
-The layout algorithm has a **leaky abstraction**:
-
-- `PhotoItem` has a `priority` field (1 = hero, 2 = medium, 3 = standard)
-- The algorithm detects heroes via `photoWeights: Record<string, number>` (weight >= 2.0 = hero)
-- These are **two separate concepts** that callers must manually sync
-- If a caller passes photos with `priority: 1` but forgets `photoWeights`, heroes are silently ignored
-
-This caused the layout rating tool bug and could affect any future consumer.
+The requested shape (landscape/portrait/square/auto) is buried among many small badges, making it easy to overlook when rating. Users accidentally rate layouts as "good" before realizing the shape doesn't match expectations.
 
 ---
 
 ## Solution
 
-Make `generateCollageLayout` derive weights from `PhotoItem.priority` when `photoWeights` is not provided.
-
-### File: `src/lib/collageLayout.ts`
-
-**Current code (line 662):**
-```typescript
-const weights = options?.photoWeights ?? {};
-```
-
-**Updated code:**
-```typescript
-// Derive weights from priority if not explicitly provided
-const weights = options?.photoWeights ?? deriveWeightsFromPriority(photos);
-
-// ...
-
-function deriveWeightsFromPriority(photos: PhotoItem[]): Record<string, number> {
-  const weights: Record<string, number> = {};
-  for (const photo of photos) {
-    // Priority 1 (hero) → weight 2.0, others → 1.0
-    weights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
-  }
-  return weights;
-}
-```
+Add a prominent shape indicator banner directly above the layout visualization, separate from the detailed metrics badges.
 
 ---
 
-## Benefits
+## Design
 
-1. **Self-contained**: Algorithm works correctly with just `PhotoItem[]` - no implicit contracts
-2. **Backward compatible**: Callers passing explicit `photoWeights` still work unchanged
-3. **Single source of truth**: Priority field now directly controls layout behavior
-4. **Eliminates bug category**: Future consumers cannot accidentally miss hero detection
-
----
-
-## Code Impact
-
-| File | Change |
-|------|--------|
-| `src/lib/collageLayout.ts` | Add `deriveWeightsFromPriority()` helper, update weight initialization |
-
----
-
-## Optional Cleanup
-
-After this change, the layout adapter's manual weight conversion becomes redundant (but harmless). We could remove it for clarity:
-
-```typescript
-// src/test/layout/layoutAdapter.ts
-// This block is no longer strictly necessary:
-const photoWeights: Record<string, number> = {};
-for (const photo of photos) {
-  photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
-}
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    LANDSCAPE                                │  ← Large, colored banner
+└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│                  [Layout Visualization]                     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-However, keeping it explicit is also valid since it documents the intent. I'll leave it in place for now.
+**Visual treatment:**
+- Full-width banner with shape-specific background color
+- Large, bold text (e.g., "LANDSCAPE", "PORTRAIT", "SQUARE")
+- Color coding for instant recognition:
+  - Landscape → Blue tint
+  - Portrait → Purple tint  
+  - Square → Green tint
+  - Auto → Gray/neutral
+
+---
+
+## Changes
+
+### File: `src/pages/LayoutRating.tsx`
+
+Add a shape banner component inline (or create a small component) that renders above the layout card:
+
+```tsx
+{/* Shape indicator banner */}
+<div className={cn(
+  "text-center py-2 px-4 rounded-lg font-bold text-lg uppercase tracking-wider",
+  currentResult.testCase.shape === 'landscape' && "bg-blue-500/20 text-blue-400",
+  currentResult.testCase.shape === 'portrait' && "bg-purple-500/20 text-purple-400",
+  currentResult.testCase.shape === 'square' && "bg-green-500/20 text-green-400",
+  currentResult.testCase.shape === 'auto' && "bg-muted text-muted-foreground",
+)}>
+  {currentResult.testCase.shape}
+</div>
+
+{/* Layout visualization */}
+<div className="bg-card rounded-lg p-4 border">
+  <LayoutVisualization ... />
+</div>
+```
+
+### File: `src/components/layout-rating/MetricsBadges.tsx`
+
+Remove the shape badge from here since it's now prominently displayed above (optional cleanup to reduce redundancy).
 
 ---
 
 ## Implementation
 
-Single change in `generateCollageLayout`:
-1. Add helper function `deriveWeightsFromPriority`
-2. Use it as fallback when `photoWeights` is not provided
+1. Add shape banner with color-coded background in `LayoutRating.tsx`
+2. Optionally remove duplicate shape badge from `MetricsBadges.tsx`
+

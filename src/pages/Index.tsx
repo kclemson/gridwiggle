@@ -349,7 +349,7 @@ export default function Index() {
               onRemove={handleRemovePhoto}
               onPhotoClick={(photoId) => {
                 const photo = state.photos.find(p => p.id === photoId);
-                if (photo && (photo.smartCrop || photo.manualCrop)) {
+                if (photo && !photo.isProcessing) {
                   setEditingPhotoId(photoId);
                 }
               }}

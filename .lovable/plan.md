@@ -1,20 +1,63 @@
-# Plan Complete
 
-The following changes have been implemented:
 
-## ✅ Renamed `orientation` to `shape`
-- Updated `CollageSettings` interface in `src/types/collage.ts`
-- Updated default settings in `src/hooks/useCollageState.ts`
-- Added localStorage migration for existing users
-- Updated UI component references in `src/components/CollageSettings.tsx`
-- Updated settings change detection in `src/pages/Index.tsx`
-- Updated all scoring functions in `src/lib/collageLayout.ts`
-- Updated logging in `src/lib/heroLayout.ts`
+# Replace Em-Dash with Parentheses for Helper Text
 
-## ✅ Threaded shape through content-only layout pipeline
-- Added `shape` parameter to `buildContentRowsBlock` in `src/lib/layoutBlocks.ts`
-- Added `shape` parameter to `generateContentOnlyLayout` in `src/lib/heroLayout.ts`
-- Updated `generateHeroLayout` to pass `settings.shape` to content-only layouts
+## Changes
 
-The `directionPenalty` scoring now correctly applies to collages without hero photos.
+### 1. PhotoGrid.tsx - Use parentheses for hint
+**File:** `src/components/PhotoGrid.tsx` (lines 39-44)
+
+```typescript
+// Change from:
+<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+  {title} ({photos.length})
+  {hint && (
+    <span className="normal-case font-normal italic ml-1">— {hint}</span>
+  )}
+</h3>
+
+// Change to:
+<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+  {title} ({photos.length})
+  {hint && (
+    <span className="normal-case font-normal italic ml-1">({hint})</span>
+  )}
+</h3>
+```
+
+### 2. Index.tsx - Remove em-dash from collage hint
+**File:** `src/pages/Index.tsx` (line 391)
+
+```typescript
+// Change from:
+<span className="text-xs text-muted-foreground font-normal italic">
+  — Drag to rearrange • Tap ★ to feature
+</span>
+
+// Change to:
+<span className="text-xs text-muted-foreground font-normal italic">
+  Drag to rearrange • Tap ★ to feature
+</span>
+```
+
+## Visual Result
+
+**Before:**
+```
+PHOTOS (21) — tap to adjust crop
+COLLAGE     — Drag to rearrange • Tap ★ to feature
+```
+
+**After:**
+```
+PHOTOS (21) (tap to adjust crop)
+COLLAGE     Drag to rearrange • Tap ★ to feature
+```
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/components/PhotoGrid.tsx` | Replace `— {hint}` with `({hint})` |
+| `src/pages/Index.tsx` | Remove `— ` prefix from collage hint |
 

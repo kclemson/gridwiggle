@@ -1,85 +1,44 @@
 
-# Photo Grid Scroll + GridWiggle Branding with Favicon
+# Fix ScrollArea Max-Height for Photo Grid
 
-## Overview
+## The Problem
 
-Three focused changes:
-1. Cap the photo grid height and add scrolling for large uploads
-2. Replace "Smart Collage" with "gridwiggle.com" in the header
-3. Use the favicon image instead of the generic Grid3X3 icon
+Radix ScrollArea doesn't respect `max-height` on the Root component. This is a known limitation - the inner Viewport element needs the height constraint directly applied to it.
 
----
+From the screenshot, you can see all 4 rows of photos are visible and no scrollbar appears, confirming the `max-h-60` isn't being enforced.
 
-## Changes
-
-### 1. Scrollable Photo Grid
+## The Fix
 
 **File:** `src/components/PhotoGrid.tsx`
 
-Add a max-height constraint with scroll area when many photos are uploaded.
+Use Tailwind's data attribute selector to target the viewport directly:
 
 ```text
 Before:
-<div className="flex flex-wrap gap-2">
-  {sortedPhotos.map(...)}
-</div>
-
-After:
 <ScrollArea className="max-h-60">
-  <div className="flex flex-wrap gap-2 pr-2">
-    {sortedPhotos.map(...)}
-  </div>
-</ScrollArea>
-```
-
-**Why 240px (`max-h-60`):**
-- With 80px thumbnail height + 8px gap, this fits ~2.7 rows
-- Users can see enough photos to know they're all there
-- Keeps the settings and collage preview visible without scrolling the page
-
----
-
-### 2. Update Header Branding + Favicon
-
-**File:** `src/pages/Index.tsx`
-
-Replace "Smart Collage" with "gridwiggle.com" and swap the Grid3X3 icon for the favicon:
-
-```text
-Before:
-import { Grid3X3, ... } from 'lucide-react';
-
-<h1 className="text-lg font-semibold flex items-center gap-2">
-  <Grid3X3 className="h-5 w-5 text-primary" />
-  Smart Collage
-</h1>
 
 After:
-// Remove Grid3X3 from imports (still used elsewhere in file)
-
-<h1 className="text-lg font-semibold flex items-center gap-2">
-  <img src="/favicon.png" alt="" className="h-5 w-5" />
-  gridwiggle.com
-</h1>
+<ScrollArea className="[&>[data-radix-scroll-area-viewport]]:max-h-60">
 ```
 
-The favicon at `/favicon.png` will serve as the app's visual identity, matching what users see in their browser tab.
+This selector `[&>[data-radix-scroll-area-viewport]]` targets the direct child with the `data-radix-scroll-area-viewport` attribute (the Viewport component) and applies the max-height constraint there.
 
----
+## Why This Works
 
-## Files Summary
+The Radix ScrollArea structure is:
+```
+Root (overflow: hidden)
+  └── Viewport (this needs the height constraint to scroll)
+       └── Your content
+  └── ScrollBar
+```
+
+When we put `max-h-60` on Root, the Viewport (which has `h-full w-full`) doesn't get constrained because `h-full` only works when the parent has an explicit height, not `max-height`.
+
+By targeting the Viewport directly with `max-h-60`, the content can overflow it and trigger the scrollbar.
+
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoGrid.tsx` | Wrap thumbnail grid in ScrollArea with max-h-60 |
-| `src/pages/Index.tsx` | Change header to "gridwiggle.com" with favicon image |
-
----
-
-## Visual Result
-
-| Before | After |
-|--------|-------|
-| Full page scrolls with 54 photos | Grid area scrolls independently, settings always visible |
-| Generic purple Grid3X3 icon | Custom favicon.png |
-| "Smart Collage" text | "gridwiggle.com" text |
+| `src/components/PhotoGrid.tsx` | Change `max-h-60` to `[&>[data-radix-scroll-area-viewport]]:max-h-60` |

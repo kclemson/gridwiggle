@@ -30,11 +30,11 @@ export function MetricsBadges({ result }: MetricsBadgesProps) {
       </Badge>
       
       <Badge variant="outline" className="font-mono">
-        Area CV: {areaCoefficientOfVariation.toFixed(2)}
+        Support CV: {areaCoefficientOfVariation.toFixed(2)}
       </Badge>
       
       <Badge variant="outline" className="font-mono">
-        Size ratio: {largestToSmallestRatio.toFixed(1)}x
+        Support ratio: {largestToSmallestRatio.toFixed(1)}x
       </Badge>
       
       {heroCoverage !== null && (

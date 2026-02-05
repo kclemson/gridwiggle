@@ -38,7 +38,8 @@ function getMinPhotosPerRowRange(
   switch (orientation) {
     case 'portrait':
       // Below √n = more rows = tall
-      return [2, sqrtN];
+      // Lower upper bound to reduce sparse penalty for 2-3 photo rows
+      return [2, sqrtN * 0.7];
       
     case 'square':
       // Around √n = balanced

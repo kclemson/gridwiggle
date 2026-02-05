@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import LayoutRating from "./pages/LayoutRating";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,10 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            {/* DEV-ONLY: Layout rating tool for algorithm tuning */}
+            {import.meta.env.DEV && (
+              <Route path="/layout-rating" element={<LayoutRating />} />
+            )}
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

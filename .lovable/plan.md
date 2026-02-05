@@ -1,151 +1,73 @@
 
+# Fix Hero Detection in Layout Rating Tool
 
-# Add Issue/Quality Checkboxes to Layout Rating Tool
+## Problem
 
-## Overview
+The layout rating tool is **not correctly triggering the hero layout codepath** because:
 
-Add always-visible checkboxes for categorizing layout issues and positives. Multiple selections allowed, enabling structured data capture for programmatic analysis.
+1. The synthetic photo generator correctly sets `priority: 1` for hero photos
+2. The `syntheticToPhotoItem` function correctly passes `priority` to the `PhotoItem`
+3. **BUT** `generateCollageLayout` detects heroes via `photoWeights`, not `priority`
+4. The adapter calls `generateCollageLayout(photoItems, settings, { tuning, randomize: false })` without passing `photoWeights`
+5. Result: All photos default to weight 1.0, so `dims.filter(d => d.weight >= 2.0)` returns empty, and no hero layouts are generated
 
----
+## The Fix
 
-## Checkbox Categories
+Update `runLayoutTest` in `src/test/layout/layoutAdapter.ts` to convert priority to photoWeights before calling the layout algorithm.
 
-### Issues (for "Bad" ratings)
-| ID | Label | Description |
-|----|-------|-------------|
-| `hero-not-prominent` | Hero not prominent | Hero photo doesn't stand out enough |
-| `hero-too-dominant` | Hero too dominant | Hero takes up too much canvas |
-| `single-photo-row` | Single-photo row | Awkward row with just one photo |
-| `row-too-dense` | Row too dense | Too many photos crammed in a row |
-| `uneven-sizes` | Uneven sizes | Photos have wildly different areas |
-| `wrong-shape` | Wrong shape | Canvas doesn't match requested shape |
-| `wasted-space` | Wasted space / gaps | Blank areas or inefficient packing |
-
-### Positives (for "Good" ratings)
-| ID | Label | Description |
-|----|-------|-------------|
-| `well-balanced` | Well balanced | Even distribution of photo sizes |
-| `hero-works` | Hero works well | Hero is appropriately prominent |
-| `good-variety` | Good variety | Nice mix of row sizes/arrangements |
-
----
-
-## Changes
-
-### 1. Update Types (`src/test/layout/types.ts`)
+### File: `src/test/layout/layoutAdapter.ts`
 
 ```typescript
-// Add tag constants
-export const LAYOUT_ISSUE_TAGS = [
-  'hero-not-prominent',
-  'hero-too-dominant', 
-  'single-photo-row',
-  'row-too-dense',
-  'uneven-sizes',
-  'wrong-shape',
-  'wasted-space',
-] as const;
-
-export const LAYOUT_POSITIVE_TAGS = [
-  'well-balanced',
-  'hero-works',
-  'good-variety',
-] as const;
-
-export type LayoutTag = 
-  | typeof LAYOUT_ISSUE_TAGS[number] 
-  | typeof LAYOUT_POSITIVE_TAGS[number];
-
-// Update RatedLayout interface
-interface RatedLayout {
-  // ... existing fields ...
-  rating: 'good' | 'bad' | 'skip';
-  tags: LayoutTag[];  // Selected checkboxes
-  ratedAt: string;
+export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
+  const { photos, shape, tuning } = testCase;
+  
+  // Convert synthetic photos to PhotoItems
+  const photoItems = photos.map(syntheticToPhotoItem);
+  
+  // Convert priority to photoWeights (same logic as Index.tsx)
+  // Priority 1 = hero → weight 2.0
+  // Priority 2, 3 = standard → weight 1.0
+  const photoWeights: Record<string, number> = {};
+  for (const photo of photos) {
+    photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
+  }
+  
+  // Merge tuning with defaults
+  const fullTuning: LayoutTuning = { ...DEFAULT_TUNING, ...tuning };
+  
+  // Run the layout algorithm WITH WEIGHTS
+  const settings: CollageSettings = {
+    shape,
+    gapColor: '#000000',
+    gapSize: 4,
+  };
+  
+  const layout = generateCollageLayout(photoItems, settings, {
+    tuning: fullTuning,
+    randomize: false,
+    photoWeights,  // ← Now heroes will be detected!
+  });
+  
+  // ... rest unchanged
 }
 ```
 
-### 2. New Component: `TagCheckboxes.tsx`
+## Expected Outcome
 
-```typescript
-// src/components/layout-rating/TagCheckboxes.tsx
+After this fix:
+- Hero layouts will use 2-row or 3-row beside packing (multi-row next to hero)
+- For 8+ standard photos with a hero, you'll see the block-based layout with the hero spanning multiple rows
+- For 4-7 standard photos, you'll see edge-anchored hero with 2-row beside packing
+- The rating tool will correctly exercise the full hero layout codepath
 
-interface TagCheckboxesProps {
-  selectedTags: LayoutTag[];
-  onTagsChange: (tags: LayoutTag[]) => void;
-}
+## Additional Notes
 
-// Renders two columns:
-// Left: Issues (problems to flag)
-// Right: Positives (qualities to note)
-// Uses Checkbox component from ui/checkbox
-```
+The thresholds in the layout algorithm are:
+- **< 4 standard photos**: Falls back to 1-row beside (hero + row of photos)
+- **4-7 standard photos**: Edge-anchored with 2-row beside packing
+- **8+ standard photos**: Block-based with hero spanning 2 or 3 rows
 
-**UI Layout:**
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Issues                      │  Positives                  │
-│  ☐ Hero not prominent        │  ☐ Well balanced            │
-│  ☐ Hero too dominant         │  ☐ Hero works well          │
-│  ☐ Single-photo row          │  ☐ Good variety             │
-│  ☐ Row too dense             │                             │
-│  ☐ Uneven sizes              │                             │
-│  ☐ Wrong shape               │                             │
-│  ☐ Wasted space              │                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 3. Update RatingControls
-
-- Add `selectedTags` and `onTagsChange` props
-- Render `TagCheckboxes` component above rating buttons
-
-### 4. Update LayoutRating Page
-
-- Add `selectedTags` state: `useState<LayoutTag[]>([])`
-- Pass to RatingControls
-- Include in RatedLayout when submitting
-- Clear after each rating
-
----
-
-## File Structure
-
-```text
-src/
-├── test/layout/
-│   └── types.ts                    # Add tag types and constants
-│
-└── components/layout-rating/
-    ├── TagCheckboxes.tsx           # NEW - Checkbox grid component
-    ├── RatingControls.tsx          # Add tags props, render TagCheckboxes
-    └── ...
-```
-
----
-
-## Export Format Update
-
-```json
-{
-  "ratings": [
-    {
-      "photoCount": 12,
-      "shape": "portrait",
-      "rating": "bad",
-      "tags": ["hero-not-prominent", "uneven-sizes"],
-      "ratedAt": "2026-02-05T12:35:12Z"
-    }
-  ]
-}
-```
-
----
-
-## Implementation Order
-
-1. Update types with tag constants and types
-2. Create TagCheckboxes component
-3. Wire into RatingControls
-4. Update LayoutRating page state management
-
+Since the test matrix includes photo counts of 3, 5, 7, 9, 12, 17, 23, 35, 50 with one photo designated as hero:
+- 3 photos (2 standards) → 1-row fallback
+- 5 photos (4 standards) → 2-row beside packing
+- 7+ photos → Multi-row beside packing, should see varied hero layouts

@@ -10,6 +10,7 @@ export const LAYOUT_ISSUE_TAGS = [
   'row-too-dense',
   'uneven-sizes',
   'wrong-shape',
+  'extreme-aspect',
   'wasted-space',
 ] as const;
 

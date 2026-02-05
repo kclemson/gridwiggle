@@ -27,8 +27,8 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Shape:</span>
           <Select
-            value={settings.orientation}
-            onValueChange={(value) => onUpdate({ orientation: value as CollageSettingsType['orientation'] })}
+            value={settings.shape}
+            onValueChange={(value) => onUpdate({ shape: value as CollageSettingsType['shape'] })}
           >
             <SelectTrigger className="h-7 w-24 text-xs border-0 bg-transparent focus:ring-0 focus:ring-offset-0">
               <SelectValue />

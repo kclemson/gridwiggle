@@ -31,11 +31,11 @@ interface PhotoDimension {
  */
 function getMinPhotosPerRowRange(
   n: number,
-  orientation: CollageSettings['orientation']
+  shape: CollageSettings['shape']
 ): [number, number] {
   const sqrtN = Math.sqrt(n);
   
-  switch (orientation) {
+  switch (shape) {
     case 'portrait':
       // Below √n = more rows = tall
       // Lower upper bound to reduce sparse penalty for 2-3 photo rows
@@ -92,7 +92,7 @@ export interface RegionPackOptions {
   offsetY?: number;
   
   /** Shape preference for scoring (default: 'auto') */
-  shape?: CollageSettings['orientation'];
+  shape?: CollageSettings['shape'];
   
    /** Minimum photos per row for scoring (default: 2) */
    minPhotosPerRow?: number;
@@ -201,7 +201,7 @@ function calculateRowHeights(partition: PhotoDimension[][], baseWidth: number): 
 
 function scorePartition(
   partition: PhotoDimension[][],
-  shape: CollageSettings['orientation'],
+  shape: CollageSettings['shape'],
   baseWidth: number = 1200,
   minPhotosPerRow: number = 2
 ): PartitionScore {
@@ -307,7 +307,7 @@ function countPartitions(n: number, k: number): number {
 
 function findBestRowSplit(
   dims: PhotoDimension[],
-  shape: CollageSettings['orientation'],
+  shape: CollageSettings['shape'],
    randomize: boolean = false,
    minPhotosPerRow: number = 2
 ): PhotoDimension[][] {
@@ -607,7 +607,7 @@ export function generateCollageLayout(
   
   // Calculate dynamic minPhotosPerRow range based on photo count and orientation
   const n = photos.length;
-  const [minRange, maxRange] = getMinPhotosPerRowRange(n, settings.orientation);
+  const [minRange, maxRange] = getMinPhotosPerRowRange(n, settings.shape);
   
   // Pick from range: random for variety, or midpoint as sensible default
   let effectiveMinPhotosPerRow: number;

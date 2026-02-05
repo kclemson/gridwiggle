@@ -276,7 +276,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
               onCheckedChange={(checked) => setIsHero(checked === true)} 
             />
             <Label htmlFor="hero-toggle" className="text-sm">
-              Make this a hero photo (larger in collage)
+              Make this a hero photo so it is larger in the collage
             </Label>
           </div>
           <div className="flex gap-2">

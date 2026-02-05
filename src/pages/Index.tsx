@@ -180,13 +180,20 @@ export default function Index() {
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
     setEditingPhotoId(null);
+    
+    // Reset shape to auto when adding a hero
+    if (priority === 1 && state.settings.shape !== 'auto') {
+      updateSettings({ shape: 'auto' });
+    }
+    
     if (state.layout) {
       regenerateCollage({ 
         priorityOverride: { photoId, priority },
-        cropOverride: { photoId, crop },  // Pass crop immediately to avoid stale state
+        cropOverride: { photoId, crop },
+        settings: priority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
       });
     }
-  }, [updatePhoto, state.layout, regenerateCollage]);
+  }, [updatePhoto, state.layout, state.settings, updateSettings, regenerateCollage]);
 
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
@@ -195,10 +202,18 @@ export default function Index() {
     const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
     updatePhoto(photoId, { priority: newPriority });
     
-    if (state.layout) {
-      regenerateCollage({ priorityOverride: { photoId, priority: newPriority } });
+    // Reset shape to auto when adding a hero
+    if (newPriority === 1 && state.settings.shape !== 'auto') {
+      updateSettings({ shape: 'auto' });
     }
-  }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
+    
+    if (state.layout) {
+      regenerateCollage({ 
+        priorityOverride: { photoId, priority: newPriority },
+        settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+      });
+    }
+  }, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);
 
   const handleCreateCollage = useCallback(() => {
     regenerateCollage({ randomize: state.layout !== null });
@@ -370,6 +385,7 @@ export default function Index() {
               settings={state.settings}
               onUpdate={handleUpdateSettings}
               photoCount={state.photos.length}
+              hasHeroes={state.photos.some(p => p.priority === 1)}
             />
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}

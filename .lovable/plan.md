@@ -1,22 +1,10 @@
 
 
-# Plan: Hero Photos Auto-Lock Shape to Auto
+# Plan: Move Configure Section Below Collage as Collapsible with Persisted State
 
 ## Summary
 
-When the user marks one or more photos as hero, automatically reset shape to "Auto" and disable the shape dropdown. This is a pragmatic MVP decision based on eval data showing hero layouts work well with auto shape but struggle with explicit shape constraints.
-
----
-
-## Key Insight: No New Helper Needed
-
-Instead of creating a new `hasAnyHeroes()` function, we'll use an inline derived check:
-
-```typescript
-const hasHeroes = state.photos.some(p => p.priority === 1);
-```
-
-This is simpler than the existing `hasHeroPhotos()` in heroLayout.ts, which checks for heroes *and* standards (needed for layout logic, but overkill for UI state).
+Move the "Configure" section to appear below the collage preview, hide it until a collage is generated, make it collapsible (collapsed by default), lay out each setting on its own row, and persist the collapse state to localStorage.
 
 ---
 
@@ -24,138 +12,219 @@ This is simpler than the existing `hasHeroPhotos()` in heroLayout.ts, which chec
 
 | File | Changes |
 |------|---------|
-| `src/components/CropEditor.tsx` | Update hero checkbox label text |
-| `src/components/CollageSettings.tsx` | Accept `hasHeroes` prop, move shape to right, add disabled state + hint |
-| `src/pages/Index.tsx` | Derive `hasHeroes` inline, update handlers to reset shape, pass prop to CollageSettings |
+| `src/pages/Index.tsx` | Remove CollageSettings from current location (line 384-389), move it inside the collage section (after CollagePreview, around line 458) |
+| `src/components/CollageSettings.tsx` | Complete restructure: add Collapsible wrapper with localStorage persistence, row-based layout for each setting |
 
 ---
 
 ## Detailed Changes
 
-### 1. `src/components/CropEditor.tsx` (line ~279)
+### 1. `src/pages/Index.tsx`
 
-**Before:**
-```
-Make this a hero photo (larger in collage)
+**Remove CollageSettings from current location (lines 383-389):**
+```tsx
+{/* Settings */}
+<CollageSettings
+  settings={state.settings}
+  onUpdate={handleUpdateSettings}
+  photoCount={state.photos.length}
+  hasHeroes={state.photos.some(p => p.priority === 1)}
+/>
 ```
 
-**After:**
-```
-Make this a hero photo so it is larger in the collage
+**Add CollageSettings inside the collage preview section (after the CollagePreview div, around line 458):**
+```tsx
+<div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+  <CollagePreview ... />
+</div>
+
+{/* Configure - only shown when collage exists */}
+<CollageSettings
+  settings={state.settings}
+  onUpdate={handleUpdateSettings}
+  photoCount={state.photos.length}
+  hasHeroes={state.photos.some(p => p.priority === 1)}
+/>
 ```
 
 ---
 
 ### 2. `src/components/CollageSettings.tsx`
 
-**A) Add `hasHeroes` prop:**
+**A) Add imports:**
 ```typescript
-interface CollageSettingsProps {
-  settings: CollageSettingsType;
-  onUpdate: (updates: Partial<CollageSettingsType>) => void;
-  photoCount: number;
-  hasHeroes: boolean;  // NEW
+import { useState, useEffect } from 'react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+```
+
+**B) Add localStorage-backed state for collapse:**
+```typescript
+const STORAGE_KEY = 'collage-settings-collapsed';
+
+export function CollageSettings({ ... }: CollageSettingsProps) {
+  // Initialize from localStorage, default to collapsed (true)
+  const [isOpen, setIsOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved === 'true'; // 'true' means open, default (null/false) means closed
+    } catch {
+      return false;
+    }
+  });
+
+  // Persist to localStorage on change - in the event handler, not useEffect
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    try {
+      localStorage.setItem(STORAGE_KEY, String(open));
+    } catch {
+      // Silent - localStorage might be unavailable
+    }
+  };
+  
+  // ... rest of component
 }
 ```
 
-**B) Reorder the settings bar** - move Shape to the right side:
-- Current order: Shape → Background → Gap
-- New order: Background → Gap → Shape
-
-**C) Update disabled logic and hint:**
-```typescript
-const shapeDisabled = hasHeroes || !canControlShape;
-const shapeHint = hasHeroes 
-  ? "(heroes use auto)" 
-  : !canControlShape 
-    ? "(8+ photos)" 
-    : null;
-```
-
-**D) Add HTML title tooltip for clarity:**
+**C) Wrap content in Collapsible with styled trigger:**
 ```tsx
-<div 
-  className="flex items-center gap-2"
-  title={hasHeroes ? "Shape is set to Auto when photos are marked as heroes" : undefined}
->
+return (
+  <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
+    <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-1 hover:bg-muted/50 rounded transition-colors">
+      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Configure
+      </h3>
+      <ChevronDown className={cn(
+        "h-4 w-4 text-muted-foreground transition-transform duration-200",
+        isOpen && "rotate-180"
+      )} />
+    </CollapsibleTrigger>
+    
+    <CollapsibleContent>
+      {/* Settings rows */}
+    </CollapsibleContent>
+  </Collapsible>
+);
 ```
 
----
-
-### 3. `src/pages/Index.tsx`
-
-**A) Derive `hasHeroes` from state:**
-```typescript
-const hasHeroes = state.photos.some(p => p.priority === 1);
-```
-
-**B) Update `handleSaveCrop` to reset shape when adding hero:**
-```typescript
-const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
-  updatePhoto(photoId, { manualCrop: crop, priority });
-  setEditingPhotoId(null);
-  
-  // Reset shape to auto when adding a hero
-  if (priority === 1 && state.settings.shape !== 'auto') {
-    updateSettings({ shape: 'auto' });
-  }
-  
-  if (state.layout) {
-    regenerateCollage({ 
-      priorityOverride: { photoId, priority },
-      cropOverride: { photoId, crop },
-      settings: priority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
-    });
-  }
-}, [updatePhoto, state.layout, state.settings, updateSettings, regenerateCollage]);
-```
-
-**C) Update `handleToggleHero` to reset shape when adding hero:**
-```typescript
-const handleToggleHero = useCallback((photoId: string) => {
-  const photo = state.photos.find(p => p.id === photoId);
-  if (!photo) return;
-  
-  const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
-  updatePhoto(photoId, { priority: newPriority });
-  
-  // Reset shape to auto when adding a hero
-  if (newPriority === 1 && state.settings.shape !== 'auto') {
-    updateSettings({ shape: 'auto' });
-  }
-  
-  if (state.layout) {
-    regenerateCollage({ 
-      priorityOverride: { photoId, priority: newPriority },
-      settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
-    });
-  }
-}, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);
-```
-
-**D) Pass `hasHeroes` to CollageSettings:**
+**D) Reformat settings to individual rows:**
 ```tsx
-<CollageSettings
-  settings={state.settings}
-  onUpdate={handleUpdateSettings}
-  photoCount={state.photos.length}
-  hasHeroes={hasHeroes}
-/>
+<CollapsibleContent>
+  <div className="space-y-3 pt-2 pb-1">
+    {/* Background color row */}
+    <div className="flex items-center justify-between px-1">
+      <span className="text-sm text-muted-foreground">Background color</span>
+      <input
+        type="color"
+        value={settings.gapColor}
+        onChange={(e) => onUpdate({ gapColor: e.target.value })}
+        className="w-7 h-7 rounded cursor-pointer ..."
+        aria-label="Background color"
+      />
+    </div>
+    
+    {/* Gap row */}
+    <div className="flex items-center justify-between px-1">
+      <span className="text-sm text-muted-foreground">Gap</span>
+      <div className="flex items-center gap-2">
+        <Slider
+          value={[settings.gapSize]}
+          onValueChange={([value]) => onUpdate({ gapSize: value })}
+          min={0}
+          max={32}
+          step={2}
+          className="w-24 [&>span:first-child]:bg-muted-foreground/30"
+        />
+        <span className="text-xs text-muted-foreground w-8 text-right">{settings.gapSize}px</span>
+      </div>
+    </div>
+    
+    {/* Shape row */}
+    <div 
+      className="flex items-center justify-between px-1"
+      title={hasHeroes ? "Shape is set to Auto when photos are marked as heroes" : undefined}
+    >
+      <div className="flex items-center gap-1">
+        <span className="text-sm text-muted-foreground">Shape</span>
+        {shapeHint && (
+          <span className="text-xs text-muted-foreground/60 italic">{shapeHint}</span>
+        )}
+      </div>
+      <Select
+        value={settings.shape}
+        onValueChange={(value) => onUpdate({ shape: value as CollageSettingsType['shape'] })}
+        disabled={shapeDisabled}
+      >
+        <SelectTrigger className="h-7 w-28 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">Auto</SelectItem>
+          {canLandscape && <SelectItem value="landscape">Landscape</SelectItem>}
+          {canPortrait && <SelectItem value="portrait">Portrait</SelectItem>}
+          {canSquare && <SelectItem value="square">Square-ish</SelectItem>}
+        </SelectContent>
+      </Select>
+    </div>
+  </div>
+</CollapsibleContent>
 ```
 
 ---
 
 ## UI Before/After
 
-**Before (shape on left):**
-```
-Shape: Auto | Background: ■ | Gap: ━━━━ 8px
+**Before:**
+```text
+┌─ Photos ─────────────────────────┐
+│  [thumbnails]                    │
+└──────────────────────────────────┘
+
+┌─ Configure ──────────────────────┐
+│ Background: ■ | Gap: ━━ | Shape  │
+└──────────────────────────────────┘
+
+┌─ Collage ────────────────────────┐
+│  [collage preview]               │
+└──────────────────────────────────┘
 ```
 
-**After (shape on right, when heroes present):**
+**After (collapsed - default):**
+```text
+┌─ Photos ─────────────────────────┐
+│  [thumbnails]                    │
+└──────────────────────────────────┘
+
+┌─ Collage ────────────────────────┐
+│  [collage preview]               │
+│                                  │
+│  CONFIGURE                     ▼ │  ← tap to expand
+└──────────────────────────────────┘
 ```
-Background: ■ | Gap: ━━━━ 8px | Shape: Auto (heroes use auto)
+
+**After (expanded):**
+```text
+┌─ Collage ────────────────────────┐
+│  [collage preview]               │
+│                                  │
+│  CONFIGURE                     ▲ │
+│  Background color          [■]   │
+│  Gap                   ━━━ 8px   │
+│  Shape                   [Auto]  │
+└──────────────────────────────────┘
 ```
+
+---
+
+## localStorage Persistence
+
+| Key | Value | Behavior |
+|-----|-------|----------|
+| `collage-settings-collapsed` | `'true'` or `'false'` | Saved on toggle in event handler (not useEffect) |
+
+The persistence happens directly in the click handler, following the user's custom guidance to avoid useEffect for localStorage writes.
 
 ---
 
@@ -163,8 +232,8 @@ Background: ■ | Gap: ━━━━ 8px | Shape: Auto (heroes use auto)
 
 | Scenario | Behavior |
 |----------|----------|
-| Remove last hero | Shape dropdown re-enables automatically |
-| Add photos with existing hero | Shape stays 'auto', dropdown stays disabled |
-| CropEditor sets hero | Same auto-reset logic applies |
-| Photo count drops below threshold | Both conditions checked independently |
+| No collage generated | Configure section hidden entirely |
+| User clears all photos | Configure section disappears with collage |
+| localStorage unavailable | Falls back to default (collapsed), silent error handling |
+| User expands, refreshes page | Stays expanded (persisted) |
 

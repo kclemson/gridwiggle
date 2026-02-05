@@ -1,71 +1,59 @@
-# Unified `scoreConfiguration` Function - IMPLEMENTED
 
-## Status: ✅ Complete
+# Plan: Add Canvas Area Percentage to Layout Visualization
 
-This plan has been fully implemented. All scoring logic is now centralized in a single `scoreConfiguration` function.
+## Summary
 
----
+Add a percentage display to each cell in the layout visualization showing what portion of the total canvas area that photo occupies. This will help with rating decisions — for example, understanding why a hero might feel "not prominent" even if it has slightly more area than other large cells.
 
-## Implementation Summary
+## Changes
 
-### Files Changed
+### File: `src/components/layout-rating/LayoutVisualization.tsx`
 
-| File | Changes |
-|------|---------|
-| `src/lib/collageLayout.ts` | Added `calculateDirectionPenalty`, `calculateRowMetrics`, `scoreConfiguration`. Exported `ConfigurationScore` and `ScoreConfigurationOptions` types. Updated `scorePartition` to use shared `calculateDirectionPenalty`. |
-| `src/lib/heroLayout.ts` | Added `shape` parameter to `generateEdgeAnchoredHeroLayout`, `generateEdgeAnchoredHeroLayout1Row`, `generateFloatingHeroLayout`. Changed hero loops from "return first valid" to "collect candidates, score, pick best". |
-| `src/lib/layoutBlocks.ts` | Added `shape` to `HeroUnitOptions` interface. |
-
----
-
-## Key Architecture Decisions
-
-### Single Source of Truth for Scoring
-
-Both content-only and hero layouts now use the **same metrics**:
-
-| Metric | Content-Only | Hero Layout |
-|--------|--------------|-------------|
-| Direction penalty (shape) | ✓ | ✓ |
-| Area CV (uniformity) | ✓ | ✓ |
-| Height CV | ✓ | ✓ |
-| Sparse row penalty | ✓ | ✓ |
-| Scale factor penalty | — | ✓ (deviation from 1.0) |
-
-### Shape-Aware Scoring
-
-The `calculateDirectionPenalty` function is the single source of truth:
+**Add area percentage calculation inside the map:**
 
 ```typescript
-export function calculateDirectionPenalty(
-  resultAspect: number,
-  shape: CollageSettings['shape']
-): number {
-  if (shape === 'portrait' && resultAspect >= 1.0) {
-    return 10.0 * (resultAspect - 0.9);
-  } else if (shape === 'landscape' && resultAspect <= 1.0) {
-    return 10.0 * (1.1 - resultAspect);
-  } else if (shape === 'square') {
-    return 10.0 * Math.abs(resultAspect - 1.0);
-  }
-  return 0; // 'auto' = no penalty
-}
+const totalArea = layout.width * layout.height;
+const cellArea = cell.width * cell.height;
+const areaPercent = (cellArea / totalArea) * 100;
 ```
 
-### Hero Layout Candidate Selection
+**Update the label to show both metrics:**
 
-Instead of returning the first valid configuration, hero layouts now:
-1. Collect all valid candidates
-2. Score each using `scoreConfiguration`
-3. Sort by direction penalty (primary) and scale factor closeness (secondary)
-4. Return the best-scoring candidate
+Currently shows:
+```
+⭐ 1.00   (aspect ratio only)
+```
 
----
+Will show:
+```
+⭐ 1.00 · 17%   (aspect ratio + area percentage)
+```
 
-## Benefits
+**Visual design:**
+- Keep existing aspect ratio format (2 decimal places)
+- Add separator (·) and percentage 
+- Percentage shown as whole number with % symbol
+- Same styling/background as current label
 
-1. **Single source of truth** — All scoring logic in one function
-2. **Consistent behavior** — Content-only and hero layouts scored identically
-3. **Easy to tune** — Change weights in one place
-4. **Testable** — Can unit test `scoreConfiguration` with mock layouts
-5. **Extensible** — Adding new metrics is trivial
+## Technical Details
+
+The calculation is straightforward:
+- `cellArea = cell.width * cell.height`  
+- `canvasArea = layout.width * layout.height`
+- `percentage = (cellArea / canvasArea) * 100`
+
+This uses the layout's coordinate system values directly, so it's already normalized and doesn't need any unit conversion.
+
+## Expected Result
+
+From your screenshot example, the hero (starred cell with 1.00 aspect ratio) would show something like:
+```
+⭐ 1.00 · 17%
+```
+
+And you'd be able to compare that against the large pink cell (1.36 aspect) which might show:
+```
+1.36 · 15%
+```
+
+This helps you understand if the hero is mathematically larger but visually doesn't feel prominent.

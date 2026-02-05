@@ -69,16 +69,10 @@ function getPhotoDimensions(photos: PhotoItem[], weights: Record<string, number>
  * Calculate hero width as a fraction of canvas width.
  * Reduced fractions since hero now spans 2 rows (taller).
  * 
- * Adjusts fraction based on targetAspect:
- * - Portrait (< 0.9): narrower hero → taller layout
- * - Square (0.9-1.1): slightly narrower hero
- * - Landscape (> 1.1): base fraction (already produces landscape)
- * 
  * @deprecated Use calculateOptimalHeroFraction for edge-anchored layouts
  */
 function calculateHeroWidthFraction(
-  standardCount: number,
-  targetAspect: number | undefined
+  standardCount: number
 ): number {
   // Base fractions (produces landscape-ish layouts)
   let baseFraction: number;
@@ -90,18 +84,6 @@ function calculateHeroWidthFraction(
     baseFraction = 0.40;
   } else {
     baseFraction = 0.35;
-  }
-
-  // Adjust for target aspect ratio
-  if (targetAspect !== undefined) {
-    if (targetAspect < 0.9) {
-      // Portrait: hero takes less width → more below rows → taller layout
-      return baseFraction * 0.70;
-    } else if (targetAspect <= 1.1) {
-      // Square: hero takes slightly less width
-      return baseFraction * 0.85;
-    }
-    // Landscape (> 1.1): use base fraction
   }
   
   return baseFraction;
@@ -608,8 +590,7 @@ function generateEdgeAnchoredHeroLayout(
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean,
-  targetAspect: number | undefined
+  randomize: boolean
 ): CollageLayout {
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
@@ -913,7 +894,7 @@ function generateEdgeAnchoredHeroLayout1Row(
   gap: number,
   anchorRight: boolean
 ): CollageLayout {
-  const widthFraction = calculateHeroWidthFraction(standards.length, undefined);
+  const widthFraction = calculateHeroWidthFraction(standards.length);
   const heroWidth = Math.round(canvasWidth * widthFraction);
   const heroHeight = heroWidth / hero.aspectRatio;
 
@@ -969,8 +950,7 @@ function generateFloatingHeroLayout(
   standards: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  randomize: boolean,
-  targetAspect: number | undefined
+  randomize: boolean
 ): CollageLayout {
   const shuffled = randomize ? shuffleArray(standards) : standards;
   
@@ -1016,7 +996,7 @@ function generateFloatingHeroLayout(
   });
 
   // Target width fraction for hero
-  const widthFraction = calculateHeroWidthFraction(standards.length, targetAspect);
+  const widthFraction = calculateHeroWidthFraction(standards.length);
   const targetHeroWidth = Math.round(canvasWidth * widthFraction);
   const targetSideWidth = Math.floor((canvasWidth - targetHeroWidth - 2 * gap) / 2);
 
@@ -1067,7 +1047,7 @@ function generateFloatingHeroLayout(
       fallbackTo: 'edge-anchored',
     });
     // Fallback if neither side could be packed
-    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, targetAspect);
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
   }
 
   // UNIFIED SCALING: Hero height = side combined height (shared by construction)
@@ -1100,7 +1080,7 @@ function generateFloatingHeroLayout(
       fallbackTo: 'edge-anchored',
     });
     // Outside tolerance - fall back to edge-anchored
-    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize, targetAspect);
+    return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
   }
 
   // Apply unified scale factor
@@ -1378,7 +1358,6 @@ function generateSingleHeroLayout(
   canvasWidth: number,
   gap: number,
   randomize: boolean,
-  targetAspect: number | undefined,
   tuning: LayoutTuning
 ): CollageLayout {
   // Try block-based layout for larger photosets (provides shuffled variety)
@@ -1412,13 +1391,13 @@ function generateSingleHeroLayout(
   // Use edge-anchored layout for few photos (simpler, cleaner)
   if (standards.length < FEW_PHOTOS_THRESHOLD) {
     return generateEdgeAnchoredHeroLayout(
-      hero, standards, canvasWidth, gap, randomize, targetAspect
+      hero, standards, canvasWidth, gap, randomize
     );
   }
 
   // Use floating layout for many photos (more variety)
   return generateFloatingHeroLayout(
-    hero, standards, canvasWidth, gap, randomize, targetAspect
+    hero, standards, canvasWidth, gap, randomize
   );
 }
 
@@ -1456,7 +1435,7 @@ function generateMultiHeroLayout(
 
     // Try 2-row packing with iterative approach if we have enough photos
     if (heroStandards.length >= 4) {
-      const widthFraction = calculateHeroWidthFraction(heroStandards.length, undefined);
+      const widthFraction = calculateHeroWidthFraction(heroStandards.length);
       const targetBesideWidth = Math.round(canvasWidth * (1 - widthFraction)) - gap;
       
       // Iterative approach: try different beside counts
@@ -1523,7 +1502,7 @@ function generateMultiHeroLayout(
     }
 
     // Fallback to 1-row for this hero
-    const widthFraction = calculateHeroWidthFraction(heroStandards.length, undefined);
+    const widthFraction = calculateHeroWidthFraction(heroStandards.length);
     const heroWidth = Math.round(canvasWidth * widthFraction);
     const heroHeight = heroWidth / hero.aspectRatio;
 
@@ -1639,7 +1618,6 @@ function generateContentOnlyLayout(
 export function generateHeroLayout(
   photos: PhotoItem[],
   settings: CollageSettings,
-  targetAspect: number | undefined,
   weights: Record<string, number>,
   randomize: boolean,
   tuning: LayoutTuning
@@ -1654,7 +1632,7 @@ export function generateHeroLayout(
     totalPhotos: photos.length,
     heroCount: heroes.length,
     standardCount: standards.length,
-    targetAspect: targetAspect?.toFixed(2) ?? 'auto',
+    shape: settings.orientation,
     randomize,
   });
 
@@ -1671,7 +1649,6 @@ export function generateHeroLayout(
       BASE_WIDTH,
       gap,
       randomize,
-      targetAspect,
       tuning
     );
   }

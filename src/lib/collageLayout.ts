@@ -91,6 +91,26 @@ function getMaxPhotosPerRow(
   }
 }
 
+/**
+ * Get target aspect ratio bounds for each shape.
+ * Used to clamp row count search range via R = √(S / A) formula.
+ */
+function getAspectBounds(
+  shape: CollageSettings['shape']
+): [number, number] {
+  switch (shape) {
+    case 'portrait':
+      return [0.5, 0.8];    // Tall: 1:2 to 4:5
+    case 'square':
+      return [0.85, 1.15];  // Near 1:1
+    case 'landscape':
+      return [1.25, 2.0];   // Wide: 5:4 to 2:1
+    case 'auto':
+    default:
+      return [0.67, 1.5];   // Balanced variety (2:3 to 3:2)
+  }
+}
+
 export interface RegionPackResult {
   /** Cells positioned within the region */
   cells: CollageCell[];
@@ -358,23 +378,34 @@ function findBestRowSplit(
   
   if (n <= 1) return [workingDims];
   
-  // Calculate max photos per row based on shape - this is an ACTUAL constraint
-  const maxPhotosPerRow = getMaxPhotosPerRow(n, shape);
+  // === Mathematical aspect ratio guardrail ===
+  // Calculate sum of aspect ratios
+  const S = workingDims.reduce((sum, d) => sum + d.aspectRatio, 0);
   
-  // Derive row count range:
-  // minRows: ensure no row exceeds maxPhotosPerRow (shape-driven constraint)
-  // maxRows: point where rows become too sparse (violate min threshold)
+  // Get target aspect bounds for this shape
+  const [minAspect, maxAspect] = getAspectBounds(shape);
+  
+  // Derive row bounds from R = √(S / A)
+  const minRowsFromAspect = Math.ceil(Math.sqrt(S / maxAspect));
+  const maxRowsFromAspect = Math.floor(Math.sqrt(S / minAspect));
+  
+  // === Existing density-based constraints ===
+  const maxPhotosPerRow = getMaxPhotosPerRow(n, shape);
   const minRowsFromMax = Math.ceil(n / maxPhotosPerRow);
   const minRowsFromDensity = Math.max(1, Math.floor(n / 8));
-  const minRows = Math.max(minRowsFromMax, minRowsFromDensity);
   
-  const maxRows = Math.min(n, Math.ceil(n / minPhotosPerRow) + 2);
+  // Combine all constraints (aspect + density)
+  const minRows = Math.max(minRowsFromAspect, minRowsFromMax, minRowsFromDensity, 2);
+  const maxRows = Math.min(maxRowsFromAspect, n, Math.ceil(n / minPhotosPerRow) + 2);
+  
+  // Edge case: if constraints conflict, favor aspect ratio bounds
+  const effectiveMaxRows = Math.max(minRows, maxRows);
   
   // Collect top scores for randomization
   const topScores: PartitionScore[] = [];
   const TOP_N = 5;
   
-  for (let numRows = minRows; numRows <= maxRows; numRows++) {
+  for (let numRows = minRows; numRows <= effectiveMaxRows; numRows++) {
     const partitionCount = countPartitions(n, numRows);
     
     // For small partition counts, enumerate all

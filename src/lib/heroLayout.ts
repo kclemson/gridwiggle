@@ -1658,21 +1658,10 @@ export function generateHeroLayout(
     randomize,
   });
 
-  // For auto mode: randomize minPhotosPerRow for shape variety
-  // Low values (2-3) allow more rows → portrait layouts
-  // High values (4-5) force fewer rows → landscape layouts
-  let layoutTuning = tuning;
-  if (targetAspect === undefined && randomize) {
-    const minRowOptions = [2, 3, 4, 5];
-    const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
-    layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
-    console.log('[Collage] Auto mode: randomized minPhotosPerRow to', randomMinPerRow);
-  }
-
   // Route based on hero count
   if (heroes.length === 0) {
     // No heroes: use content-only layout (same block primitive as hero layouts)
-    return generateContentOnlyLayout(standards, BASE_WIDTH, gap, randomize, layoutTuning);
+    return generateContentOnlyLayout(standards, BASE_WIDTH, gap, randomize, tuning);
   }
 
   if (heroes.length === 1) {
@@ -1683,7 +1672,7 @@ export function generateHeroLayout(
       gap,
       randomize,
       targetAspect,
-      layoutTuning
+      tuning
     );
   }
 

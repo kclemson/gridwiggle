@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef } from 'react';
-import { toast } from 'sonner';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoGrid } from '@/components/PhotoGrid';
@@ -115,8 +114,7 @@ export default function Index() {
       setLayout(layout);
     } catch (error) {
       console.error('Layout generation failed:', error);
-      toast.error('Failed to generate collage. Try again.');
-      // Don't call setLayout(null) - keep button visible for retry
+      // Silent - button remains visible for retry
     }
   }, [state.settings, setLayout, layoutTuning]);
 
@@ -212,11 +210,11 @@ export default function Index() {
       await processSmartCrops(succeeded);
     } catch (error) {
       console.error('Smart crop processing failed:', error);
-      toast.error('AI processing failed. Please try again.');
+      // Silent - photos still work, just without smart crop
+    } finally {
+      // Always generate collage, even if smart crop failed
+      regenerateCollage({ randomize: !wasLayoutEmpty });
     }
-
-    // Always regenerate - first batch without randomization, subsequent with
-    regenerateCollage({ randomize: !wasLayoutEmpty });
   }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {

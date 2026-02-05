@@ -15,7 +15,6 @@ import {
   isStorageAvailable,
   StoredPhoto
 } from '@/lib/photoStorage';
-import { toast } from 'sonner';
 
 const STORAGE_KEY = 'smart-collage-state';
 
@@ -134,7 +133,7 @@ export function useCollageState() {
       const available = await isStorageAvailable();
       if (!available) {
         setStorageAvailable(false);
-        toast.warning('Photo storage unavailable. Photos will not persist after refresh.');
+        // Silent - storageAvailable flag can be used by UI if needed
       }
 
       // Load metadata from localStorage
@@ -146,7 +145,7 @@ export function useCollageState() {
         storedPhotos = await getAllPhotos();
       } catch (e) {
         console.error('Failed to load photos from IndexedDB:', e);
-        toast.error('Failed to load saved photos. Storage may be corrupted.');
+        // Silent - start fresh, user can re-upload
       }
 
       if (!mounted) return;
@@ -215,9 +214,8 @@ export function useCollageState() {
       }
     }
 
-    if (failed.length > 0) {
-      toast.error(`Failed to save ${failed.length} photo(s). Storage may be full.`);
-    }
+    // Caller receives failed array and can handle as needed
+    // Failed photos are not added to state, silently excluded
 
     if (succeeded.length > 0) {
       setState((prev) => {

@@ -228,8 +228,9 @@ function scorePartition(
     // User wants landscape but result is portrait/square
     directionPenalty = 10.0 * (1.1 - resultAspect);
   } else if (shape === 'square') {
-    // Penalize deviation from 1.0 aspect ratio
-    directionPenalty = 5.0 * Math.abs(resultAspect - 1.0);
+   // Penalize deviation from 1.0 aspect ratio
+   // Weight of 10.0 matches portrait/landscape to ensure shape dominates
+   directionPenalty = 10.0 * Math.abs(resultAspect - 1.0);
   }
   // shape === 'auto' --> directionPenalty stays 0 --> no bias
   

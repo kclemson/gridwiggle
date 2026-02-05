@@ -92,6 +92,7 @@ export interface RatedLayout {
   // Layout metrics
   rowCount: number;
   rowSizes: number[];
+  rowHeroAdjacent: boolean[];  // Which rows overlap vertically with hero
   canvasAspect: number;
   areaCoefficientOfVariation: number;
   largestToSmallestRatio: number;

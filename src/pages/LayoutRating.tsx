@@ -71,6 +71,7 @@ export default function LayoutRating() {
       hasHero: currentResult.testCase.hasHero,
       rowCount: currentResult.rowCount,
       rowSizes: currentResult.rowSizes,
+      rowHeroAdjacent: currentResult.rowHeroAdjacent,
       canvasAspect: currentResult.canvasAspect,
       areaCoefficientOfVariation: currentResult.areaCoefficientOfVariation,
       largestToSmallestRatio: currentResult.largestToSmallestRatio,

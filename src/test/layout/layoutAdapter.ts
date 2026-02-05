@@ -107,10 +107,18 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   // Convert synthetic photos to PhotoItems
   const photoItems = photos.map(syntheticToPhotoItem);
   
+  // Convert priority to photoWeights (same logic as Index.tsx)
+  // Priority 1 = hero → weight 2.0
+  // Priority 2, 3 = standard → weight 1.0
+  const photoWeights: Record<string, number> = {};
+  for (const photo of photos) {
+    photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
+  }
+  
   // Merge tuning with defaults
   const fullTuning: LayoutTuning = { ...DEFAULT_TUNING, ...tuning };
   
-  // Run the layout algorithm
+  // Run the layout algorithm WITH WEIGHTS
   const settings: CollageSettings = {
     shape,
     gapColor: '#000000',
@@ -120,6 +128,7 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   const layout = generateCollageLayout(photoItems, settings, {
     tuning: fullTuning,
     randomize: false, // Deterministic for testing
+    photoWeights, // Now heroes will be detected!
   });
   
   // Calculate metrics

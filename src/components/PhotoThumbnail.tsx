@@ -79,19 +79,14 @@ export function PhotoThumbnail({
           e.stopPropagation();
           onRemove();
         }}
-        className="absolute top-1 right-1 p-1.5 rounded-full bg-background/80 text-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-all touch-target md:min-h-0 md:min-w-0"
-        aria-label="Remove photo"
-      >
-        <X className="h-4 w-4" />
-      </button>
-
-      {/* Touch-friendly remove button overlay for mobile */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="absolute top-1 right-1 p-2 rounded-full bg-background/80 text-foreground md:hidden"
+        className={cn(
+          "absolute top-1 right-1 rounded-full bg-background/80 text-foreground transition-all",
+          "hover:bg-destructive hover:text-destructive-foreground",
+          // Mobile: always visible, touch-friendly size
+          "p-2 opacity-100",
+          // Desktop: smaller, hover-only
+          "md:p-1.5 md:opacity-0 md:group-hover:opacity-100"
+        )}
         aria-label="Remove photo"
       >
         <X className="h-4 w-4" />

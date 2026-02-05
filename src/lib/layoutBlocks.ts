@@ -393,8 +393,9 @@ export function buildContentRowsBlock(
     gap,
     offsetX: 0,
     offsetY: 0,
-    isLandscape: true,
+    isLandscape: false,  // Neutral - let minPhotosPerRow drive shape
      minPhotosPerRow,
+    // No targetAspect - let it be undefined so minPhotosPerRow is sole control
   });
   
   if (result.cells.length === 0) return null;

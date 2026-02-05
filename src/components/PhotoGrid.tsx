@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
 import { PhotoThumbnail } from './PhotoThumbnail';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface PhotoGridProps {
   photos: PhotoItem[];
@@ -42,18 +43,20 @@ export function PhotoGrid({
           <span className="normal-case font-normal italic ml-1">({hint})</span>
         )}
       </h3>
-      <div className="flex flex-wrap gap-2">
-        {sortedPhotos.map((photo) => (
-          <PhotoThumbnail
-            key={photo.id}
-            photo={photo}
-            onRemove={() => onRemove(photo.id)}
-            onClick={onPhotoClick ? () => onPhotoClick(photo.id) : undefined}
-            showCropped={showCropped}
-            height={80}
-          />
-        ))}
-      </div>
+      <ScrollArea className="max-h-60">
+        <div className="flex flex-wrap gap-2 pr-2">
+          {sortedPhotos.map((photo) => (
+            <PhotoThumbnail
+              key={photo.id}
+              photo={photo}
+              onRemove={() => onRemove(photo.id)}
+              onClick={onPhotoClick ? () => onPhotoClick(photo.id) : undefined}
+              showCropped={showCropped}
+              height={80}
+            />
+          ))}
+        </div>
+      </ScrollArea>
     </div>
   );
 }

@@ -291,23 +291,23 @@ export default function Index() {
         {/* Header */}
         <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-14 items-center justify-between px-4">
-          <h1 className="text-lg font-semibold flex items-center gap-2">
-            <Grid3X3 className="h-5 w-5 text-primary" />
-            Smart Collage
-          </h1>
+            <h1 className="text-lg font-semibold flex items-center gap-2">
+              <img src="/favicon.png" alt="" className="h-5 w-5" />
+              gridwiggle.com
+            </h1>
 
-          {state.photos.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={clearAll}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Clear All
-            </Button>
-          )}
-        </div>
+            {state.photos.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={clearAll}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Clear All
+              </Button>
+            )}
+          </div>
         </header>
 
         <main className="py-3 space-y-4 px-4">

@@ -380,13 +380,6 @@ export default function Index() {
               hint="tap to adjust crop"
             />
 
-            {/* Settings */}
-            <CollageSettings
-              settings={state.settings}
-              onUpdate={handleUpdateSettings}
-              photoCount={state.photos.length}
-              hasHeroes={state.photos.some(p => p.priority === 1)}
-            />
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}
             {state.photos.length >= 2 && (
@@ -456,6 +449,14 @@ export default function Index() {
                         onToggleHero={handleToggleHero}
                       />
                     </div>
+                    
+                    {/* Configure - only shown when collage exists */}
+                    <CollageSettings
+                      settings={state.settings}
+                      onUpdate={handleUpdateSettings}
+                      photoCount={state.photos.length}
+                      hasHeroes={state.photos.some(p => p.priority === 1)}
+                    />
                   </>
                 )}
                 </div>

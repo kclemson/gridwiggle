@@ -102,7 +102,7 @@ function getAspectBounds(
     case 'portrait':
       return [0.5, 0.8];    // Tall: 1:2 to 4:5
     case 'square':
-      return [0.85, 1.15];  // Near 1:1
+      return [0.95, 1.05];  // Strict 1:1 (±5%)
     case 'landscape':
       return [1.25, 2.0];   // Wide: 5:4 to 2:1
     case 'auto':

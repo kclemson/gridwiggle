@@ -384,7 +384,8 @@ export function buildContentRowsBlock(
   canvasWidth: number,
   gap: number,
   packPhotosIntoRegion: (dims: PhotoDimension[], options: { width: number; gap: number; offsetX: number; offsetY: number; minPhotosPerRow?: number; shape?: 'auto' | 'landscape' | 'portrait' | 'square' }) => { cells: CollageCell[]; achievedHeight: number; partition: PhotoDimension[][] },
-   minPhotosPerRow: number = 2
+   minPhotosPerRow: number = 2,
+   shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
 ): ContentRowsBlock | null {
   if (photos.length === 0) return null;
   
@@ -394,7 +395,7 @@ export function buildContentRowsBlock(
     offsetX: 0,
     offsetY: 0,
      minPhotosPerRow,
-    shape: 'auto', // Content blocks are shape-neutral (stacking determines overall shape)
+    shape, // Pass through user's shape preference for scoring
   });
   
   if (result.cells.length === 0) return null;

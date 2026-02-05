@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 const STORAGE_KEY = 'smart-collage-state';
 
 const defaultSettings: CollageSettings = {
-  orientation: 'auto',
+  shape: 'auto',
   gapColor: '#000000',
   gapSize: 8,
 };
@@ -39,6 +39,11 @@ function loadMetadataFromStorage(): PersistedCollageState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      // One-time migration from orientation to shape
+      if ('orientation' in parsed.settings && !('shape' in parsed.settings)) {
+        parsed.settings.shape = parsed.settings.orientation;
+        delete parsed.settings.orientation;
+      }
       return {
         photos: parsed.photos || [],
         settings: { ...defaultSettings, ...parsed.settings },

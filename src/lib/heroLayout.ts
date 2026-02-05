@@ -1570,7 +1570,8 @@ function generateContentOnlyLayout(
   canvasWidth: number,
   gap: number,
   randomize: boolean,
-  tuning: LayoutTuning
+  tuning: LayoutTuning,
+  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
 ): CollageLayout {
   if (photos.length === 0) {
     return { width: canvasWidth, height: 800, cells: [] };
@@ -1594,7 +1595,8 @@ function generateContentOnlyLayout(
     canvasWidth,
     gap,
     packPhotosIntoRegion,
-    tuning.minPhotosPerRow
+    tuning.minPhotosPerRow,
+    shape
   );
   
   if (!contentBlock) {
@@ -1632,14 +1634,14 @@ export function generateHeroLayout(
     totalPhotos: photos.length,
     heroCount: heroes.length,
     standardCount: standards.length,
-    shape: settings.orientation,
+    shape: settings.shape,
     randomize,
   });
 
   // Route based on hero count
   if (heroes.length === 0) {
     // No heroes: use content-only layout (same block primitive as hero layouts)
-    return generateContentOnlyLayout(standards, BASE_WIDTH, gap, randomize, tuning);
+    return generateContentOnlyLayout(standards, BASE_WIDTH, gap, randomize, tuning, settings.shape);
   }
 
   if (heroes.length === 1) {

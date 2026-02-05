@@ -1585,6 +1585,60 @@ function generateMultiHeroLayout(
 // Public API
 // ============================================================================
 
+/**
+ * Generate a content-only layout (no heroes) using block primitives.
+ * This uses the same buildContentRowsBlock as hero layouts for consistency.
+ */
+function generateContentOnlyLayout(
+  photos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  randomize: boolean,
+  tuning: LayoutTuning
+): CollageLayout {
+  if (photos.length === 0) {
+    return { width: canvasWidth, height: 800, cells: [] };
+  }
+  
+  // Shuffle photos when randomizing for variety
+  const workingPhotos = randomize ? shuffleArray(photos) : photos;
+  
+  // Convert to BlockPhotoDimension type for buildContentRowsBlock
+  const blockPhotos: BlockPhotoDimension[] = workingPhotos.map(p => ({
+    id: p.id,
+    width: p.width,
+    height: p.height,
+    aspectRatio: p.aspectRatio,
+    weight: p.weight,
+  }));
+  
+  // Build content rows using the same block primitive as hero layouts
+  const contentBlock = buildContentRowsBlock(
+    blockPhotos,
+    canvasWidth,
+    gap,
+    packPhotosIntoRegion,
+    tuning.minPhotosPerRow
+  );
+  
+  if (!contentBlock) {
+    return { width: canvasWidth, height: 800, cells: [] };
+  }
+  
+  console.log('[Collage] Content-only layout generated', {
+    photoCount: photos.length,
+    rowCount: contentBlock.rowCount,
+    height: contentBlock.height,
+    minPhotosPerRow: tuning.minPhotosPerRow,
+  });
+  
+  return {
+    width: canvasWidth,
+    height: contentBlock.height,
+    cells: contentBlock.cells,
+  };
+}
+
 export function generateHeroLayout(
   photos: PhotoItem[],
   settings: CollageSettings,
@@ -1607,11 +1661,6 @@ export function generateHeroLayout(
     randomize,
   });
 
-  if (heroes.length === 0) {
-    // Fallback: no heroes, return empty (caller should not have routed here)
-    return { width: BASE_WIDTH, height: 800, cells: [] };
-  }
-
   // For auto mode: randomize minPhotosPerRow for shape variety
   // Low values (2-3) allow more rows → portrait layouts
   // High values (4-5) force fewer rows → landscape layouts
@@ -1621,6 +1670,12 @@ export function generateHeroLayout(
     const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
     layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
     console.log('[Collage] Auto mode: randomized minPhotosPerRow to', randomMinPerRow);
+  }
+
+  // Route based on hero count
+  if (heroes.length === 0) {
+    // No heroes: use content-only layout (same block primitive as hero layouts)
+    return generateContentOnlyLayout(standards, BASE_WIDTH, gap, randomize, layoutTuning);
   }
 
   if (heroes.length === 1) {

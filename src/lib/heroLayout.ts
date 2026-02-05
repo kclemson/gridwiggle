@@ -1,6 +1,6 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { packPhotosIntoRegion, scoreConfiguration, ConfigurationScore } from '@/lib/collageLayout';
+import { packPhotosIntoRegion, scoreConfiguration, ConfigurationScore, isAspectAcceptable, getAspectBounds } from '@/lib/collageLayout';
 import {
   buildHeroUnitBlock,
   buildContentRowsBlock,
@@ -859,9 +859,28 @@ function generateEdgeAnchoredHeroLayout(
     candidates.push({ layout: candidateLayout, score, scaleFactor });
   }
 
-  // Pick best candidate based on score
+  // Pick best candidate based on score with aspect bound filtering
   if (candidates.length > 0) {
-    candidates.sort((a, b) => {
+    // PHASE 1: Filter to only aspect-acceptable candidates
+    const acceptableCandidates = candidates.filter(c => {
+      const aspect = c.layout.width / c.layout.height;
+      return isAspectAcceptable(aspect, shape);
+    });
+    
+    // Use acceptable candidates if any exist, otherwise fall back to best aspect match
+    const candidatePool = acceptableCandidates.length > 0 
+      ? acceptableCandidates 
+      : candidates; // Graceful fallback: pick closest aspect
+    
+    candidatePool.sort((a, b) => {
+      // If using fallback (no acceptable), sort by aspect deviation first
+      if (acceptableCandidates.length === 0) {
+        const [minA, maxA] = getAspectBounds(shape);
+        const targetAspect = (minA + maxA) / 2;
+        const aDeviation = Math.abs(a.layout.width / a.layout.height - targetAspect);
+        const bDeviation = Math.abs(b.layout.width / b.layout.height - targetAspect);
+        if (Math.abs(aDeviation - bDeviation) > 0.01) return aDeviation - bDeviation;
+      }
       // Primary: direction penalty (shape compliance)
       if (a.score.directionPenalty !== b.score.directionPenalty) {
         return a.score.directionPenalty - b.score.directionPenalty;
@@ -869,7 +888,7 @@ function generateEdgeAnchoredHeroLayout(
       // Secondary: scale factor closeness to 1.0
       return Math.abs(a.scaleFactor - 1.0) - Math.abs(b.scaleFactor - 1.0);
     });
-    return candidates[0].layout;
+    return candidatePool[0].layout;
   }
 
   // No working multi-row config found - fallback to 1-row

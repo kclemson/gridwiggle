@@ -58,7 +58,7 @@ function calculateMetrics(
   photos: SyntheticPhoto[]
 ): Pick<
   LayoutTestResult, 
-  'rowCount' | 'rowSizes' | 'canvasAspect' | 'areaCoefficientOfVariation' | 
+  'rowCount' | 'rowSizes' | 'rowHeroAdjacent' | 'canvasAspect' | 'areaCoefficientOfVariation' | 
   'largestToSmallestRatio' | 'heroCoverage' | 'cellAreaPercents' | 'heroToRunnerUpRatio'
 > {
   // Calculate cell areas
@@ -104,9 +104,29 @@ function calculateMetrics(
   const sortedYs = Array.from(cellsByY.keys()).sort((a, b) => a - b);
   const rowSizes = sortedYs.map(y => cellsByY.get(y)!.length);
   
+  // Determine which rows overlap with the hero cell's Y range
+  let heroYMin = 0, heroYMax = 0;
+  if (heroPhoto) {
+    const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
+    if (heroCell) {
+      heroYMin = heroCell.y;
+      heroYMax = heroCell.y + heroCell.height;
+    }
+  }
+  
+  const rowHeroAdjacent = sortedYs.map(y => {
+    if (!heroPhoto) return false;
+    const rowCells = cellsByY.get(y)!;
+    const rowHeight = Math.max(...rowCells.map(c => c.height));
+    const rowYMax = y + rowHeight;
+    // Row overlaps with hero if Y ranges intersect
+    return y < heroYMax && rowYMax > heroYMin;
+  });
+  
   return {
     rowCount: rowSizes.length,
     rowSizes,
+    rowHeroAdjacent,
     canvasAspect: layout.width / layout.height,
     areaCoefficientOfVariation: coefficientOfVariation(areas),
     largestToSmallestRatio: areas.length > 0 ? Math.max(...areas) / Math.min(...areas) : 1,

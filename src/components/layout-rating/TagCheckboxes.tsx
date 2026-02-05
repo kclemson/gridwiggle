@@ -25,7 +25,7 @@ function getDynamicLabel(tag: LayoutTag, result: LayoutTestResult): string {
     case 'hero-not-prominent':
       if (heroCoverage !== null && cellAreaPercents.length >= 4) {
         const top3NonHero = cellAreaPercents.slice(1, 4)
-          .map(p => `${Math.round(p * 100)}%`).join('/');
+          .map(p => `${Math.round(p)}%`).join('/');
         return `Hero not prominent (${Math.round(heroCoverage * 100)}% vs ${top3NonHero})`;
       }
       return 'Hero not prominent';
@@ -37,13 +37,16 @@ function getDynamicLabel(tag: LayoutTag, result: LayoutTestResult): string {
       return 'Hero too dominant';
     
     case 'row-too-dense':
-      return `Row too dense ([${rowSizes.join(', ')}])`;
-    
-    case 'single-photo-row':
-      return `Single-photo row ([${rowSizes.join(', ')}])`;
+    case 'single-photo-row': {
+      const formatted = rowSizes.map((size, i) => 
+        result.rowHeroAdjacent[i] ? `${size}H` : `${size}`
+      );
+      const label = tag === 'row-too-dense' ? 'Row too dense' : 'Single-photo row';
+      return `${label} ([${formatted.join(', ')}])`;
+    }
     
     case 'uneven-sizes':
-      return `Uneven sizes (${largestToSmallestRatio.toFixed(1)}×)`;
+      return `Uneven sizes (max/min: ${largestToSmallestRatio.toFixed(1)}×)`;
     
     case 'wasted-space':
       return 'Wasted space';

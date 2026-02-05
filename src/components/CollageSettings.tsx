@@ -43,7 +43,7 @@ export function CollageSettings({ settings, onUpdate, photoCount }: CollageSetti
                 <>
                   <SelectItem value="landscape">Landscape</SelectItem>
                   <SelectItem value="portrait">Portrait</SelectItem>
-                  <SelectItem value="square">Square</SelectItem>
+                  <SelectItem value="square">Square-ish</SelectItem>
                 </>
               )}
             </SelectContent>

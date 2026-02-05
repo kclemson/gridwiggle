@@ -203,7 +203,7 @@ export default function LayoutRating() {
           currentResult.testCase.shape === 'square' && "bg-green-500/20 text-green-400",
           currentResult.testCase.shape === 'auto' && "bg-muted text-muted-foreground",
         )}>
-          {currentResult.testCase.shape.toUpperCase()} ({currentResult.testCase.photos.length})
+          {(currentResult.testCase.shape === 'square' ? 'SQUARE-ISH' : currentResult.testCase.shape.toUpperCase())} ({currentResult.testCase.photos.length})
         </div>
         
         {/* Layout visualization */}

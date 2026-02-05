@@ -1,58 +1,44 @@
 
 
-# Plan: Remove 'good-variety' Positive Tag
+# Plan: Rename "Square" to "Square-ish" in UI
 
 ## Summary
 
-Remove the redundant 'good-variety' tag since 'well-balanced' covers the same concept and is what you've been using.
+Change the display label from "Square" to "Square-ish" to set realistic expectations, while keeping the internal value and algorithm unchanged.
 
 ## Changes
 
-### 1. `src/test/layout/types.ts`
+### 1. `src/components/CollageSettings.tsx`
 
-Remove 'good-variety' from the `LAYOUT_POSITIVE_TAGS` array:
+Update the dropdown option label on line 46:
 
 **Before:**
-```typescript
-export const LAYOUT_POSITIVE_TAGS = [
-  'well-balanced',
-  'hero-works',
-  'good-variety',
-] as const;
+```tsx
+<SelectItem value="square">Square</SelectItem>
 ```
 
 **After:**
-```typescript
-export const LAYOUT_POSITIVE_TAGS = [
-  'well-balanced',
-  'hero-works',
-] as const;
+```tsx
+<SelectItem value="square">Square-ish</SelectItem>
 ```
 
-### 2. `src/components/layout-rating/TagCheckboxes.tsx`
+### 2. `src/pages/LayoutRating.tsx`
 
-Remove the 'good-variety' entry from `TAG_LABELS`:
+Update the shape banner display on line 206 to show "SQUARE-ISH" for the rating tool. We'll need to add a display name mapping:
 
 **Before:**
-```typescript
-const TAG_LABELS: Record<LayoutTag, string> = {
-  // ... issue tags ...
-  'well-balanced': 'Well balanced',
-  'hero-works': 'Hero works well',
-  'good-variety': 'Good variety',
-};
+```tsx
+{currentResult.testCase.shape.toUpperCase()} ({currentResult.testCase.photos.length})
 ```
 
 **After:**
-```typescript
-const TAG_LABELS: Record<LayoutTag, string> = {
-  // ... issue tags ...
-  'well-balanced': 'Well balanced',
-  'hero-works': 'Hero works well',
-};
+```tsx
+{(currentResult.testCase.shape === 'square' ? 'SQUARE-ISH' : currentResult.testCase.shape.toUpperCase())} ({currentResult.testCase.photos.length})
 ```
 
-## Note
+## What Stays the Same
 
-Existing ratings in localStorage that have the 'good-variety' tag will still be preserved in the data - they just won't be selectable for new ratings. This is fine for historical data integrity.
+- Internal value remains `'square'` (no data migration needed)
+- Algorithm tolerance stays at ±5%
+- All existing ratings in localStorage remain valid
 

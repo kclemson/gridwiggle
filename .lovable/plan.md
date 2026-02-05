@@ -1,77 +1,175 @@
 
 
-# Update Branding: Favicon, OpenGraph, and Meta Tags
+# Error Resilience Without Toasts
 
-## Overview
+## Philosophy
 
-Replace all Lovable placeholder content with GridWiggle branding using the provided assets and chosen description.
+For a photo collage app, most errors can be handled silently:
 
----
+- **AI processing fails?** Just use the full image - user doesn't need to know
+- **Layout generation fails?** Keep the button visible for retry - user will click again
+- **Storage fails?** This one matters - user needs to know their photos won't persist
 
-## Assets to Copy
-
-| Source | Destination | Purpose |
-|--------|-------------|---------|
-| `user-uploads://smolmoji-grid-one.png` | `public/favicon.png` | Browser tab icon |
-| `user-uploads://image-216.png` | `public/og-image.png` | Social sharing preview |
+The key insight: show errors only when user action is required or data loss occurred.
 
 ---
 
-## Description
+## Changes
 
-**Chosen**: "Turn any collection of photos into a perfectly arranged collage with one drop."
+### 1. Silent Recovery for AI Processing
 
----
+**File:** `src/pages/Index.tsx`
 
-## Changes to index.html
+Remove the toast from `handlePhotosAdded`. The smart crop already has per-photo error handling that stores errors on the photo object. Just log and continue:
 
-### Remove
-- `<meta name="author" content="Lovable" />`
-- `<meta name="twitter:site" content="@Lovable" />`
-- Old favicon.ico reference (if any)
+```text
+Before:
+  catch (error) {
+    console.error('Smart crop processing failed:', error);
+    toast.error('AI processing failed. Please try again.');
+  }
 
-### Update
+After:
+  catch (error) {
+    console.error('Smart crop processing failed:', error);
+    // Silent - photos still work, just without smart crop
+  }
+  finally {
+    // Always generate collage
+    regenerateCollage({ randomize: !wasLayoutEmpty });
+  }
+```
 
-| Tag | Before | After |
-|-----|--------|-------|
-| `<title>` | Lovable App | GridWiggle |
-| `<link rel="icon">` | /favicon.ico | /favicon.png (with type="image/png") |
-| `description` | Lovable Generated Project | Turn any collection of photos into a perfectly arranged collage with one drop. |
-| `og:title` | Lovable App | GridWiggle |
-| `og:description` | Lovable Generated Project | Turn any collection of photos into a perfectly arranged collage with one drop. |
-| `og:image` | lovable.dev URL | https://gridwiggle.lovable.app/og-image.png |
-| `twitter:image` | lovable.dev URL | https://gridwiggle.lovable.app/og-image.png |
+### 2. Silent Recovery for Layout Generation
 
----
+**File:** `src/pages/Index.tsx`
 
-## Final index.html Head Section
+The layout toast can also be removed - the button stays visible for retry, which is self-explanatory:
 
-```html
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <title>GridWiggle</title>
-  <meta name="description" content="Turn any collection of photos into a perfectly arranged collage with one drop." />
+```text
+Before:
+  catch (error) {
+    console.error('Layout generation failed:', error);
+    toast.error('Failed to generate collage. Try again.');
+  }
 
-  <meta property="og:title" content="GridWiggle" />
-  <meta property="og:description" content="Turn any collection of photos into a perfectly arranged collage with one drop." />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://gridwiggle.lovable.app/og-image.png" />
+After:
+  catch (error) {
+    console.error('Layout generation failed:', error);
+    // Silent - button remains visible for retry
+  }
+```
 
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="https://gridwiggle.lovable.app/og-image.png" />
-</head>
+### 3. Silent Recovery for Storage Load
+
+**File:** `src/hooks/useCollageState.ts`
+
+On initial load, if IndexedDB fails, just start fresh - user can re-upload:
+
+```text
+Before:
+  catch (e) {
+    console.error('Failed to load photos from IndexedDB:', e);
+    toast.error('Failed to load saved photos. Storage may be corrupted.');
+  }
+
+After:
+  catch (e) {
+    console.error('Failed to load photos from IndexedDB:', e);
+    // Silent - start fresh, user can re-upload
+  }
+```
+
+### 4. Keep Inline Error for Storage Save (Data Loss)
+
+**File:** `src/hooks/useCollageState.ts`
+
+This is the one case where the user needs to know - their photos might not persist. Instead of a toast, return the failure info so the caller can handle it (which it already does - `handlePhotosAdded` receives `{ succeeded, failed }`).
+
+Simply remove the toast and rely on the existing return value:
+
+```text
+Before:
+  if (failed.length > 0) {
+    toast.error(`Failed to save ${failed.length} photo(s). Storage may be full.`);
+  }
+
+After:
+  // Caller receives failed array and can handle as needed
+  // Currently: failed photos are not added to state, silently excluded
+```
+
+### 5. Worker Crash Recovery
+
+**File:** `src/services/smartCropService.ts`
+
+Change from reject to resolve with fallback - this prevents the error from bubbling up at all:
+
+```text
+Before:
+  const handleError = (errorEvent: ErrorEvent) => {
+    cleanup();
+    resetWorker();
+    reject(new Error('AI processing failed - please try again'));
+  };
+
+After:
+  const handleError = (errorEvent: ErrorEvent) => {
+    cleanup();
+    resetWorker();
+    resolve({
+      crop: { x: 0, y: 0, width, height },
+      confidence: 0,
+      subjects: 'AI unavailable',
+      skipCrop: true,
+    });
+  };
+```
+
+### 6. Global Error Handler (Optional but Recommended)
+
+**File:** `src/App.tsx`
+
+Add a safety net that just logs - no toast:
+
+```typescript
+useEffect(() => {
+  const handleRejection = (event: PromiseRejectionEvent) => {
+    console.error("Unhandled rejection:", event.reason);
+    event.preventDefault();
+  };
+  window.addEventListener("unhandledrejection", handleRejection);
+  return () => window.removeEventListener("unhandledrejection", handleRejection);
+}, []);
 ```
 
 ---
 
-## Files Summary
+## Summary
 
-| File | Action |
+| Location | Current | After |
+|----------|---------|-------|
+| AI processing fails | Toast | Silent (log only) |
+| Layout generation fails | Toast | Silent (button visible for retry) |
+| Storage load fails | Toast | Silent (fresh start) |
+| Storage save fails | Toast | Silent (photos excluded from state) |
+| Worker crashes | Throws error | Returns fallback crop |
+| Unhandled rejections | Crash | Caught + logged |
+
+---
+
+## Files to Modify
+
+| File | Change |
 |------|--------|
-| `public/favicon.png` | Create (copy from user upload) |
-| `public/og-image.png` | Create (copy from user upload) |
-| `public/favicon.ico` | Delete (no longer needed) |
-| `index.html` | Update all meta tags as described above |
+| `src/pages/Index.tsx` | Remove 2 toast calls, add `finally` block |
+| `src/hooks/useCollageState.ts` | Remove 2 toast calls |
+| `src/services/smartCropService.ts` | Resolve with fallback instead of reject |
+| `src/App.tsx` | Add global rejection handler (logs only) |
+
+---
+
+## Cleanup
+
+After these changes, the `toast` import can be removed from both `Index.tsx` and `useCollageState.ts` since neither will use it anymore.
 

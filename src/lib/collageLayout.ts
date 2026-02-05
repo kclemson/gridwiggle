@@ -659,7 +659,8 @@ export function generateCollageLayout(
     return { width: 1200, height: 800, cells: [] };
   }
   
-  const weights = options?.photoWeights ?? {};
+  // Derive weights from priority if not explicitly provided
+  const weights = options?.photoWeights ?? deriveWeightsFromPriority(photos);
   
   if (photos.length === 1) {
     const photo = photos[0];
@@ -813,4 +814,16 @@ export function reflowAfterSwap(
     height: Math.round(newHeight),
     cells: newCells,
   };
+}
+
+/**
+ * Derive weights from PhotoItem.priority when photoWeights is not explicitly provided.
+ * Priority 1 (hero) → weight 2.0, others → weight 1.0
+ */
+function deriveWeightsFromPriority(photos: PhotoItem[]): Record<string, number> {
+  const weights: Record<string, number> = {};
+  for (const photo of photos) {
+    weights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
+  }
+  return weights;
 }

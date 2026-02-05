@@ -1,6 +1,29 @@
 import { CollageLayout, CollageSettings, LayoutTuning, PhotoPriority } from '@/types/collage';
 
 /**
+ * Tag constants for categorizing layout issues and qualities.
+ */
+export const LAYOUT_ISSUE_TAGS = [
+  'hero-not-prominent',
+  'hero-too-dominant',
+  'single-photo-row',
+  'row-too-dense',
+  'uneven-sizes',
+  'wrong-shape',
+  'wasted-space',
+] as const;
+
+export const LAYOUT_POSITIVE_TAGS = [
+  'well-balanced',
+  'hero-works',
+  'good-variety',
+] as const;
+
+export type LayoutTag =
+  | typeof LAYOUT_ISSUE_TAGS[number]
+  | typeof LAYOUT_POSITIVE_TAGS[number];
+
+/**
  * Synthetic photo for layout testing - no actual image data.
  * Just aspect ratio and priority, which is all the algorithm needs.
  */
@@ -73,6 +96,7 @@ export interface RatedLayout {
   
   // User rating
   rating: 'good' | 'bad' | 'skip';
+  tags: LayoutTag[];  // Selected checkboxes for categorization
   
   // Timestamp for session tracking
   ratedAt: string;

@@ -1,6 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ThumbsDown, ThumbsUp, SkipForward, ChevronLeft, ChevronRight, Download, Copy } from 'lucide-react';
+import { TagCheckboxes } from './TagCheckboxes';
+import { LayoutTag } from '@/test/layout/types';
 
 interface RatingControlsProps {
   onRate: (rating: 'good' | 'bad' | 'skip') => void;
@@ -12,6 +14,8 @@ interface RatingControlsProps {
   canGoNext: boolean;
   currentIndex: number;
   totalCount: number;
+  selectedTags: LayoutTag[];
+  onTagsChange: (tags: LayoutTag[]) => void;
 }
 
 /**
@@ -27,6 +31,8 @@ export function RatingControls({
   canGoNext,
   currentIndex,
   totalCount,
+  selectedTags,
+  onTagsChange,
 }: RatingControlsProps) {
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -61,6 +67,9 @@ export function RatingControls({
   
   return (
     <div className="space-y-4">
+      {/* Tag checkboxes */}
+      <TagCheckboxes selectedTags={selectedTags} onTagsChange={onTagsChange} />
+      
       {/* Main rating buttons */}
       <div className="flex justify-center gap-4">
         <Button

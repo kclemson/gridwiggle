@@ -106,6 +106,13 @@ export interface LayoutTuning {
   maxBesideFraction: number;  // Hero beside can consume at most this % of total photos (default 0.6)
   minContentPhotos: number;   // Reserve at least this many photos for content blocks (default 4)
   minPhotosPerRow: number;    // Content rows must have at least this many photos (default 2)
+  
+  // Mathematical structure selection (unified aspect geometry)
+  baseMaxBesideFraction: number;  // Max % of non-hero photos in beside zone (default 0.40)
+  minBelowPhotos: number;         // Reserve this many for below zone (default 3)
+  aspectContrastFloor: number;    // Min aspect contrast modifier (default 0.8)
+  aspectContrastCap: number;      // Max aspect contrast modifier (default 1.3)
+  minHeroProminenceRatio: number; // Hero must be this much bigger than runner-up (default 1.3)
 }
 
 export const DEFAULT_TUNING: LayoutTuning = {
@@ -120,6 +127,13 @@ export const DEFAULT_TUNING: LayoutTuning = {
   maxBesideFraction: 0.6,
   minContentPhotos: 4,
   minPhotosPerRow: 2,
+  
+  // Mathematical structure selection
+  baseMaxBesideFraction: 0.40,
+  minBelowPhotos: 3,
+  aspectContrastFloor: 0.8,
+  aspectContrastCap: 1.3,
+  minHeroProminenceRatio: 1.3,
 };
 
 /**

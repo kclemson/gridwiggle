@@ -18,6 +18,7 @@ import {
   weightedRandomDistribution, 
   TEST_PHOTO_COUNTS 
 } from './photoGenerator';
+import { coefficientOfVariation, shuffleArray } from '@/lib/layoutMath';
 
 /**
  * Convert a synthetic photo to the PhotoItem format expected by the layout algorithm.
@@ -36,18 +37,6 @@ export function syntheticToPhotoItem(photo: SyntheticPhoto): PhotoItem {
     error: null,
     priority: photo.priority,
   };
-}
-
-/**
- * Calculate coefficient of variation (stddev / mean).
- * Lower values indicate more uniform distribution.
- */
-function coefficientOfVariation(values: number[]): number {
-  if (values.length === 0) return 0;
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  if (mean === 0) return 0;
-  const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-  return Math.sqrt(variance) / mean;
 }
 
 /**
@@ -209,16 +198,4 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
   
   // Shuffle for variety in rating session
   return shuffleArray(cases).slice(0, count);
-}
-
-/**
- * Fisher-Yates shuffle - returns new shuffled array.
- */
-function shuffleArray<T>(arr: T[]): T[] {
-  const shuffled = [...arr];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
 }

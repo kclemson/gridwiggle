@@ -13,22 +13,11 @@
  */
 
 import { CollageLayout, CollageCell } from '@/types/collage';
+import { PhotoDimension, shuffleArray } from '@/lib/layoutMath';
 
-// ============================================================================
-// Types (Layer 2)
-// ============================================================================
-
-/**
- * Core photo dimension type used throughout layout calculations.
- * Matches the type in heroLayout.ts for compatibility.
- */
-export interface PhotoDimension {
-  id: string;
-  width: number;
-  height: number;
-  aspectRatio: number;
-  weight: number;
-}
+// Re-export for consumers that imported from here
+export type { PhotoDimension };
+export { shuffleArray };
 
 /**
  * A LayoutBlock is a self-contained vertical unit with fixed width.
@@ -116,18 +105,8 @@ interface PackResult3Row extends PackResult {
 }
 
 // ============================================================================
-// Helpers
+// Block Builders (Layer 3)
 // ============================================================================
-
-/** Fisher-Yates shuffle - returns new shuffled array */
-export function shuffleArray<T>(arr: T[]): T[] {
-  const shuffled = [...arr];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
 
 // ============================================================================
 // Block Builders (Layer 3)

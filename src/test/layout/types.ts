@@ -70,6 +70,7 @@ export interface LayoutTestResult {
   // Computed metrics for analysis
   rowCount: number;
   rowSizes: number[];           // Photos per row
+  rowHeroAdjacent: boolean[];   // Which rows overlap vertically with hero
   canvasAspect: number;         // width / height
   areaCoefficientOfVariation: number;  // Size uniformity (lower = more uniform)
   largestToSmallestRatio: number;      // Max area / min area

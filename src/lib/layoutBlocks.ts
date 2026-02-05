@@ -89,6 +89,8 @@ export interface HeroUnitOptions {
   totalPhotoCount?: number;
   /** Minimum photos to reserve for content (default 4) */
   minContentPhotos?: number;
+  /** Shape preference for scoring (default 'auto') */
+  shape?: 'auto' | 'landscape' | 'portrait' | 'square';
 }
 
 // ============================================================================

@@ -1,4 +1,4 @@
-import { CollageSettings as CollageSettingsType, MIN_PHOTOS_FOR_SHAPE_CONTROL } from '@/types/collage';
+import { CollageSettings as CollageSettingsType, MIN_PHOTOS_FOR_SHAPE_CONTROL, isShapeAvailable } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import {
   Select,
@@ -16,6 +16,11 @@ interface CollageSettingsProps {
 
 export function CollageSettings({ settings, onUpdate, photoCount }: CollageSettingsProps) {
   const canControlShape = photoCount >= MIN_PHOTOS_FOR_SHAPE_CONTROL;
+  
+  // Per-shape availability
+  const canLandscape = isShapeAvailable('landscape', photoCount);
+  const canPortrait = isShapeAvailable('portrait', photoCount);
+  const canSquare = isShapeAvailable('square', photoCount);
   
   return (
     <div className="space-y-2">
@@ -39,13 +44,9 @@ export function CollageSettings({ settings, onUpdate, photoCount }: CollageSetti
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="auto">Auto</SelectItem>
-              {canControlShape && (
-                <>
-                  <SelectItem value="landscape">Landscape</SelectItem>
-                  <SelectItem value="portrait">Portrait</SelectItem>
-                  <SelectItem value="square">Square-ish</SelectItem>
-                </>
-              )}
+              {canLandscape && <SelectItem value="landscape">Landscape</SelectItem>}
+              {canPortrait && <SelectItem value="portrait">Portrait</SelectItem>}
+              {canSquare && <SelectItem value="square">Square-ish</SelectItem>}
             </SelectContent>
           </Select>
           {!canControlShape && (

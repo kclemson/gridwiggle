@@ -3,7 +3,7 @@ import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualizat
 import { MetricsBadges } from '@/components/layout-rating/MetricsBadges';
 import { RatingControls } from '@/components/layout-rating/RatingControls';
 import { generateTestBatch, runLayoutTest } from '@/test/layout/layoutAdapter';
-import { LayoutTestCase, LayoutTestResult, RatedLayout, RatingSession } from '@/test/layout/types';
+import { LayoutTestCase, LayoutTestResult, RatedLayout, RatingSession, LayoutTag } from '@/test/layout/types';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 
@@ -18,6 +18,7 @@ export default function LayoutRating() {
   const [testCases, setTestCases] = useState<LayoutTestCase[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<RatedLayout[]>([]);
+  const [selectedTags, setSelectedTags] = useState<LayoutTag[]>([]);
   
   // Initialize test cases
   useEffect(() => {
@@ -74,6 +75,7 @@ export default function LayoutRating() {
       largestToSmallestRatio: currentResult.largestToSmallestRatio,
       heroCoverage: currentResult.heroCoverage,
       rating,
+      tags: selectedTags,
       ratedAt: new Date().toISOString(),
     };
     
@@ -88,13 +90,14 @@ export default function LayoutRating() {
       return [...prev, ratedLayout];
     });
     
-    // Auto-advance
+    // Clear tags and auto-advance
+    setSelectedTags([]);
     if (currentIndex < testCases.length - 1) {
       setCurrentIndex(prev => prev + 1);
     }
     
     toast.success(`Rated as ${rating}`, { duration: 500 });
-  }, [currentResult, currentIndex, testCases.length]);
+  }, [currentResult, currentIndex, testCases.length, selectedTags]);
   
   const handlePrev = useCallback(() => {
     setCurrentIndex(prev => Math.max(0, prev - 1));
@@ -211,6 +214,8 @@ export default function LayoutRating() {
           canGoNext={currentIndex < testCases.length - 1}
           currentIndex={currentIndex}
           totalCount={testCases.length}
+          selectedTags={selectedTags}
+          onTagsChange={setSelectedTags}
         />
         
         {/* Summary stats */}

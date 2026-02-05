@@ -9,7 +9,10 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 
 const STORAGE_KEY = 'layout-rating-session';
-const BATCH_SIZE = 82; // 5 photos: 1 shape × 2 hero = 2; 6+ photos (10 counts): 4 shapes × 2 hero = 80
+// 8-9 photos (2 counts): 3 shapes (auto/landscape/portrait) = 6 cases
+// 10+ photos (7 counts): 4 shapes = 28 cases
+// Total: 34 base combinations
+const BATCH_SIZE = 44;
 
 /**
  * Layout Rating Tool - Dev-only page for rating synthetic layouts.

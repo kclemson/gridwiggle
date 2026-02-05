@@ -191,16 +191,6 @@ export function buildHeroUnitBlock(
   const effectiveMax3Row = Math.min(maxBeside3Row, fractionMax, Math.max(minPhotos3Row, reservedMax));
   const effectiveMax2Row = Math.min(maxBeside2Row, fractionMax, Math.max(minPhotos2Row, reservedMax));
   
-  console.log('[Hero] Balance constraints', {
-    totalPhotoCount,
-    maxBesideFraction,
-    fractionMax,
-    minContentPhotos,
-    reservedMax,
-    effectiveMax3Row,
-    effectiveMax2Row,
-  });
-  
   // Try to build with the selected row mode
   const result = tryBuildHeroUnit(
     hero,
@@ -352,15 +342,6 @@ function tryBuildHeroUnit(
       );
     }
     
-    console.log('[Hero] Block built', {
-      type: 'hero-unit',
-      rowCount,
-      besideCount,
-      scaleFactor: scaleFactor.toFixed(2),
-      height: scaledHeroHeight,
-      anchorSide: anchorRight ? 'right' : 'left',
-    });
-    
     return {
       type: 'hero-unit',
       cells: [heroCell, ...besideCells],
@@ -399,13 +380,6 @@ export function buildContentRowsBlock(
   });
   
   if (result.cells.length === 0) return null;
-  
-  console.log('[Hero] Block built', {
-    type: 'content-rows',
-    photoCount: photos.length,
-    rowCount: result.partition.length,
-    height: result.achievedHeight,
-  });
   
   return {
     type: 'content-rows',

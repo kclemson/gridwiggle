@@ -75,12 +75,11 @@ export function getEditorInitialCrop(photo: PhotoItem): CropRegion {
     return { ...displayCrop };
   }
   
-  // Default to center crop with 80% size
-  const size = Math.min(photo.originalWidth, photo.originalHeight) * 0.8;
+  // Default to full image (no crop)
   return {
-    x: (photo.originalWidth - size) / 2,
-    y: (photo.originalHeight - size) / 2,
-    width: size,
-    height: size,
+    x: 0,
+    y: 0,
+    width: photo.originalWidth,
+    height: photo.originalHeight,
   };
 }

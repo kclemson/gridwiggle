@@ -153,13 +153,6 @@ export function useCollageState() {
       // Hydrate photos (merge metadata + blobs)
       const photos = hydratePhotos(persisted.photos, storedPhotos);
       
-      // Single summary log for debugging (not per-photo spam)
-      console.log('[useCollageState] Hydrated', {
-        metadataCount: persisted.photos.length,
-        blobCount: storedPhotos.length,
-        hydratedCount: photos.length,
-      });
-      
       // Track Object URLs for cleanup
       photos.forEach((p) => objectUrlsRef.current.add(p.objectUrl));
 

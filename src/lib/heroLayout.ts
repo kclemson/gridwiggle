@@ -606,13 +606,6 @@ function generateEdgeAnchoredHeroLayout(
   const introPhotos = shuffled.slice(0, introRowCount * photosPerIntroRow);
   const remainingPhotos = shuffled.slice(introRowCount * photosPerIntroRow);
   
-  console.log('[Hero] Edge-anchored config', {
-    useIntroRows,
-    introPhotoCount: introPhotos.length,
-    remainingPhotos: remainingPhotos.length,
-    anchorSide: anchorRight ? 'right' : 'left',
-  });
-  
   // Pack intro rows first
   let currentY = 0;
   let introCells: CollageCell[] = [];
@@ -631,10 +624,6 @@ function generateEdgeAnchoredHeroLayout(
 
   // For < 4 remaining standards, fall back to 1-row mode
   if (remainingPhotos.length < 4) {
-    console.log('[Hero] Fallback triggered', {
-      reason: 'too-few-photos',
-      fallbackTo: '1-row',
-    });
     const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
     // Offset all cells by currentY and add intro cells
     const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
@@ -680,14 +669,6 @@ function generateEdgeAnchoredHeroLayout(
       
       // When using algebraic fraction, we accept a wider range (clamping already applied)
       const accepted = scaleFactor >= 0.75 && scaleFactor <= 1.25;
-      console.log('[Hero] Trying config', {
-        rowMode: '3-row',
-        besideCount,
-        optimalFraction: optimalFraction.toFixed(2),
-        clamped,
-        scaleFactor: scaleFactor.toFixed(2),
-        accepted,
-      });
       
       if (!accepted) {
         continue; // Try fewer photos
@@ -744,15 +725,6 @@ function generateEdgeAnchoredHeroLayout(
         ? Math.max(...allCells.map(c => c.y + c.height))
         : currentY + scaledHeroHeight;
 
-      console.log('[Hero] Layout complete', {
-        finalAspect: (canvasWidth / finalHeight).toFixed(2),
-        heroCell: { width: heroCell.width, height: heroCell.height },
-        heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
-        besideCells: adjustedBesideCells.length,
-        belowCells: belowCells.length,
-        totalCells: allCells.length,
-      });
-
       return {
         width: canvasWidth,
         height: Math.round(finalHeight),
@@ -791,14 +763,6 @@ function generateEdgeAnchoredHeroLayout(
     
     // When using algebraic fraction, we accept a wider range (clamping already applied)
     const accepted = scaleFactor >= 0.75 && scaleFactor <= 1.25;
-    console.log('[Hero] Trying config', {
-      rowMode: '2-row',
-      besideCount,
-      optimalFraction: optimalFraction.toFixed(2),
-      clamped,
-      scaleFactor: scaleFactor.toFixed(2),
-      accepted,
-    });
     
     if (!accepted) {
       continue; // Try fewer photos
@@ -854,15 +818,6 @@ function generateEdgeAnchoredHeroLayout(
       ? Math.max(...allCells.map(c => c.y + c.height))
       : currentY + scaledHeroHeight;
 
-    console.log('[Hero] Layout complete', {
-      finalAspect: (canvasWidth / finalHeight).toFixed(2),
-      heroCell: { width: heroCell.width, height: heroCell.height },
-      heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
-      besideCells: adjustedBesideCells.length,
-      belowCells: belowCells.length,
-      totalCells: allCells.length,
-    });
-
     return {
       width: canvasWidth,
       height: Math.round(finalHeight),
@@ -871,10 +826,6 @@ function generateEdgeAnchoredHeroLayout(
   }
 
   // No working multi-row config found - fallback to 1-row
-  console.log('[Hero] Fallback triggered', {
-    reason: 'no-valid-config',
-    fallbackTo: '1-row',
-  });
   const fallbackLayout = generateEdgeAnchoredHeroLayout1Row(hero, remainingPhotos, canvasWidth, gap, anchorRight);
   const offsetCells = fallbackLayout.cells.map(cell => ({ ...cell, y: cell.y + currentY }));
   return {
@@ -987,14 +938,6 @@ function generateFloatingHeroLayout(
   const rightCandidates = remainingPhotos.slice(leftCount, leftCount + rightCount);
   const initialBelowPhotos = remainingPhotos.slice(leftCount + rightCount);
 
-  console.log('[Hero] Floating config', {
-    useIntroRows,
-    introPhotoCount: introPhotos.length,
-    leftCount,
-    rightCount,
-    belowCount: initialBelowPhotos.length,
-  });
-
   // Target width fraction for hero
   const widthFraction = calculateHeroWidthFraction(standards.length);
   const targetHeroWidth = Math.round(canvasWidth * widthFraction);
@@ -1026,15 +969,6 @@ function generateFloatingHeroLayout(
     rightResult = packBesideAs2Rows(rightCandidates, targetSideWidth, gap, 0);
   }
 
-  console.log('[Hero] Side packing', {
-    leftRows: 'row3Height' in leftResult ? 3 : 2,
-    leftHeight: leftResult.combinedHeight.toFixed(0),
-    leftWidth: leftResult.naturalTotalWidth.toFixed(0),
-    rightRows: 'row3Height' in rightResult ? 3 : 2,
-    rightHeight: rightResult.combinedHeight.toFixed(0),
-    rightWidth: rightResult.naturalTotalWidth.toFixed(0),
-  });
-
   // Use the taller side to determine hero height
   const maxSideHeight = Math.max(
     leftResult.combinedHeight || 0,
@@ -1042,10 +976,6 @@ function generateFloatingHeroLayout(
   );
 
   if (maxSideHeight === 0) {
-    console.log('[Hero] Fallback triggered', {
-      reason: 'no-side-packing',
-      fallbackTo: 'edge-anchored',
-    });
     // Fallback if neither side could be packed
     return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
   }
@@ -1064,21 +994,9 @@ function generateFloatingHeroLayout(
   const scaleFactor = canvasWidth / totalNaturalWidth;
   
   const accepted = scaleFactor >= 0.80 && scaleFactor <= 1.20;
-  console.log('[Hero] Trying config', {
-    rowMode: 'floating',
-    heroWidth: heroWidth.toFixed(0),
-    totalNaturalWidth: totalNaturalWidth.toFixed(0),
-    scaleFactor: scaleFactor.toFixed(2),
-    accepted,
-  });
   
   // RELAXED: ±20% tolerance for floating layout with 3-row options
   if (!accepted) {
-    console.log('[Hero] Fallback triggered', {
-      reason: 'scale-out-of-tolerance',
-      scaleFactor: scaleFactor.toFixed(2),
-      fallbackTo: 'edge-anchored',
-    });
     // Outside tolerance - fall back to edge-anchored
     return generateEdgeAnchoredHeroLayout(hero, standards, canvasWidth, gap, randomize);
   }
@@ -1206,16 +1124,6 @@ function generateFloatingHeroLayout(
     ? Math.max(...allCells.map(c => c.y + c.height))
     : scaledHeroHeight;
 
-  console.log('[Hero] Layout complete', {
-    finalAspect: (canvasWidth / finalHeight).toFixed(2),
-    heroCell: { width: heroCell.width, height: heroCell.height },
-    heroPctOfCanvas: ((heroCell.width * heroCell.height) / (canvasWidth * finalHeight) * 100).toFixed(1) + '%',
-    leftCells: leftCells.length,
-    rightCells: rightCells.length,
-    belowCells: belowCells.length,
-    totalCells: allCells.length,
-  });
-
   return {
     width: canvasWidth,
     height: Math.round(finalHeight),
@@ -1289,7 +1197,6 @@ function generateBlockBasedHeroLayout(
   );
   
   if (!heroBlock) {
-    console.log('[Hero] Block-based failed', { reason: 'could-not-build-hero-unit' });
     return null;
   }
   
@@ -1329,14 +1236,6 @@ function generateBlockBasedHeroLayout(
   const heroPosition = heroIndex === 0 ? 'top' : 
                        heroIndex === allBlocks.length - 1 ? 'bottom' : 'middle';
   
-  console.log('[Hero] Block-based layout complete', {
-    blockCount: allBlocks.length,
-    heroPosition,
-    heroBlockIndex: heroIndex,
-    finalAspect: (layout.width / layout.height).toFixed(2),
-    heroPctOfCanvas: ((heroBlock.heroCell.width * heroBlock.heroCell.height) / (layout.width * layout.height) * 100).toFixed(1) + '%',
-  });
-  
   return layout;
 }
 
@@ -1362,12 +1261,6 @@ function generateSingleHeroLayout(
 ): CollageLayout {
   // Try block-based layout for larger photosets (provides shuffled variety)
   if (standards.length >= BLOCK_BASED_MIN_PHOTOS) {
-    console.log('[Hero] Strategy', {
-      strategy: 'block-based',
-      standardCount: standards.length,
-      threshold: BLOCK_BASED_MIN_PHOTOS,
-    });
-    
     const blockLayout = generateBlockBasedHeroLayout(
       hero, standards, canvasWidth, gap, randomize, tuning
     );
@@ -1375,18 +1268,10 @@ function generateSingleHeroLayout(
     if (blockLayout) {
       return blockLayout;
     }
-    
-    console.log('[Hero] Block-based fallback', { reason: 'block-based-failed', fallbackTo: 'floating' });
   }
   
   // Fallback to legacy strategies
   const strategy = standards.length < FEW_PHOTOS_THRESHOLD ? 'edge-anchored' : 'floating';
-  
-  console.log('[Hero] Strategy', {
-    strategy,
-    standardCount: standards.length,
-    threshold: FEW_PHOTOS_THRESHOLD,
-  });
   
   // Use edge-anchored layout for few photos (simpler, cleaner)
   if (standards.length < FEW_PHOTOS_THRESHOLD) {
@@ -1603,13 +1488,6 @@ function generateContentOnlyLayout(
     return { width: canvasWidth, height: 800, cells: [] };
   }
   
-  console.log('[Collage] Content-only layout generated', {
-    photoCount: photos.length,
-    rowCount: contentBlock.rowCount,
-    height: contentBlock.height,
-    minPhotosPerRow: tuning.minPhotosPerRow,
-  });
-  
   return {
     width: canvasWidth,
     height: contentBlock.height,
@@ -1629,14 +1507,6 @@ export function generateHeroLayout(
   const dims = getPhotoDimensions(photos, weights);
   const heroes = dims.filter(d => d.weight >= 2.0);
   const standards = dims.filter(d => d.weight < 2.0);
-
-  console.log('[Collage] Layout requested', {
-    totalPhotos: photos.length,
-    heroCount: heroes.length,
-    standardCount: standards.length,
-    shape: settings.shape,
-    randomize,
-  });
 
   // Route based on hero count
   if (heroes.length === 0) {

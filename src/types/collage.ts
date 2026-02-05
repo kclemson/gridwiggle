@@ -127,8 +127,8 @@ export const DEFAULT_TUNING: LayoutTuning = {
  * Square is hardest to satisfy, requiring more photos.
  */
 export const MIN_PHOTOS_FOR_SHAPE: Record<'landscape' | 'portrait' | 'square', number> = {
-  landscape: 6,
-  portrait: 6,
+  landscape: 8,
+  portrait: 8,
   square: 10,
 };
 
@@ -136,7 +136,7 @@ export const MIN_PHOTOS_FOR_SHAPE: Record<'landscape' | 'portrait' | 'square', n
  * Minimum photos required to allow any shape control (the lowest threshold).
  * With fewer photos, aspect ratio constraints are too hard to satisfy.
  */
-export const MIN_PHOTOS_FOR_SHAPE_CONTROL = 6;
+export const MIN_PHOTOS_FOR_SHAPE_CONTROL = 8;
 
 /**
  * Check if a shape is available for a given photo count.

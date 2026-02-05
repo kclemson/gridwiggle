@@ -122,7 +122,7 @@ function getMaxPhotosPerRow(
  * Get target aspect ratio bounds for each shape.
  * Used to clamp row count search range via R = √(S / A) formula.
  */
-function getAspectBounds(
+export function getAspectBounds(
   shape: CollageSettings['shape']
 ): [number, number] {
   switch (shape) {
@@ -136,6 +136,32 @@ function getAspectBounds(
     default:
       return [0.67, 1.5];   // Balanced variety (2:3 to 3:2)
   }
+}
+
+/**
+ * Check if a canvas aspect ratio is acceptable for a given shape.
+ * Used for hard rejection of hero layout candidates.
+ * 
+ * Hero layouts have structural constraints (hero spans 2-3 rows),
+ * so we relax the strict bounds by a tolerance factor.
+ * 
+ * @param canvasAspect - The width/height ratio of the layout
+ * @param shape - The user's shape preference
+ * @param tolerance - Relaxation factor (default 0.2 = 20% beyond strict bounds)
+ * @returns true if aspect is acceptable for the shape
+ */
+export function isAspectAcceptable(
+  canvasAspect: number,
+  shape: CollageSettings['shape'],
+  tolerance: number = 0.2
+): boolean {
+  if (shape === 'auto') return true; // Auto accepts anything
+  
+  const [minAspect, maxAspect] = getAspectBounds(shape);
+  // Relax bounds for hero layouts (they have structural constraints)
+  const relaxedMin = minAspect * (1 - tolerance);
+  const relaxedMax = maxAspect * (1 + tolerance);
+  return canvasAspect >= relaxedMin && canvasAspect <= relaxedMax;
 }
 
 export interface RegionPackResult {

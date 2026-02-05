@@ -43,7 +43,7 @@ export function PhotoGrid({
           <span className="normal-case font-normal italic ml-1">({hint})</span>
         )}
       </h3>
-      <ScrollArea className="max-h-60">
+      <ScrollArea className="[&>[data-radix-scroll-area-viewport]]:max-h-60">
         <div className="flex flex-wrap gap-2 pr-2">
           {sortedPhotos.map((photo) => (
             <PhotoThumbnail

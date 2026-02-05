@@ -46,7 +46,8 @@ function getMinPhotosPerRowRange(
       
     case 'landscape':
       // Above √n = fewer rows = wide
-      return [sqrtN, Math.max(sqrtN + 1, n / 2)];
+      // Cap at sqrtN * 1.5 to avoid overly dense rows
+      return [sqrtN, sqrtN * 1.5];
       
     case 'auto':
     default:

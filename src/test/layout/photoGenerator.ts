@@ -17,7 +17,7 @@ export const COMMON_RATIOS = {
 /**
  * Photo counts designed to expose edge cases in row-packing math.
  */
-export const TEST_PHOTO_COUNTS = [5, 7, 9, 12, 17, 23, 35, 50] as const;
+export const TEST_PHOTO_COUNTS = [5, 6, 7, 9, 11, 12, 14, 17, 23, 35, 50] as const;
 
 /**
  * Apply smart crop variation: moves ratio 10-30% toward square (1.0).

@@ -27,6 +27,11 @@ export function PhotoGrid({
     return [...photos].sort((a, b) => (a.priority ?? 3) - (b.priority ?? 3));
   }, [photos]);
 
+  // Count photos with smart crop applied
+  const smartCroppedCount = useMemo(() => {
+    return photos.filter(p => p.smartCrop !== null).length;
+  }, [photos]);
+
   if (photos.length === 0 && emptyMessage) {
     return (
       <div className="p-4 text-center text-muted-foreground">
@@ -38,7 +43,7 @@ export function PhotoGrid({
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-        {title} ({photos.length})
+        {title} ({photos.length}{smartCroppedCount > 0 && `, ${smartCroppedCount} smartcropped`})
         {hint && (
           <span className="normal-case font-normal italic ml-1">({hint})</span>
         )}

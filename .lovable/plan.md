@@ -1,75 +1,86 @@
 
+# Fix Square Tolerance + Investigation Findings
 
-# Make Shape Indicator Highly Visible in Layout Rating Tool
+## Immediate Fix: Square Tolerance
 
-## Problem
+### File: `src/lib/collageLayout.ts`
 
-The requested shape (landscape/portrait/square/auto) is buried among many small badges, making it easy to overlook when rating. Users accidentally rate layouts as "good" before realizing the shape doesn't match expectations.
+**Line 104-105** — Change square bounds from ±15% to ±5%:
 
----
+```typescript
+// Before
+case 'square':
+  return [0.85, 1.15];  // Near 1:1
 
-## Solution
-
-Add a prominent shape indicator banner directly above the layout visualization, separate from the detailed metrics badges.
-
----
-
-## Design
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    LANDSCAPE                                │  ← Large, colored banner
-└─────────────────────────────────────────────────────────────┘
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│                  [Layout Visualization]                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+// After
+case 'square':
+  return [0.95, 1.05];  // Strict 1:1 (±5%)
 ```
 
-**Visual treatment:**
-- Full-width banner with shape-specific background color
-- Large, bold text (e.g., "LANDSCAPE", "PORTRAIT", "SQUARE")
-- Color coding for instant recognition:
-  - Landscape → Blue tint
-  - Portrait → Purple tint  
-  - Square → Green tint
-  - Auto → Gray/neutral
+---
+
+## Investigation Findings: Hero Layout Shape Violations
+
+### Root Cause Identified
+
+The hero layout system **completely ignores shape constraints** in most code paths:
+
+1. **`generateEdgeAnchoredHeroLayout`** (lines 588-836) — Has NO shape parameter at all. The hero height is determined purely by the beside photos' natural dimensions.
+
+2. **`generateFloatingHeroLayout`** (lines 899-1100) — Also has NO shape parameter. Same issue.
+
+3. **`generateEdgeAnchoredHeroLayout1Row`** (lines 841-887) — No shape parameter.
+
+4. **Shape is only passed to these functions:**
+   - `generateSingleHeroLayout` → passes shape to `generateBlockBasedHeroLayout` only
+   - `generateContentOnlyLayout` → uses shape in `buildContentRowsBlock`
+   - `generateMultiHeroLayout` → receives shape but never uses it
+
+### How Shape Violations Happen
+
+When a user requests "portrait" with a hero:
+
+1. `generateHeroLayout` receives `settings.shape = 'portrait'`
+2. Calls `generateSingleHeroLayout(hero, standards, ..., shape)`
+3. For < 6 standards, falls back to `generateEdgeAnchoredHeroLayout` **without shape**
+4. The hero unit is built purely based on photo aspect ratios
+5. Wide hero + 2-row beside packing → extreme landscape aspect ratio
+6. No `directionPenalty` is ever applied to penalize wrong orientation
+
+### The Scoring System Disconnect
+
+The `directionPenalty` in `scorePartition()` (collageLayout.ts lines 276-288) is excellent — it heavily penalizes wrong orientations. **But hero layouts never use this scoring.** Hero layouts use fixed geometric formulas (`calculateOptimalHeroFraction`) that ignore target shape.
+
+### Why Content-Only Layouts Work
+
+When there's no hero, `generateContentOnlyLayout` → `buildContentRowsBlock` → `packPhotosIntoRegion` → `findBestRowSplit` → **`scorePartition` with directionPenalty**.
+
+The content rows use the scoring system. Hero layouts don't.
 
 ---
 
-## Changes
+## Summary of Issues
 
-### File: `src/pages/LayoutRating.tsx`
-
-Add a shape banner component inline (or create a small component) that renders above the layout card:
-
-```tsx
-{/* Shape indicator banner */}
-<div className={cn(
-  "text-center py-2 px-4 rounded-lg font-bold text-lg uppercase tracking-wider",
-  currentResult.testCase.shape === 'landscape' && "bg-blue-500/20 text-blue-400",
-  currentResult.testCase.shape === 'portrait' && "bg-purple-500/20 text-purple-400",
-  currentResult.testCase.shape === 'square' && "bg-green-500/20 text-green-400",
-  currentResult.testCase.shape === 'auto' && "bg-muted text-muted-foreground",
-)}>
-  {currentResult.testCase.shape}
-</div>
-
-{/* Layout visualization */}
-<div className="bg-card rounded-lg p-4 border">
-  <LayoutVisualization ... />
-</div>
-```
-
-### File: `src/components/layout-rating/MetricsBadges.tsx`
-
-Remove the shape badge from here since it's now prominently displayed above (optional cleanup to reduce redundancy).
+| Issue | Cause | Severity |
+|-------|-------|----------|
+| Square tolerance too loose | `[0.85, 1.15]` bounds | Fixed in this PR |
+| Hero layouts ignore shape | No shape parameter in hero functions | High — causes extreme violations |
+| Hero coverage too low | Fixed 30-60% hero fraction range | Medium — heroes sometimes too small |
 
 ---
 
-## Implementation
+## Recommended Next Steps
 
-1. Add shape banner with color-coded background in `LayoutRating.tsx`
-2. Optionally remove duplicate shape badge from `MetricsBadges.tsx`
+Before making code changes for hero shape enforcement:
 
+1. **Decide on approach:**
+   - **Option A:** Add shape-aware scoring to hero layouts (evaluate multiple hero configurations, pick best)
+   - **Option B:** Add post-hoc shape correction (scale/reflow hero unit to fit target bounds)
+   - **Option C:** Clamp hero fraction based on target shape (e.g., smaller hero for portrait)
+
+2. **Key questions to answer:**
+   - Should heroes be smaller/larger based on target shape?
+   - Should we reject hero configurations that violate shape, or adjust them?
+   - What's the acceptable trade-off between hero prominence and shape compliance?
+
+I'll apply the square tolerance fix now. The hero shape investigation reveals this is a structural issue requiring a design decision before implementation.

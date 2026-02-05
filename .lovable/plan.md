@@ -1,102 +1,114 @@
 
-# Remove Legacy `idealRows` and `isLandscape` from Row Search
 
-## Problem Summary
+# Dynamic Float-Based minPhotosPerRow Ranges
 
-The `findBestRowSplit` function has hardcoded logic that ignores `minPhotosPerRow`:
+## Core Concept
 
-```typescript
-// Lines 278-289 - THE PROBLEM
-const idealPhotosPerRow = isLandscape ? 5 : 3;  // Hardcoded!
-const idealRows = Math.ceil(n / idealPhotosPerRow);
+Use `√n` as the anchor point. Layouts with `minPhotosPerRow ≈ √n` produce roughly equal rows and columns (square-ish). Below √n → more rows → portrait. Above √n → fewer rows → landscape.
 
-const minRows = isLandscape ? ... : Math.max(1, idealRows - 1);
-const maxRows = isLandscape ? ... : Math.min(n, idealRows + 3, 10);
-```
+**Key insight**: `minPhotosPerRow` doesn't need to be an integer — it flows through `Math.ceil()` and creates gradient penalties, giving smoother control.
 
-With `isLandscape: false` and 24 photos, this always searches 7-10 rows regardless of `minPhotosPerRow`.
-
-## Solution: Replace with Simple Range from `minPhotosPerRow`
-
-### Change 1: Simplify `findBestRowSplit` search range
-
-**File: `src/lib/collageLayout.ts` (lines 278-289)**
-
-Replace the entire `idealPhotosPerRow`/`idealRows` block with:
+## Range Formula
 
 ```typescript
-// Derive row count range from minPhotosPerRow
-// maxRows = point where rows become too sparse (violate min threshold)
-// minRows = 1 (allow exploring very wide layouts)
-const maxRows = Math.min(n, Math.ceil(n / minPhotosPerRow) + 2);
-const minRows = Math.max(1, Math.floor(n / 8)); // At least explore some rows
-```
-
-This gives for 24 photos:
-- `minPhotosPerRow = 2` → maxRows = 14, explores 3-14 rows
-- `minPhotosPerRow = 5` → maxRows = 7, explores 3-7 rows
-
-### Change 2: Remove `isLandscape` parameter from `findBestRowSplit`
-
-Since `isLandscape` is no longer needed for the search range:
-
-```typescript
-function findBestRowSplit(
-  dims: PhotoDimension[],
-  targetAspect: number | undefined,
-  // REMOVE: isLandscape: boolean,
-  randomize: boolean = false,
-  minPhotosPerRow: number = 2
-): PhotoDimension[][] {
-```
-
-### Change 3: Update `scorePartition` to not need `isLandscape`
-
-The `wrongDirection` penalty is already gated by `targetAspect !== undefined`. When `targetAspect` is defined (explicit orientation mode), we can derive `isLandscape` from it:
-
-```typescript
-function scorePartition(
-  partition: PhotoDimension[][],
-  targetAspect: number | undefined,
-  // REMOVE: isLandscape: boolean,
-  baseWidth: number = 1200,
-  minPhotosPerRow: number = 2
-): PartitionScore {
-  // ...
+function getMinPhotosPerRowRange(
+  n: number, 
+  orientation: CollageSettings['orientation']
+): [number, number] {
+  const sqrtN = Math.sqrt(n);
   
-  // Derive orientation from targetAspect if present
-  const wrongDirection = targetAspect !== undefined && (
-    targetAspect >= 1.0 
-      ? resultAspect < 1.0   // Target is landscape, result is portrait
-      : resultAspect > 1.0   // Target is portrait, result is landscape
-  );
-  const directionPenalty = wrongDirection ? 10.0 : 0;
+  switch (orientation) {
+    case 'portrait':
+      // Below √n = more rows = tall
+      return [2, sqrtN];
+      
+    case 'square':
+      // Around √n = balanced
+      return [Math.max(2, sqrtN - 1), sqrtN + 1];
+      
+    case 'landscape':
+      // Above √n = fewer rows = wide
+      return [sqrtN, Math.max(sqrtN + 1, n / 2)];
+      
+    case 'auto':
+    default:
+      // Full range for maximum variety
+      return [2, Math.max(sqrtN + 2, n / 3)];
+  }
+}
 ```
 
-### Change 4: Update call sites
+## Expected Ranges by Photo Count
 
-**`packPhotosIntoRegion`**: Remove `isLandscape` from the call to `findBestRowSplit`
+| n | √n | Portrait | Square | Landscape | Auto |
+|---|---|---|---|---|---|
+| 6 | 2.4 | [2, 2.4] | [2, 3.4] | [2.4, 3] | [2, 4.4] |
+| 12 | 3.5 | [2, 3.5] | [2.5, 4.5] | [3.5, 6] | [2, 5.5] |
+| 24 | 4.9 | [2, 4.9] | [3.9, 5.9] | [4.9, 12] | [2, 8] |
+| 36 | 6.0 | [2, 6.0] | [5, 7] | [6, 18] | [2, 12] |
+| 50 | 7.1 | [2, 7.1] | [6.1, 8.1] | [7.1, 25] | [2, 16.7] |
+
+## Implementation Changes
+
+### File: `src/lib/collageLayout.ts`
+
+1. **Add helper function** `getMinPhotosPerRowRange(n, orientation)` near the top
+2. **Replace lines 564-596** (the targetAspect block) with:
 
 ```typescript
-const partition = findBestRowSplit(dims, effectiveTargetAspect, false, minPhotosPerRow);
+const n = photos.length;
+const [minRange, maxRange] = getMinPhotosPerRowRange(n, settings.orientation);
+
+// Pick from range
+let effectiveMinPhotosPerRow: number;
+if (options?.randomize) {
+  // Random float in [minRange, maxRange]
+  effectiveMinPhotosPerRow = minRange + Math.random() * (maxRange - minRange);
+} else {
+  // Use midpoint of range as sensible default
+  effectiveMinPhotosPerRow = (minRange + maxRange) / 2;
+}
+
+const layoutTuning: LayoutTuning = {
+  ...(options?.tuning ?? DEFAULT_TUNING),
+  minPhotosPerRow: effectiveMinPhotosPerRow,
+};
+
+// targetAspect is now always undefined - removed from algorithm
+return generateHeroLayout(
+  photos,
+  settings,
+  undefined,
+  weights,
+  options?.randomize ?? false,
+  layoutTuning
+);
 ```
 
-**`RegionPackOptions` interface**: Remove `isLandscape` field (it's no longer used)
+### File: `src/lib/heroLayout.ts`
 
-**`buildContentRowsBlock`**: Remove `isLandscape: false` from options
+**Remove lines 1661-1670** (redundant randomization block):
+```typescript
+// DELETE - now handled in generateCollageLayout
+if (targetAspect === undefined && randomize) {
+  const minRowOptions = [2, 3, 4, 5];
+  ...
+}
+```
+
+## Why Float Ranges Work
+
+The math handles floats gracefully:
+- `Math.ceil(24 / 4.5) = 6` rows explored
+- `Math.ceil(24 / 4.9) = 5` rows explored
+- Sparse penalty: `5.0 * (4.5 - 4) = 2.5` for a 4-photo row
+
+Floats create **gradient scoring** rather than hard cutoffs, producing more natural layout selection.
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/collageLayout.ts` | Remove `isLandscape` from `scorePartition` and `findBestRowSplit` signatures; replace `idealRows` logic with `minPhotosPerRow`-based range |
-| `src/lib/layoutBlocks.ts` | Remove `isLandscape` from `packPhotosIntoRegion` calls |
+| `src/lib/collageLayout.ts` | Add `getMinPhotosPerRowRange()` helper; replace targetAspect block with range-based selection |
+| `src/lib/heroLayout.ts` | Remove redundant randomization block (lines 1661-1670) |
 
-## Expected Result
-
-After this change:
-- **No "ideal"** - just a search range
-- **`minPhotosPerRow` directly controls** how many rows are explored
-- Low values (2) allow many rows → tall layouts
-- High values (5) limit rows → wide layouts
-- Scoring picks the best based on area uniformity (the sparsePenalty ensures rows meet the minimum threshold)

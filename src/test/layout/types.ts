@@ -8,7 +8,7 @@ export const LAYOUT_ISSUE_TAGS = [
   'hero-too-dominant',
   'single-photo-row',
   'row-too-dense',
-  'uneven-sizes',
+  'unbalanced-sizes',
   'wrong-shape',
   'extreme-aspect',
   'wasted-space',

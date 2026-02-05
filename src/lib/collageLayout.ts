@@ -57,6 +57,40 @@ function getMinPhotosPerRowRange(
   }
 }
 
+/**
+ * Calculate maximum photos per row based on photo count and shape.
+ * This is an ACTUAL CONSTRAINT, not just a scoring hint.
+ * 
+ * Uses √n as anchor:
+ * - Portrait: narrow rows → many rows → tall
+ * - Landscape: wide rows → few rows → wide
+ */
+function getMaxPhotosPerRow(
+  n: number,
+  shape: CollageSettings['shape']
+): number {
+  const sqrtN = Math.sqrt(n);
+  
+  switch (shape) {
+    case 'portrait':
+      // Narrow rows for tall layouts
+      return Math.max(4, Math.floor(sqrtN * 0.7));
+      
+    case 'square':
+      // Balanced
+      return Math.max(5, Math.round(sqrtN));
+      
+    case 'landscape':
+      // Wide rows for landscape layouts
+      return Math.max(8, Math.ceil(sqrtN * 1.3));
+      
+    case 'auto':
+    default:
+      // Balanced default
+      return Math.max(6, Math.round(sqrtN));
+  }
+}
+
 export interface RegionPackResult {
   /** Cells positioned within the region */
   cells: CollageCell[];
@@ -244,9 +278,16 @@ function scorePartition(
     ? 5.0 * (minPhotosPerRow - minRowSize) 
     : 0;
   
-  const rowBalancePenalty = 
-    sparsePenalty +                                        // Penalize sparse rows below threshold
-    (maxRowSize > 6 ? 0.1 * (maxRowSize - 6) : 0);         // Penalize very long rows
+  // Calculate shape-aware max for penalty
+  const totalPhotos = partition.flat().length;
+  const maxPhotosPerRow = getMaxPhotosPerRow(totalPhotos, shape);
+  
+  // Strong penalty for exceeding shape-based max (was weak 0.1 for >6)
+  const overMaxPenalty = maxRowSize > maxPhotosPerRow
+    ? 3.0 * (maxRowSize - maxPhotosPerRow)
+    : 0;
+  
+  const rowBalancePenalty = sparsePenalty + overMaxPenalty;
   
   // Combined score (lower = better)
   // Shape enforcement is primary, uniformity is secondary
@@ -317,11 +358,17 @@ function findBestRowSplit(
   
   if (n <= 1) return [workingDims];
   
-  // Derive row count range directly from minPhotosPerRow
-  // maxRows = point where rows become too sparse (violate min threshold)
-  // minRows = at least explore some rows (avoid single-row for many photos)
+  // Calculate max photos per row based on shape - this is an ACTUAL constraint
+  const maxPhotosPerRow = getMaxPhotosPerRow(n, shape);
+  
+  // Derive row count range:
+  // minRows: ensure no row exceeds maxPhotosPerRow (shape-driven constraint)
+  // maxRows: point where rows become too sparse (violate min threshold)
+  const minRowsFromMax = Math.ceil(n / maxPhotosPerRow);
+  const minRowsFromDensity = Math.max(1, Math.floor(n / 8));
+  const minRows = Math.max(minRowsFromMax, minRowsFromDensity);
+  
   const maxRows = Math.min(n, Math.ceil(n / minPhotosPerRow) + 2);
-  const minRows = Math.max(1, Math.floor(n / 8));
   
   // Collect top scores for randomization
   const topScores: PartitionScore[] = [];

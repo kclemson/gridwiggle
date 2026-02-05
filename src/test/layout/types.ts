@@ -74,6 +74,8 @@ export interface LayoutTestResult {
   areaCoefficientOfVariation: number;  // Size uniformity (lower = more uniform)
   largestToSmallestRatio: number;      // Max area / min area
   heroCoverage: number | null;  // % of canvas area hero occupies
+  cellAreaPercents: number[];   // All cell areas as %, sorted descending
+  heroToRunnerUpRatio: number | null;  // Hero area / runner-up area
 }
 
 /**
@@ -93,6 +95,8 @@ export interface RatedLayout {
   areaCoefficientOfVariation: number;
   largestToSmallestRatio: number;
   heroCoverage: number | null;
+  cellAreaPercents: number[];
+  heroToRunnerUpRatio: number | null;
   
   // User rating
   rating: 'good' | 'bad' | 'skip';

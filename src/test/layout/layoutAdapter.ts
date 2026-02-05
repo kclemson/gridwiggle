@@ -58,19 +58,34 @@ function calculateMetrics(
 ): Pick<
   LayoutTestResult, 
   'rowCount' | 'rowSizes' | 'canvasAspect' | 'areaCoefficientOfVariation' | 
-  'largestToSmallestRatio' | 'heroCoverage'
+  'largestToSmallestRatio' | 'heroCoverage' | 'cellAreaPercents' | 'heroToRunnerUpRatio'
 > {
   // Calculate cell areas
   const areas = layout.cells.map(cell => cell.width * cell.height);
   const canvasArea = layout.width * layout.height;
   
-  // Find hero coverage
+  // Calculate all cell area percentages, sorted descending
+  const cellAreaPercents = layout.cells
+    .map(cell => Math.round((cell.width * cell.height) / canvasArea * 100))
+    .sort((a, b) => b - a);
+  
+  // Find hero coverage and ratio
   const heroPhoto = photos.find(p => p.priority === 1);
   let heroCoverage: number | null = null;
+  let heroToRunnerUpRatio: number | null = null;
+  
   if (heroPhoto) {
     const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
     if (heroCell) {
-      heroCoverage = (heroCell.width * heroCell.height) / canvasArea;
+      const heroArea = heroCell.width * heroCell.height;
+      heroCoverage = heroArea / canvasArea;
+      
+      // Calculate ratio to largest non-hero cell
+      const nonHeroCells = layout.cells.filter(c => c.photoId !== heroPhoto.id);
+      if (nonHeroCells.length > 0) {
+        const runnerUpArea = Math.max(...nonHeroCells.map(c => c.width * c.height));
+        heroToRunnerUpRatio = heroArea / runnerUpArea;
+      }
     }
   }
   
@@ -95,6 +110,8 @@ function calculateMetrics(
     areaCoefficientOfVariation: coefficientOfVariation(areas),
     largestToSmallestRatio: areas.length > 0 ? Math.max(...areas) / Math.min(...areas) : 1,
     heroCoverage,
+    cellAreaPercents,
+    heroToRunnerUpRatio,
   };
 }
 

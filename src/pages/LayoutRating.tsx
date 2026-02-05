@@ -75,6 +75,8 @@ export default function LayoutRating() {
       areaCoefficientOfVariation: currentResult.areaCoefficientOfVariation,
       largestToSmallestRatio: currentResult.largestToSmallestRatio,
       heroCoverage: currentResult.heroCoverage,
+      cellAreaPercents: currentResult.cellAreaPercents,
+      heroToRunnerUpRatio: currentResult.heroToRunnerUpRatio,
       rating,
       tags: selectedTags,
       ratedAt: new Date().toISOString(),

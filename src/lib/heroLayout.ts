@@ -1204,23 +1204,20 @@ function generateBlockBasedHeroLayout(
   // 2. Get remaining photos (not used in hero block)
   const remaining = candidates.filter(p => !heroBlock.photoIds.has(p.id));
   
-  // 3. Split remaining into content row blocks (each block = ~3-4 photos)
-  const photoChunks = splitPhotosForBlocks(remaining as BlockPhotoDimension[], tuning.contentPhotosPerBlock);
-  const contentBlocks: LayoutBlock[] = [];
-  
-  for (const chunk of photoChunks) {
-    const block = buildContentRowsBlock(
-      chunk,
+  // 3. Build ONE content block with ALL remaining photos
+  // This allows shape-aware scoring to optimize the entire set
+  const contentBlock = remaining.length > 0
+    ? buildContentRowsBlock(
+      remaining as BlockPhotoDimension[],
       canvasWidth,
       gap,
-       packPhotosIntoRegion,
-       tuning.minPhotosPerRow,
-       shape
-    );
-    if (block) {
-      contentBlocks.push(block);
-    }
-  }
+      packPhotosIntoRegion,
+      tuning.minPhotosPerRow,
+      shape
+    )
+    : null;
+  
+  const contentBlocks: LayoutBlock[] = contentBlock ? [contentBlock] : [];
   
   // 4. Combine all blocks
   let allBlocks: LayoutBlock[] = [heroBlock, ...contentBlocks];

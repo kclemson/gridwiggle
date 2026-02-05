@@ -134,7 +134,10 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   };
 
   // Handle size in viewBox units so it appears as ~20px on screen
-  const handleSize = viewScale > 0 ? 20 / viewScale : 20;
+  // Cap at 5% of smaller dimension to prevent oversized handles on small images
+  const targetHandleSize = viewScale > 0 ? 20 / viewScale : 20;
+  const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.05;
+  const handleSize = Math.min(targetHandleSize, maxHandleSize);
   const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
 
   return (

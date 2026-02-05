@@ -1,39 +1,81 @@
 
 
-# Strengthen the Min/Row Penalty
+# Clean Up Tuning Parameter - Make It Required
 
-## Goal
+## Problem
 
-Make the `minPhotosPerRow` setting actually enforce denser rows by increasing the penalty weight from `0.5` to `5.0`.
+The `tuning` parameter is marked optional (`tuning?: LayoutTuning`) with fallback logic (`effectiveTuning = tuning ?? DEFAULT_TUNING`), but this is defensive coding for a case that never happens. We control all calling code, and tuning is always passed.
 
-## Current Behavior
+## Changes
 
-With `minPhotosPerRow=6` and a content section of 11 photos, the algorithm produces 3 rows of 3-4 photos because the sparse penalty (0.5 per photo deficit) is too weak compared to aspect ratio penalties.
+### 1. Make tuning required in function signatures
 
-## Proposed Change
-
-In `src/lib/collageLayout.ts`, line 195-197, change:
+**`src/lib/collageLayout.ts`**
 
 ```typescript
-// BEFORE (weak penalty)
-const sparsePenalty = minRowSize < minPhotosPerRow 
-  ? 0.5 * (minPhotosPerRow - minRowSize) 
-  : 0;
-
-// AFTER (strong penalty)
-const sparsePenalty = minRowSize < minPhotosPerRow 
-  ? 5.0 * (minPhotosPerRow - minRowSize) 
-  : 0;
+// Line 67: Change from optional to required
+export interface LayoutOptions {
+  photoWeights: Record<string, number>;
+  randomize?: boolean;
+  tuning: LayoutTuning;  // Remove the ?
+}
 ```
 
-## Expected Result
+**`src/lib/heroLayout.ts`**
 
-With 11 photos and `minPhotosPerRow=6`:
-- Algorithm will strongly prefer 2 rows (6+5) over 3 rows (4+4+3)
-- The last row may still have fewer than 6 if photo count doesn't divide evenly
-- Penalty of 15 for 3-photo rows will outweigh aspect ratio concerns
+```typescript
+// Line 1594: Change from optional to required
+export function generateHeroLayout(
+  photos: PhotoItem[],
+  settings: CollageSettings,
+  targetAspect: number | undefined,
+  weights: Record<string, number>,
+  randomize: boolean,
+  tuning: LayoutTuning  // Remove the ?
+): CollageLayout {
+```
 
-## File to Modify
+### 2. Remove fallback logic
 
-1. `src/lib/collageLayout.ts` - Change penalty multiplier from `0.5` to `5.0` on line 196
+**`src/lib/heroLayout.ts`**
+
+```typescript
+// REMOVE this line (~1597):
+const effectiveTuning = tuning ?? DEFAULT_TUNING;
+
+// Just use `tuning` directly throughout the function
+```
+
+### 3. Update all usages of effectiveTuning to just tuning
+
+Replace all references to `effectiveTuning` with `tuning` in `heroLayout.ts`.
+
+## Then: Add minPhotosPerRow Randomization
+
+After cleanup, implement the variety feature:
+
+```typescript
+// In generateHeroLayout, after the function signature
+let layoutTuning = tuning;
+
+// For auto mode: randomize minPhotosPerRow for shape variety
+if (targetAspect === undefined && randomize) {
+  const minRowOptions = [2, 3, 4, 5];
+  const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
+  layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
+}
+
+// Pass layoutTuning to downstream functions
+```
+
+## Files to Modify
+
+1. **`src/lib/collageLayout.ts`** - Make `tuning` required in `LayoutOptions` interface
+2. **`src/lib/heroLayout.ts`** - Make `tuning` required, remove fallback, add randomization
+
+## Result
+
+- Cleaner code that reflects reality
+- No defensive fallbacks for impossible cases
+- Clear immutable pattern for per-layout tuning overrides
 

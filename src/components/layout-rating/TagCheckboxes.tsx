@@ -45,8 +45,8 @@ function getDynamicLabel(tag: LayoutTag, result: LayoutTestResult): string {
       return `${label} ([${formatted.join(', ')}])`;
     }
     
-    case 'uneven-sizes':
-      return `Uneven sizes (max/min: ${largestToSmallestRatio.toFixed(1)}×)`;
+    case 'unbalanced-sizes':
+      return `Unbalanced sizes (max/min: ${largestToSmallestRatio.toFixed(1)}×)`;
     
     case 'wasted-space':
       return 'Wasted space';

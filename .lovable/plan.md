@@ -1,193 +1,103 @@
 
+# Remove targetAspect from Auto Mode Flow
 
-# Unify Layout Generation into Single Block-Based Path
+## Problem Identified
 
-## Status: ✅ COMPLETED
+You're right - we previously decided that `minPhotosPerRow` should be the sole shape control lever. But the current code still has `targetAspect` influencing layouts through hardcoded defaults:
 
-## Problem
+1. **`buildContentRowsBlock`** passes `isLandscape: true` to `packPhotosIntoRegion`
+2. **`packPhotosIntoRegion`** (line 501) defaults to `isLandscape ? 1.5 : 0.75` when no `targetAspect` is provided
+3. **`scorePartition`** penalizes layouts that deviate from this 1.5 target via `aspectDiff * 2.0`
 
-We have two divergent code paths:
+Result: Even with `minPhotosPerRow` randomization, the algorithm optimizes toward 1.5 aspect ratio.
 
-1. **Standard path** (`collageLayout.ts`): Uses `findBestRowSplit` → `calculateLayout` directly
-2. **Hero path** (`heroLayout.ts`): Uses block architecture with `buildContentRowsBlock` → `stackBlocks`
+## Solution
 
-As features evolve (variety randomization, tuning parameters, new block types), maintaining both paths becomes increasingly difficult. They'll drift apart.
+Remove `targetAspect` influence when in auto mode (no explicit shape target):
 
-## Key Insight
+### Change 1: Update `scorePartition` to handle undefined target
 
-The block-based architecture in `layoutBlocks.ts` is **already more general** than the standard path:
-
-- A layout with heroes = hero-unit block(s) + content-rows block(s)
-- A layout **without** heroes = just content-rows block(s)
-
-The "no hero" case is simply the hero case with zero hero-unit blocks.
-
-## Proposed Architecture
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                   generateCollageLayout()                        │
-│         (single entry point in collageLayout.ts)                 │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Unified Layout Generation Flow                      │
-│                                                                  │
-│  1. Extract dimensions, determine orientation/target             │
-│  2. Apply variety randomization (minPhotosPerRow, etc.)          │
-│  3. Separate heroes from standards                               │
-│  4. Build blocks:                                                │
-│     - For each hero: buildHeroUnitBlock()                        │
-│     - Remaining photos: buildContentRowsBlock()                  │
-│  5. stackBlocks() → final layout                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## Technical Changes
-
-### 1. Rename and Generalize `generateHeroLayout`
-
-Rename to `generateBlockBasedLayout` and make it work for the zero-hero case:
+When `targetAspect` is `undefined`, skip the aspect penalty entirely:
 
 ```typescript
-// src/lib/heroLayout.ts → becomes the unified layout generator
-
-export function generateBlockBasedLayout(
-  photos: PhotoItem[],
-  settings: CollageSettings,
-  targetAspect: number | undefined,
-  weights: Record<string, number>,
-  randomize: boolean,
-  tuning: LayoutTuning
-): CollageLayout {
-  const gap = settings.gapSize;
-  const dims = getPhotoDimensions(photos, weights);
-  const heroes = dims.filter(d => d.weight >= 2.0);
-  const standards = dims.filter(d => d.weight < 2.0);
-
-  // Apply variety randomization (works for both hero and no-hero cases)
-  let layoutTuning = tuning;
-  if (targetAspect === undefined && randomize) {
-    const minRowOptions = [2, 3, 4, 5];
-    const randomMinPerRow = minRowOptions[Math.floor(Math.random() * minRowOptions.length)];
-    layoutTuning = { ...tuning, minPhotosPerRow: randomMinPerRow };
-  }
-
-  // Route based on hero count
-  if (heroes.length === 0) {
-    // No heroes: just content rows
-    return generateContentOnlyLayout(standards, canvasWidth, gap, layoutTuning);
-  }
-
-  if (heroes.length === 1) {
-    return generateSingleHeroLayout(heroes[0], standards, canvasWidth, gap, randomize, targetAspect, layoutTuning);
-  }
-
-  return generateMultiHeroLayout(heroes, standards, canvasWidth, gap, randomize);
+// src/lib/collageLayout.ts - scorePartition
+function scorePartition(
+  partition: PhotoDimension[][],
+  targetAspect: number | undefined,  // Change to optional
+  isLandscape: boolean,
+  baseWidth: number = 1200,
+  minPhotosPerRow: number = 2
+): PartitionScore {
+  // ...existing calculations...
+  
+  // Only penalize aspect deviation when we have a target
+  const aspectDiff = targetAspect !== undefined 
+    ? Math.abs(resultAspect - targetAspect) / targetAspect 
+    : 0;
+  
+  // Only apply direction penalty when we have an explicit target
+  const directionPenalty = targetAspect !== undefined && wrongDirection ? 10.0 : 0;
+  
+  // ...rest unchanged...
 }
 ```
 
-### 2. Add Content-Only Layout Function
+### Change 2: Update `findBestRowSplit` to accept undefined target
 
 ```typescript
-function generateContentOnlyLayout(
-  photos: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  tuning: LayoutTuning
-): CollageLayout {
-  // Build content rows using the same block primitive
-  const contentBlock = buildContentRowsBlock(
-    photos,
-    canvasWidth,
-    gap,
-    packPhotosIntoRegion,
-    tuning.minPhotosPerRow
-  );
-  
-  if (!contentBlock) {
-    return { width: canvasWidth, height: 800, cells: [] };
-  }
-  
-  // Single block, no need for stackBlocks
-  return {
-    width: canvasWidth,
-    height: contentBlock.height,
-    cells: contentBlock.cells,
-  };
+// src/lib/collageLayout.ts - findBestRowSplit
+function findBestRowSplit(
+  dims: PhotoDimension[],
+  targetAspect: number | undefined,  // Change to optional
+  isLandscape: boolean,
+  randomize: boolean = false,
+  minPhotosPerRow: number = 2
+): PhotoDimension[][] {
+  // Pass through to scorePartition (which now handles undefined)
 }
 ```
 
-### 3. Simplify `generateCollageLayout`
+### Change 3: Update `packPhotosIntoRegion` to not default targetAspect
 
 ```typescript
-// src/lib/collageLayout.ts
-
-export function generateCollageLayout(
-  photos: PhotoItem[],
-  settings: CollageSettings,
-  options?: LayoutOptions
-): CollageLayout {
-  if (photos.length === 0) {
-    return { width: 1200, height: 800, cells: [] };
-  }
-  
-  // Handle single photo edge case
-  if (photos.length === 1) {
-    // ... existing single-photo logic
-  }
-  
-  const weights = options?.photoWeights ?? {};
-  const dims = getPhotoDimensions(photos, weights);
-  
-  // Determine target aspect ratio
-  const targetAspect = determineTargetAspect(settings.orientation, dims);
-  
-  // Single unified path for all layouts
-  return generateBlockBasedLayout(
-    photos,
-    settings,
-    targetAspect,
-    weights,
-    options?.randomize ?? false,
-    options?.tuning
-  );
-}
+// src/lib/collageLayout.ts - packPhotosIntoRegion
+// Remove the default - pass undefined through
+const effectiveTargetAspect = targetAspect ?? (targetHeight ? width / targetHeight : undefined);
+const partition = findBestRowSplit(dims, effectiveTargetAspect, isLandscape, false, minPhotosPerRow);
 ```
 
-### 4. Remove Duplicated Helper: `hasHeroPhotos`
+### Change 4: Update `buildContentRowsBlock` to not force isLandscape
 
-The check for heroes happens inside `generateBlockBasedLayout`, so `hasHeroPhotos` is no longer needed as a separate routing decision.
+```typescript
+// src/lib/layoutBlocks.ts - buildContentRowsBlock
+const result = packPhotosIntoRegion(photos, {
+  width: canvasWidth,
+  gap,
+  offsetX: 0,
+  offsetY: 0,
+  isLandscape: false,  // Neutral - let minPhotosPerRow drive shape
+  minPhotosPerRow,
+  // No targetAspect - let it be undefined
+});
+```
 
-## Benefits
+## Result
 
-| Before | After |
-|--------|-------|
-| Two code paths with separate variety logic | Single path with shared variety logic |
-| Hero-only minPhotosPerRow randomization | Randomization works for ALL layouts |
-| Different helper functions used | Shared block primitives everywhere |
-| `hasHeroPhotos` routing decision in caller | Internal routing inside single function |
+In auto mode with no heroes:
+- `targetAspect` is `undefined` throughout
+- `aspectDiff` becomes 0 (no aspect penalty)
+- `directionPenalty` becomes 0 (no orientation gate)
+- **Only `minPhotosPerRow` penalty affects scoring**
+- Low `minPhotosPerRow` (2) allows many rows → taller layouts
+- High `minPhotosPerRow` (5) forces fewer rows → wider layouts
 
 ## Files to Modify
 
-1. **`src/lib/heroLayout.ts`**
-   - Rename `generateHeroLayout` → `generateBlockBasedLayout`
-   - Add `generateContentOnlyLayout` for zero-hero case
-   - Move variety randomization to work for all cases
+| File | Changes |
+|------|---------|
+| `src/lib/collageLayout.ts` | Make `targetAspect` optional in `scorePartition`, `findBestRowSplit`; remove default in `packPhotosIntoRegion` |
+| `src/lib/layoutBlocks.ts` | Remove `isLandscape: true` hardcode, don't pass `targetAspect` |
 
-2. **`src/lib/collageLayout.ts`**
-   - Remove `findBestRowSplit` / `calculateLayout` direct usage
-   - Remove `hasHeroPhotos` routing check
-   - Call `generateBlockBasedLayout` for all multi-photo layouts
-   - Keep utility functions (`reflowAfterSwap`, `swapPhotosInLayout`)
+## Why This Is Different From My Earlier Plan
 
-## Incremental Approach
-
-This can be done in phases:
-
-**Phase 1**: Add `generateContentOnlyLayout` that uses block primitives
-**Phase 2**: Route zero-hero case through it inside existing `generateHeroLayout`
-**Phase 3**: Rename and clean up once both paths work
-**Phase 4**: Remove dead code from `collageLayout.ts`
-
+My earlier plan was **wrong** - I was suggesting to *thread* `targetAspect` through and randomize it. But your earlier analysis was correct: we should use `minPhotosPerRow` as the **sole** lever and **remove** `targetAspect` from the auto-mode flow entirely.

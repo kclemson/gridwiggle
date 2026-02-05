@@ -1,62 +1,170 @@
 
 
-# Plan: Update Test Photo Counts to Match Shape Thresholds
+# Plan: Hero Photos Auto-Lock Shape to Auto
 
 ## Summary
 
-The test generation still includes photo counts (5, 6, 7) that are below the new shape thresholds. Since portrait/landscape now require 8 photos and square requires 10, we should clean up the test counts to avoid generating test cases that only produce "auto" results.
+When the user marks one or more photos as hero, automatically reset shape to "Auto" and disable the shape dropdown. This is a pragmatic MVP decision based on eval data showing hero layouts work well with auto shape but struggle with explicit shape constraints.
 
-## Problem Analysis
+---
 
-Current `TEST_PHOTO_COUNTS = [5, 6, 7, 9, 11, 12, 14, 17, 23, 35, 50]`:
-- **5, 6, 7 photos**: Only "auto" is available (below 8-photo minimum)
-- **9 photos**: Only "auto", "landscape", "portrait" (below 10-photo square minimum)
-- **10+ photos**: All shapes available
+## Key Insight: No New Helper Needed
 
-The old session in your browser was persisted **before** the threshold updates, which is why you're seeing a "SQUARE-ISH (7)" case.
+Instead of creating a new `hasAnyHeroes()` function, we'll use an inline derived check:
 
-## Proposed Changes
-
-### 1. Update `TEST_PHOTO_COUNTS` in `src/test/layout/photoGenerator.ts`
-
-Remove counts that don't add testing value:
-
-```text
-Current:  [5, 6, 7, 9, 11, 12, 14, 17, 23, 35, 50]
-Proposed: [8, 9, 10, 12, 14, 17, 23, 35, 50]
+```typescript
+const hasHeroes = state.photos.some(p => p.priority === 1);
 ```
 
-Rationale:
-- **8**: Minimum for portrait/landscape (edge case testing)
-- **9**: One more photo, still no square (tests portrait/landscape scaling)
-- **10**: Minimum for square (edge case testing)
-- **12, 14, 17, 23, 35, 50**: Larger counts for varied configurations
+This is simpler than the existing `hasHeroPhotos()` in heroLayout.ts, which checks for heroes *and* standards (needed for layout logic, but overkill for UI state).
 
-Removed:
-- **5, 6, 7**: Only produce "auto" layouts - these already work well and don't need ratings
-- **11**: No unique edge case value vs 10 and 12
+---
 
-### 2. Update `BATCH_SIZE` comment in `src/pages/LayoutRating.tsx`
+## Changes Overview
 
-Update the calculation to reflect new counts:
-```text
-// New calculation:
-// 8-9 photos (2 counts): 3 shapes = 6 cases
-// 10+ photos (7 counts): 4 shapes = 28 cases
-// Total: 34 base combinations
-// With ~80% hero/20% no-hero weighting = ~34 test cases per batch
+| File | Changes |
+|------|---------|
+| `src/components/CropEditor.tsx` | Update hero checkbox label text |
+| `src/components/CollageSettings.tsx` | Accept `hasHeroes` prop, move shape to right, add disabled state + hint |
+| `src/pages/Index.tsx` | Derive `hasHeroes` inline, update handlers to reset shape, pass prop to CollageSettings |
+
+---
+
+## Detailed Changes
+
+### 1. `src/components/CropEditor.tsx` (line ~279)
+
+**Before:**
+```
+Make this a hero photo (larger in collage)
 ```
 
-Change `BATCH_SIZE` from 82 to a more appropriate value (e.g., 44 to allow some margin for shuffle variance).
+**After:**
+```
+Make this a hero photo so it is larger in the collage
+```
 
-## Files to Modify
+---
 
-| File | Change |
-|------|--------|
-| `src/test/layout/photoGenerator.ts` | Update `TEST_PHOTO_COUNTS` array |
-| `src/pages/LayoutRating.tsx` | Update `BATCH_SIZE` constant and comment |
+### 2. `src/components/CollageSettings.tsx`
 
-## User Action Required
+**A) Add `hasHeroes` prop:**
+```typescript
+interface CollageSettingsProps {
+  settings: CollageSettingsType;
+  onUpdate: (updates: Partial<CollageSettingsType>) => void;
+  photoCount: number;
+  hasHeroes: boolean;  // NEW
+}
+```
 
-After these changes, you'll need to click **Reset** in the Layout Rating Tool to generate a fresh batch with the updated counts. The old session data in localStorage contains cases generated before the threshold updates.
+**B) Reorder the settings bar** - move Shape to the right side:
+- Current order: Shape → Background → Gap
+- New order: Background → Gap → Shape
+
+**C) Update disabled logic and hint:**
+```typescript
+const shapeDisabled = hasHeroes || !canControlShape;
+const shapeHint = hasHeroes 
+  ? "(heroes use auto)" 
+  : !canControlShape 
+    ? "(8+ photos)" 
+    : null;
+```
+
+**D) Add HTML title tooltip for clarity:**
+```tsx
+<div 
+  className="flex items-center gap-2"
+  title={hasHeroes ? "Shape is set to Auto when photos are marked as heroes" : undefined}
+>
+```
+
+---
+
+### 3. `src/pages/Index.tsx`
+
+**A) Derive `hasHeroes` from state:**
+```typescript
+const hasHeroes = state.photos.some(p => p.priority === 1);
+```
+
+**B) Update `handleSaveCrop` to reset shape when adding hero:**
+```typescript
+const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
+  updatePhoto(photoId, { manualCrop: crop, priority });
+  setEditingPhotoId(null);
+  
+  // Reset shape to auto when adding a hero
+  if (priority === 1 && state.settings.shape !== 'auto') {
+    updateSettings({ shape: 'auto' });
+  }
+  
+  if (state.layout) {
+    regenerateCollage({ 
+      priorityOverride: { photoId, priority },
+      cropOverride: { photoId, crop },
+      settings: priority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+    });
+  }
+}, [updatePhoto, state.layout, state.settings, updateSettings, regenerateCollage]);
+```
+
+**C) Update `handleToggleHero` to reset shape when adding hero:**
+```typescript
+const handleToggleHero = useCallback((photoId: string) => {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (!photo) return;
+  
+  const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
+  updatePhoto(photoId, { priority: newPriority });
+  
+  // Reset shape to auto when adding a hero
+  if (newPriority === 1 && state.settings.shape !== 'auto') {
+    updateSettings({ shape: 'auto' });
+  }
+  
+  if (state.layout) {
+    regenerateCollage({ 
+      priorityOverride: { photoId, priority: newPriority },
+      settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+    });
+  }
+}, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);
+```
+
+**D) Pass `hasHeroes` to CollageSettings:**
+```tsx
+<CollageSettings
+  settings={state.settings}
+  onUpdate={handleUpdateSettings}
+  photoCount={state.photos.length}
+  hasHeroes={hasHeroes}
+/>
+```
+
+---
+
+## UI Before/After
+
+**Before (shape on left):**
+```
+Shape: Auto | Background: ■ | Gap: ━━━━ 8px
+```
+
+**After (shape on right, when heroes present):**
+```
+Background: ■ | Gap: ━━━━ 8px | Shape: Auto (heroes use auto)
+```
+
+---
+
+## Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| Remove last hero | Shape dropdown re-enables automatically |
+| Add photos with existing hero | Shape stays 'auto', dropdown stays disabled |
+| CropEditor sets hero | Same auto-reset logic applies |
+| Photo count drops below threshold | Both conditions checked independently |
 

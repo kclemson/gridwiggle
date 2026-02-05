@@ -1,149 +1,118 @@
 
-# Fix: Hero Layout Ignores Shape Setting
+# Option C: Hero + Single Content Block
 
-## Root Cause
+## Overview
 
-The shape setting (`settings.shape`) is not propagated through the hero layout code path. Specifically:
+Replace the multi-block stacking approach with a simpler architecture:
 
 ```text
-generateHeroLayout(settings.shape)
-├── heroes.length === 0 → generateContentOnlyLayout(shape) ✅ Works
-├── heroes.length === 1 → generateSingleHeroLayout() ❌ Missing shape
-│   └── generateBlockBasedHeroLayout() ❌ Missing shape
-│       └── buildContentRowsBlock() ← defaults to 'auto'
-└── heroes.length > 1 → generateMultiHeroLayout() ❌ Missing shape
+Current (broken for shape):
+┌────────────────────────┐
+│  Hero Unit (hero+beside) │
+├────────────────────────┤
+│  Content Block 1 (4 photos) │
+├────────────────────────┤
+│  Content Block 2 (4 photos) │
+├────────────────────────┤
+│  ... 10 more blocks ...  │
+└────────────────────────┘
+= Always tall regardless of shape
+
+Proposed (Option C):
+┌────────────────────────┐
+│  Hero Unit (hero+beside) │
+├────────────────────────┤
+│  Single Content Block    │
+│  (ALL remaining photos)  │
+│  → shape-aware scoring   │
+└────────────────────────┘
+= Aspect ratio respects shape setting
 ```
 
-The content-only path respects shape, but **all hero paths ignore it**, always defaulting to `'auto'` which results in portrait-heavy layouts for 63 photos.
+## Why This Works
 
----
+The shape logic lives in `packPhotosIntoRegion` → `findBestRowSplit`, which scores partitions based on how close the resulting aspect ratio matches the target shape. When all remaining photos go into ONE block, the algorithm can optimize the *entire* remaining set to hit the target aspect ratio.
 
-## Solution
-
-Thread the `shape` parameter through all hero layout functions:
-
-### Files to Modify
-
-| File | Function | Change |
-|------|----------|--------|
-| `src/lib/heroLayout.ts` | `generateSingleHeroLayout` | Add `shape` parameter |
-| `src/lib/heroLayout.ts` | `generateBlockBasedHeroLayout` | Add `shape` parameter, pass to `buildContentRowsBlock` |
-| `src/lib/heroLayout.ts` | `generateMultiHeroLayout` | Add `shape` parameter |
-| `src/lib/heroLayout.ts` | `generateHeroLayout` | Pass `settings.shape` to all sub-functions |
+Currently, splitting into 13 small blocks means each block is optimized individually, but stacking them defeats the global optimization.
 
 ---
 
 ## Technical Changes
 
-### 1. Update `generateSingleHeroLayout` Signature
+### File: `src/lib/heroLayout.ts`
+
+**Function: `generateBlockBasedHeroLayout`** (lines 1204-1234)
+
+Replace the chunk-and-stack loop with a single block:
 
 ```typescript
-// Before (line ~1254)
-function generateSingleHeroLayout(
-  hero: PhotoDimension,
-  standards: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  randomize: boolean,
-  tuning: LayoutTuning
-): CollageLayout
+// BEFORE (lines 1207-1223):
+const photoChunks = splitPhotosForBlocks(remaining, tuning.contentPhotosPerBlock);
+const contentBlocks: LayoutBlock[] = [];
 
-// After
-function generateSingleHeroLayout(
-  hero: PhotoDimension,
-  standards: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  randomize: boolean,
-  tuning: LayoutTuning,
-  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
-): CollageLayout
-```
-
-### 2. Update `generateBlockBasedHeroLayout` Signature
-
-```typescript
-// Before (line ~1152)
-function generateBlockBasedHeroLayout(
-  hero: PhotoDimension,
-  standards: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  randomize: boolean,
-  tuning: LayoutTuning
-): CollageLayout | null
-
-// After
-function generateBlockBasedHeroLayout(
-  hero: PhotoDimension,
-  standards: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,
-  randomize: boolean,
-  tuning: LayoutTuning,
-  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
-): CollageLayout | null
-```
-
-### 3. Pass Shape to `buildContentRowsBlock` (line ~1210-1217)
-
-```typescript
-// Before
-const block = buildContentRowsBlock(
-  chunk,
-  canvasWidth,
-  gap,
-  packPhotosIntoRegion,
-  tuning.minPhotosPerRow
-);
-
-// After
-const block = buildContentRowsBlock(
-  chunk,
-  canvasWidth,
-  gap,
-  packPhotosIntoRegion,
-  tuning.minPhotosPerRow,
-  shape  // ← Add shape parameter
-);
-```
-
-### 4. Update Call Sites in `generateHeroLayout` (lines 1517-1533)
-
-```typescript
-// Before
-if (heroes.length === 1) {
-  return generateSingleHeroLayout(
-    heroes[0], standards, BASE_WIDTH, gap, randomize, tuning
-  );
+for (const chunk of photoChunks) {
+  const block = buildContentRowsBlock(chunk, ...);
+  if (block) contentBlocks.push(block);
 }
-return generateMultiHeroLayout(
-  heroes, standards, BASE_WIDTH, gap, randomize
-);
 
-// After
-if (heroes.length === 1) {
-  return generateSingleHeroLayout(
-    heroes[0], standards, BASE_WIDTH, gap, randomize, tuning, settings.shape
-  );
-}
-return generateMultiHeroLayout(
-  heroes, standards, BASE_WIDTH, gap, randomize, settings.shape
-);
+// AFTER:
+// Build ONE content block with ALL remaining photos
+// This allows shape-aware scoring to optimize the entire set
+const contentBlock = remaining.length > 0
+  ? buildContentRowsBlock(
+      remaining,
+      canvasWidth,
+      gap,
+      packPhotosIntoRegion,
+      tuning.minPhotosPerRow,
+      shape
+    )
+  : null;
+
+const contentBlocks = contentBlock ? [contentBlock] : [];
 ```
 
-### 5. Update `generateMultiHeroLayout` (optional, for consistency)
+**Block shuffle adjustment** (lines 1228-1231):
 
-Add `shape` parameter to influence content packing if needed in future.
+With only 2 blocks (hero + content), shuffling gives:
+- Hero on top, content below (50% chance)
+- Content on top, hero below (50% chance)
+
+This is still meaningful variety! The hero can appear at top or bottom of the collage.
 
 ---
 
-## Expected Result
+## Trade-offs
 
-After this fix:
-- With **Landscape** selected and a hero photo: collage produces wide rows, shorter overall height
-- With **Portrait** selected: collage produces fewer photos per row, taller layout
-- With **Square**: balanced rows targeting ~1:1 aspect
-- With **Auto**: current behavior (organic shape from density)
+| Aspect | Before (Multi-block) | After (Single block) |
+|--------|---------------------|----------------------|
+| **Shape control** | Broken for large sets | Works correctly |
+| **Shuffle variety** | Hero at top/middle/bottom | Hero at top/bottom only |
+| **Performance** | Slightly faster (smaller chunks) | Fine (single optimization pass) |
 
-The 63-photo test with "Landscape" and a hero should now produce a landscape-oriented collage instead of always portrait.
+The shuffle variety reduction is minor - the main visual variety comes from:
+1. Which photos end up beside the hero (still randomized)
+2. How rows are partitioned (still randomized within scoring tolerance)
+3. Hero anchor side (left/right)
+
+---
+
+## Expected Results
+
+For 63 photos with 1 hero:
+
+| Shape | Behavior |
+|-------|----------|
+| **Landscape** | Wide collage - `findBestRowSplit` optimizes all ~50 remaining photos for landscape aspect |
+| **Square** | Balanced 1:1 aspect ratio |
+| **Portrait** | Tall collage (intentional) |
+| **Auto** | Organic - current scoring behavior |
+
+---
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/lib/heroLayout.ts` | Simplify `generateBlockBasedHeroLayout` to use single content block |
+

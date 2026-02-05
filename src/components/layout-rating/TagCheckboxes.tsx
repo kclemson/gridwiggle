@@ -1,29 +1,66 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { LAYOUT_ISSUE_TAGS, LAYOUT_POSITIVE_TAGS, LayoutTag } from '@/test/layout/types';
+import { LAYOUT_ISSUE_TAGS, LAYOUT_POSITIVE_TAGS, LayoutTag, LayoutTestResult } from '@/test/layout/types';
 
 interface TagCheckboxesProps {
   selectedTags: LayoutTag[];
   onTagsChange: (tags: LayoutTag[]) => void;
+  result: LayoutTestResult;
 }
 
-const TAG_LABELS: Record<LayoutTag, string> = {
-  'hero-not-prominent': 'Hero not prominent',
-  'hero-too-dominant': 'Hero too dominant',
-  'single-photo-row': 'Single-photo row',
-  'row-too-dense': 'Row too dense',
-  'uneven-sizes': 'Uneven sizes',
-  'wrong-shape': 'Wrong shape',
-  'extreme-aspect': 'Extreme aspect',
-  'wasted-space': 'Wasted space',
-  'well-balanced': 'Well balanced',
-  'hero-works': 'Hero works well',
-};
+/**
+ * Generate dynamic label based on tag and result metrics.
+ */
+function getDynamicLabel(tag: LayoutTag, result: LayoutTestResult): string {
+  const { canvasAspect, heroCoverage, heroToRunnerUpRatio, 
+          cellAreaPercents, rowSizes, largestToSmallestRatio } = result;
+  
+  switch (tag) {
+    case 'wrong-shape':
+      return `Wrong shape (${canvasAspect.toFixed(2)})`;
+    
+    case 'extreme-aspect':
+      return `Extreme aspect (${canvasAspect.toFixed(2)})`;
+    
+    case 'hero-not-prominent':
+      if (heroCoverage !== null && cellAreaPercents.length >= 4) {
+        const top3NonHero = cellAreaPercents.slice(1, 4)
+          .map(p => `${Math.round(p * 100)}%`).join('/');
+        return `Hero not prominent (${Math.round(heroCoverage * 100)}% vs ${top3NonHero})`;
+      }
+      return 'Hero not prominent';
+    
+    case 'hero-too-dominant':
+      if (heroCoverage !== null && heroToRunnerUpRatio !== null) {
+        return `Hero too dominant (${Math.round(heroCoverage * 100)}% · ${heroToRunnerUpRatio.toFixed(1)}×)`;
+      }
+      return 'Hero too dominant';
+    
+    case 'row-too-dense':
+      return `Row too dense ([${rowSizes.join(', ')}])`;
+    
+    case 'single-photo-row':
+      return `Single-photo row ([${rowSizes.join(', ')}])`;
+    
+    case 'uneven-sizes':
+      return `Uneven sizes (${largestToSmallestRatio.toFixed(1)}×)`;
+    
+    case 'wasted-space':
+      return 'Wasted space';
+    case 'well-balanced':
+      return 'Well balanced';
+    case 'hero-works':
+      return 'Hero works well';
+    
+    default:
+      return tag;
+  }
+}
 
 /**
  * Two-column checkbox grid for tagging layouts with issues or positives.
  */
-export function TagCheckboxes({ selectedTags, onTagsChange }: TagCheckboxesProps) {
+export function TagCheckboxes({ selectedTags, onTagsChange, result }: TagCheckboxesProps) {
   const handleToggle = (tag: LayoutTag) => {
     if (selectedTags.includes(tag)) {
       onTagsChange(selectedTags.filter(t => t !== tag));
@@ -51,7 +88,7 @@ export function TagCheckboxes({ selectedTags, onTagsChange }: TagCheckboxesProps
                 htmlFor={tag}
                 className="text-sm font-normal cursor-pointer"
               >
-                {TAG_LABELS[tag]}
+                {getDynamicLabel(tag, result)}
               </Label>
             </div>
           ))}
@@ -75,7 +112,7 @@ export function TagCheckboxes({ selectedTags, onTagsChange }: TagCheckboxesProps
                 htmlFor={tag}
                 className="text-sm font-normal cursor-pointer"
               >
-                {TAG_LABELS[tag]}
+                {getDynamicLabel(tag, result)}
               </Label>
             </div>
           ))}

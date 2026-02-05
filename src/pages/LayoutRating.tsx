@@ -230,6 +230,7 @@ export default function LayoutRating() {
           totalCount={testCases.length}
           selectedTags={selectedTags}
           onTagsChange={setSelectedTags}
+          result={currentResult}
         />
         
         {/* Summary stats */}

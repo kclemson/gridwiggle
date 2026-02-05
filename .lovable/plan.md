@@ -1,92 +1,46 @@
 
+# Plan: Add "Extreme Aspect" Issue Tag
 
-# Plan: Add Per-Cell Area Percentages to Export
+## Purpose
 
-## Current State
-
-The export already includes `heroCoverage` (hero's % of canvas), but lacks:
-- Individual cell percentages for all photos
-- The hero-to-runner-up ratio that determines perceived prominence
-
-## What to Add
-
-### New fields in `RatedLayout` interface:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `cellAreaPercents` | `number[]` | All cell areas as % of canvas, sorted descending |
-| `heroToRunnerUpRatio` | `number \| null` | Hero area / largest non-hero area (null if no hero) |
-
-### Example in exported JSON:
-
-```json
-{
-  "heroCoverage": 0.17,
-  "cellAreaPercents": [17, 13, 13, 13, 11, 11, 11, 11],
-  "heroToRunnerUpRatio": 1.31,
-  "tags": ["hero-not-prominent"],
-  ...
-}
-```
+Add a new issue tag to capture layouts where the aspect ratio is excessively tall (portrait) or wide (landscape) - like a portrait collage with 13 rows and a 0.28 aspect ratio when fewer rows would still satisfy the shape constraint.
 
 ## Files to Change
 
 ### 1. `src/test/layout/types.ts`
 
-Add to `LayoutTestResult` interface:
+Add `'extreme-aspect'` to the `LAYOUT_ISSUE_TAGS` array:
+
 ```typescript
-cellAreaPercents: number[];      // All cell areas as %, sorted descending
-heroToRunnerUpRatio: number | null;  // Hero area / runner-up area
+export const LAYOUT_ISSUE_TAGS = [
+  'hero-not-prominent',
+  'hero-too-dominant',
+  'single-photo-row',
+  'row-too-dense',
+  'uneven-sizes',
+  'wrong-shape',
+  'extreme-aspect',  // NEW: Too tall or too wide for the photo count
+  'wasted-space',
+] as const;
 ```
 
-Add to `RatedLayout` interface:
+### 2. `src/components/layout-rating/TagCheckboxes.tsx`
+
+Add the label for the new tag in `TAG_LABELS`:
+
 ```typescript
-cellAreaPercents: number[];
-heroToRunnerUpRatio: number | null;
-```
-
-### 2. `src/test/layout/layoutAdapter.ts`
-
-Update `calculateMetrics` to compute:
-```typescript
-// Calculate all cell area percentages
-const cellAreaPercents = layout.cells
-  .map(cell => Math.round((cell.width * cell.height) / canvasArea * 100))
-  .sort((a, b) => b - a); // Descending
-
-// Calculate hero-to-runner-up ratio
-let heroToRunnerUpRatio: number | null = null;
-if (heroPhoto && heroCoverage !== null) {
-  const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
-  const nonHeroCells = layout.cells.filter(c => c.photoId !== heroPhoto.id);
-  if (heroCell && nonHeroCells.length > 0) {
-    const heroArea = heroCell.width * heroCell.height;
-    const runnerUpArea = Math.max(...nonHeroCells.map(c => c.width * c.height));
-    heroToRunnerUpRatio = heroArea / runnerUpArea;
-  }
-}
-```
-
-### 3. `src/pages/LayoutRating.tsx`
-
-Update `handleRate` to include new fields:
-```typescript
-const ratedLayout: RatedLayout = {
-  // ...existing fields...
-  cellAreaPercents: currentResult.cellAreaPercents,
-  heroToRunnerUpRatio: currentResult.heroToRunnerUpRatio,
+const TAG_LABELS: Record<LayoutTag, string> = {
+  // ...existing labels...
+  'extreme-aspect': 'Extreme aspect',  // NEW
+  // ...
 };
 ```
 
-## Analysis Value
+## Result
 
-With this data, you can correlate ratings like:
+The new tag will automatically appear in the Issues column of the rating UI (since TagCheckboxes iterates over `LAYOUT_ISSUE_TAGS`), allowing you to tag layouts that are technically the "correct" shape but taken to an unreasonable extreme.
 
-| heroCoverage | heroToRunnerUpRatio | Tag | Interpretation |
-|--------------|---------------------|-----|----------------|
-| 17% | 1.31 | hero-not-prominent | Ratio too low - runner-ups compete |
-| 25% | 2.08 | hero-works | Clear dominance |
-| 15% | 1.67 | good | Acceptable ratio despite modest coverage |
-
-This helps derive a threshold like "heroToRunnerUpRatio < 1.5 should be penalized."
-
+This data will help derive thresholds like:
+- Portrait layouts with `canvasAspect < 0.4` should be penalized
+- Landscape layouts with `canvasAspect > 2.5` should be penalized
+- Row count relative to photo count (e.g., >1.5 rows per photo is excessive)

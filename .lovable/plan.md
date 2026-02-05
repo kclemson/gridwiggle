@@ -1,49 +1,28 @@
 
 
-# Fix: Adjust Portrait `minPhotosPerRow` Range
+# Fix: Increase Square Direction Penalty Weight
 
 ## Problem
 
-With 24 photos and Shape=Portrait, the layout still frequently produces landscape-ish layouts (4-5 rows). This happens because:
+With 24 photos and Shape=Square, the layout consistently produces landscape results. The screenshot shows ~5 rows with an aspect ratio around 1.4 (landscape), even though the user selected "Square."
 
-**Current calculation:**
-- `sqrtN = √24 ≈ 4.9`
-- Portrait range = `[2, sqrtN]` = `[2, 4.9]`
-- Midpoint = **(2 + 4.9) / 2 ≈ 3.45**
+**Root cause:** The direction penalty weight for square (5.0) is too weak compared to the uniformity weight (areaCV × 1.0).
 
-With `minPhotosPerRow ≈ 3.45`, there's a conflict:
-- **Direction penalty** pushes toward more rows (portrait)
-- **Sparse penalty** pushes toward fewer rows (denser) because rows with 2-3 photos get penalized
+**Current scoring for a landscape layout (aspect ~1.4):**
+- `directionPenalty = 5.0 * |1.4 - 1.0| = 2.0`
+- `areaCV` might be ~0.15 for a well-packed landscape layout
 
-For an 8-row layout (3 photos/row, very portrait):
-- Direction penalty = 0 (correct orientation)
-- Sparse penalty = `5 * (3.45 - 3) = 2.25` per sparse row
+**Current scoring for a square layout (aspect ~1.0):**
+- `directionPenalty = 5.0 * |1.0 - 1.0| = 0`
+- `areaCV` might be ~0.25 (worse uniformity to achieve square)
 
-For a 4-row layout (6 photos/row, landscape):
-- Direction penalty = `10 * (1.3 - 0.9) = 4.0`
-- Sparse penalty = 0
-
-The penalties partially cancel out, allowing 4-row layouts to win if they have better uniformity.
+In this case, the landscape layout wins: 2.0 + 0.15 = 2.15 vs 0 + 0.25 = 0.25. But with real photos having mixed aspect ratios, the areaCV difference can be larger, causing landscape to win.
 
 ---
 
 ## Solution
 
-Lower the portrait range upper bound from `sqrtN` to `sqrtN * 0.7`. This reduces the `minPhotosPerRow` threshold so that sparse rows (2-3 photos) aren't penalized in portrait mode.
-
-### Proposed Range Adjustments
-
-| Shape | Current Range (n=24) | Proposed Range (n=24) |
-|-------|---------------------|----------------------|
-| Portrait | [2, 4.9] | [2, 3.4] (sqrtN * 0.7) |
-| Square | [3.9, 5.9] | [3.9, 5.9] (unchanged) |
-| Landscape | [4.9, 7.4] | [4.9, 7.4] (unchanged) |
-| Auto | [2, 8] | [2, 8] (unchanged) |
-
-With the new portrait range [2, 3.4]:
-- Midpoint ≈ 2.7
-- Rows with 3 photos get zero sparse penalty
-- Direction penalty dominates, pushing toward more rows
+Increase the square direction penalty weight from 5.0 to 10.0, matching portrait and landscape. This ensures the shape preference dominates over uniformity.
 
 ---
 
@@ -52,27 +31,36 @@ With the new portrait range [2, 3.4]:
 **File:** `src/lib/collageLayout.ts`
 
 ```typescript
-case 'portrait':
-  // Below √n = more rows = tall
-  // Lower upper bound to reduce sparse penalty for 2-3 photo rows
-  return [2, sqrtN * 0.7];
+// Line 230-232 - Change from:
+} else if (shape === 'square') {
+  // Penalize deviation from 1.0 aspect ratio
+  directionPenalty = 5.0 * Math.abs(resultAspect - 1.0);
+}
+
+// To:
+} else if (shape === 'square') {
+  // Penalize deviation from 1.0 aspect ratio
+  // Weight of 10.0 matches portrait/landscape to ensure shape dominates
+  directionPenalty = 10.0 * Math.abs(resultAspect - 1.0);
+}
 ```
 
 ---
 
 ## Expected Behavior After Fix
 
-**n=24, Shape=Portrait:**
+**n=24, Shape=Square:**
 
-| Rows | Photos/Row | Old Sparse Penalty | New Sparse Penalty |
-|------|------------|-------------------|-------------------|
-| 4 | 6 | 0 | 0 |
-| 5 | ~5 | 0 | 0 |
-| 6 | 4 | 0 | 0 |
-| 8 | 3 | 5 * (3.45 - 3) = 2.25 | 0 |
-| 12 | 2 | 5 * (3.45 - 2) = 7.25 | 0 |
+| Layout Aspect | Old Penalty | New Penalty |
+|---------------|-------------|-------------|
+| 1.0 (perfect square) | 0 | 0 |
+| 1.1 | 0.5 | 1.0 |
+| 1.2 | 1.0 | 2.0 |
+| 1.3 | 1.5 | 3.0 |
+| 1.4 | 2.0 | **4.0** |
+| 1.5 | 2.5 | 5.0 |
 
-With the new range, the sparse penalty no longer fights against the direction penalty. High row-count layouts (6-8+ rows) can now win for portrait, producing truly tall collages.
+With the doubled penalty weight, a layout with aspect 1.4 now has a 4.0 penalty instead of 2.0. This makes the square-ish layout with slightly worse uniformity more likely to win.
 
 ---
 
@@ -80,5 +68,5 @@ With the new range, the sparse penalty no longer fights against the direction pe
 
 | File | Changes |
 |------|---------|
-| `src/lib/collageLayout.ts` | Change portrait case from `[2, sqrtN]` to `[2, sqrtN * 0.7]` |
+| `src/lib/collageLayout.ts` | Change square penalty weight from 5.0 to 10.0 |
 

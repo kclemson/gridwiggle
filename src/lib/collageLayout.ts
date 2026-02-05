@@ -1,6 +1,7 @@
 import { PhotoItem, CollageLayout, CollageCell, CollageSettings, LayoutTuning } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { generateHeroLayout } from '@/lib/heroLayout';
+import { DEFAULT_TUNING } from '@/types/collage';
 
 // ============================================================================
 // Types
@@ -12,6 +13,46 @@ interface PhotoDimension {
   height: number;
   aspectRatio: number;
   weight: number; // For future "hero" photos support
+}
+
+// ============================================================================
+// Dynamic minPhotosPerRow Range
+// ============================================================================
+
+/**
+ * Calculate the valid minPhotosPerRow range based on photo count and orientation.
+ * 
+ * Uses √n as the anchor point:
+ * - minPhotosPerRow ≈ √n produces roughly equal rows and columns (square-ish)
+ * - Below √n → more rows → portrait
+ * - Above √n → fewer rows → landscape
+ * 
+ * Returns floats for gradient scoring (the math handles floats gracefully).
+ */
+function getMinPhotosPerRowRange(
+  n: number,
+  orientation: CollageSettings['orientation']
+): [number, number] {
+  const sqrtN = Math.sqrt(n);
+  
+  switch (orientation) {
+    case 'portrait':
+      // Below √n = more rows = tall
+      return [2, sqrtN];
+      
+    case 'square':
+      // Around √n = balanced
+      return [Math.max(2, sqrtN - 1), sqrtN + 1];
+      
+    case 'landscape':
+      // Above √n = fewer rows = wide
+      return [sqrtN, Math.max(sqrtN + 1, n / 2)];
+      
+    case 'auto':
+    default:
+      // Full range for maximum variety
+      return [2, Math.max(sqrtN + 2, n / 3)];
+  }
 }
 
 export interface RegionPackResult {
@@ -561,47 +602,34 @@ export function generateCollageLayout(
   
   const dims = getPhotoDimensions(photos, weights);
   
-  // Determine target aspect ratio and orientation mode
-  let targetAspect: number;
-  let isLandscape: boolean;
+  // Calculate dynamic minPhotosPerRow range based on photo count and orientation
+  const n = photos.length;
+  const [minRange, maxRange] = getMinPhotosPerRowRange(n, settings.orientation);
   
-  switch (settings.orientation) {
-    case 'landscape':
-      targetAspect = 1.5;
-      isLandscape = true;
-      break;
-    case 'portrait':
-      targetAspect = 0.75;
-      isLandscape = false;
-      break;
-    case 'square':
-      targetAspect = 1.0;
-      isLandscape = true; // Use landscape-style row packing for square
-      break;
-    case 'auto':
-    default:
-      // Bias toward landscape for better social media display (carousels, previews)
-      const avgAspect = dims.reduce((sum, d) => sum + d.aspectRatio, 0) / dims.length;
-      const landscapeBias = 1.3; // Pull toward wider layouts
-      const biasedAspect = avgAspect * landscapeBias;
-      // Clamp to reasonable range (0.8 to 2.2)
-      targetAspect = Math.max(0.8, Math.min(2.2, biasedAspect));
-      isLandscape = targetAspect >= 1.0;
-      break;
+  // Pick from range: random for variety, or midpoint as sensible default
+  let effectiveMinPhotosPerRow: number;
+  if (options?.randomize) {
+    // Random float in [minRange, maxRange]
+    effectiveMinPhotosPerRow = minRange + Math.random() * (maxRange - minRange);
+  } else {
+    // Use midpoint of range as sensible default
+    effectiveMinPhotosPerRow = (minRange + maxRange) / 2;
   }
   
-  // Unified path: all multi-photo layouts go through generateHeroLayout
-  // which handles both hero and non-hero cases using block-based architecture
-  // For Auto mode: let the layout height emerge naturally (pass undefined targetAspect)
-  const unifiedTargetAspect = settings.orientation === 'auto' ? undefined : targetAspect;
+  // Build tuning with effective value
+  const layoutTuning: LayoutTuning = {
+    ...(options?.tuning ?? DEFAULT_TUNING),
+    minPhotosPerRow: effectiveMinPhotosPerRow,
+  };
   
+  // targetAspect is now always undefined - orientation is driven by minPhotosPerRow
   return generateHeroLayout(
     photos,
     settings,
-    unifiedTargetAspect,
+    undefined,
     weights,
     options?.randomize ?? false,
-    options?.tuning
+    layoutTuning
   );
 }
 

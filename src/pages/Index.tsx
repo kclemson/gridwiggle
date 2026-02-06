@@ -112,6 +112,7 @@ export default function Index() {
       const layout = algorithmVersion === 'v3'
         ? generateCollageLayoutV3(photosToUse, settings, { 
             photoWeights,
+            randomize,
           })
         : algorithmVersion === 'v2'
           ? generateCollageLayoutV2(photosToUse, settings, { 

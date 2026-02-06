@@ -339,6 +339,9 @@ function generateSimpleRowsLayout(
     return null;
   }
   
+  // Calculate max allowed height from canvas AR constraint
+  const maxCanvasHeight = canvasWidth / tuning.canvas_minAR;
+  
   // Create a region spanning the full canvas width
   const region: RegionSpec = {
     x: 0,
@@ -347,13 +350,21 @@ function generateSimpleRowsLayout(
     height: Infinity, // Will be determined by packing
   };
   
-  // Pack all photos into rows
+  // Pack all photos into rows with height constraint
   const result = packPhotosIntoRegion(
     photos,
     region,
     gap,
-    tuning
+    tuning,
+    { maxHeight: maxCanvasHeight }
   );
+  
+  devLogger.log('v3', 'Simple rows layout', {
+    photoCount: photos.length,
+    maxCanvasHeight: Math.round(maxCanvasHeight),
+    actualHeight: Math.round(result.actualHeight),
+    canvasAR: (canvasWidth / result.actualHeight).toFixed(2),
+  });
   
   if (result.cells.length === 0) {
     return null;

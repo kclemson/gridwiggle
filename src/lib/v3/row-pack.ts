@@ -3,10 +3,27 @@
  * 
  * Packs photos into rows within a region.
  * Row count is derived from geometry, not specified.
+ * Supports constraint-aware packing (maxCellArea, maxHeight).
  */
 
 import { PhotoDimension, RegionSpec, LayoutCell, V3Tuning } from './types';
 import { mean } from './utils';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface PackingConstraints {
+  maxCellArea?: number;
+  maxHeight?: number;
+}
+
+export interface PackingResult {
+  cells: LayoutCell[];
+  actualHeight: number;
+  maxCellArea: number;
+  usedRowCount: number;
+}
 
 // ============================================================================
 // Row Packing
@@ -17,18 +34,20 @@ import { mean } from './utils';
  * 
  * The algorithm:
  * 1. Calculate optimal row count from region geometry and photo ARs
- * 2. Distribute photos across rows
+ * 2. Distribute photos across rows (round-robin for even distribution)
  * 3. Scale each row to fill region width
  * 4. Stack rows with gaps
+ * 5. If constraints violated, reduce row count and retry
  */
 export function packPhotosIntoRegion(
   photos: PhotoDimension[],
   region: RegionSpec,
   gap: number,
-  tuning: V3Tuning
-): { cells: LayoutCell[]; actualHeight: number } {
+  tuning: V3Tuning,
+  constraints: PackingConstraints = {}
+): PackingResult {
   if (photos.length === 0) {
-    return { cells: [], actualHeight: 0 };
+    return { cells: [], actualHeight: 0, maxCellArea: 0, usedRowCount: 0 };
   }
   
   // Single photo: fill the region width, maintain aspect ratio
@@ -36,6 +55,21 @@ export function packPhotosIntoRegion(
     const photo = photos[0];
     const width = region.width;
     const height = width / photo.aspectRatio;
+    const cellArea = width * height;
+    
+    // Check constraints for single photo
+    const violatesArea = constraints.maxCellArea && cellArea > constraints.maxCellArea;
+    const violatesHeight = constraints.maxHeight && height > constraints.maxHeight;
+    
+    if (violatesArea || violatesHeight) {
+      // Can't satisfy constraints with single photo - return failure indicator
+      return { 
+        cells: [], 
+        actualHeight: height, 
+        maxCellArea: cellArea, 
+        usedRowCount: 1 
+      };
+    }
     
     return {
       cells: [{
@@ -46,17 +80,52 @@ export function packPhotosIntoRegion(
         height,
       }],
       actualHeight: height,
+      maxCellArea: cellArea,
+      usedRowCount: 1,
     };
   }
   
-  // Calculate optimal row count from geometry
-  const rowCount = calculateOptimalRowCount(photos, region, gap, tuning);
+  // Calculate row count bounds
+  const maxPhotosPerRow = Math.floor(region.width / tuning.region_minWidth);
+  const minRows = Math.max(1, Math.ceil(photos.length / maxPhotosPerRow));
   
-  // Distribute photos across rows
-  const rows = distributeToRows(photos, rowCount);
+  // Start with optimal row count
+  let rowCount = calculateOptimalRowCount(photos, region, gap, tuning);
+  
+  // Iteratively reduce row count until constraints are satisfied
+  // Fewer rows = more photos per row = smaller cells = lower height
+  while (rowCount >= minRows) {
+    const result = packWithRowCount(photos, region, gap, rowCount);
+    
+    const violatesArea = constraints.maxCellArea && result.maxCellArea > constraints.maxCellArea;
+    const violatesHeight = constraints.maxHeight && result.actualHeight > constraints.maxHeight;
+    
+    if (!violatesArea && !violatesHeight) {
+      return result;
+    }
+    
+    // Try fewer rows
+    rowCount--;
+  }
+  
+  // Couldn't satisfy constraints - return the best attempt (minRows)
+  return packWithRowCount(photos, region, gap, minRows);
+}
+
+/**
+ * Pack photos with a specific row count.
+ */
+function packWithRowCount(
+  photos: PhotoDimension[],
+  region: RegionSpec,
+  gap: number,
+  rowCount: number
+): PackingResult {
+  // Distribute photos across rows using round-robin
+  const rows = distributeToRowsRoundRobin(photos, rowCount);
   
   // Pack each row and stack them
-  return packRows(rows, region, gap);
+  return packRows(rows, region, gap, rowCount);
 }
 
 /**
@@ -96,18 +165,17 @@ function calculateOptimalRowCount(
 }
 
 /**
- * Distribute photos across rows as evenly as possible.
+ * Distribute photos across rows using round-robin (prevents singleton last rows).
+ * e.g., 7 photos into 3 rows → [3, 2, 2] instead of [3, 3, 1]
  */
-function distributeToRows(photos: PhotoDimension[], rowCount: number): PhotoDimension[][] {
+function distributeToRowsRoundRobin(photos: PhotoDimension[], rowCount: number): PhotoDimension[][] {
   const rows: PhotoDimension[][] = Array.from({ length: rowCount }, () => []);
-  const photosPerRow = Math.ceil(photos.length / rowCount);
   
   photos.forEach((photo, index) => {
-    const rowIndex = Math.min(Math.floor(index / photosPerRow), rowCount - 1);
-    rows[rowIndex].push(photo);
+    rows[index % rowCount].push(photo);
   });
   
-  // Remove empty rows
+  // Remove empty rows (shouldn't happen with round-robin, but safety check)
   return rows.filter(row => row.length > 0);
 }
 
@@ -117,12 +185,14 @@ function distributeToRows(photos: PhotoDimension[], rowCount: number): PhotoDime
 function packRows(
   rows: PhotoDimension[][],
   region: RegionSpec,
-  gap: number
-): { cells: LayoutCell[]; actualHeight: number } {
+  gap: number,
+  usedRowCount: number
+): PackingResult {
   const cells: LayoutCell[] = [];
   let currentY = region.y;
+  let maxCellArea = 0;
   
-  rows.forEach((row, rowIndex) => {
+  rows.forEach((row) => {
     // Calculate row's natural aspect ratio (sum of photo ARs)
     const rowAR = row.reduce((sum, p) => sum + p.aspectRatio, 0);
     
@@ -136,6 +206,11 @@ function packRows(
     let currentX = region.x;
     row.forEach(photo => {
       const cellWidth = rowHeight * photo.aspectRatio;
+      const cellArea = cellWidth * rowHeight;
+      
+      if (cellArea > maxCellArea) {
+        maxCellArea = cellArea;
+      }
       
       cells.push({
         photoId: photo.id,
@@ -154,5 +229,10 @@ function packRows(
   // Actual height is total rows + gaps (minus trailing gap)
   const actualHeight = currentY - region.y - gap;
   
-  return { cells, actualHeight: Math.max(0, actualHeight) };
+  return { 
+    cells, 
+    actualHeight: Math.max(0, actualHeight), 
+    maxCellArea,
+    usedRowCount
+  };
 }

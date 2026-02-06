@@ -1,67 +1,74 @@
 
-# Remove SmartCrop Simulation
 
-## Goal
+# Use Aspect-Ratio-Aware Row Count Selection
 
-Remove the `applySmartCropVariation` function and all calls to it. This eliminates the logic that pulls aspect ratios toward 1.0 (square), which was identified as a major contributor to the portrait bias.
+## The Problem
+The layout algorithm has mathematical functions designed to choose optimal row counts based on hero + beside photo aspect ratios, but they're not being used. Instead, hardcoded thresholds determine row count:
+- 8+ beside photos → always try 3 rows first
+- 4+ beside photos → always try 2 rows first
+- Otherwise → 1 row
+
+This means a landscape hero (AR ~1.5) with 8 portrait beside photos (avg AR ~0.7) gets forced into 3 rows, creating an extremely tall hero unit that pushes the entire collage toward portrait.
+
+## The Fix
+Replace the hardcoded thresholds with the existing `calculateOptimalBesideRowCount` function, which uses the formula:
+
+```
+optimalRows = √(besideCount × avgBesideAR / heroAR)
+```
+
+For a landscape hero (AR 1.5) with 8 portrait photos (avg AR 0.7):
+- Current: 3 rows (hardcoded)
+- Math: √(8 × 0.7 / 1.5) = √3.7 ≈ **2 rows**
+
+For a portrait hero (AR 0.7) with 8 landscape photos (avg AR 1.5):
+- Current: 3 rows (hardcoded)  
+- Math: √(8 × 1.5 / 0.7) = √17 ≈ **3 rows** (clamped)
+
+The math naturally adapts to the actual photo shapes.
 
 ## Changes
 
-### File: `src/test/layout/photoGenerator.ts`
+### File: `src/lib/heroLayout.ts`
 
-1. **Delete** the `applySmartCropVariation` function (lines 14-21)
+**Location**: Around lines 619-726 where `buildHeroUnitVariants` determines row modes to try
 
-2. **Remove** the `smartCropRatio` parameter from `generatePhotoSet` (line 73)
-
-3. **Simplify** the photo generation loop to just use `sampleAspectRatio` directly:
-
+**Current logic** (simplified):
 ```typescript
-export function generatePhotoSet(
-  count: number,
-  orientationBias: number,
-  hasHero: boolean
-): SyntheticPhoto[] {
-  const photos: SyntheticPhoto[] = [];
-  
-  for (let i = 0; i < count; i++) {
-    const isHero = hasHero && i === 0;
-    let aspectRatio: number;
-    
-    if (isHero) {
-      // Hero biased toward landscape/square
-      aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
-    } else {
-      aspectRatio = sampleAspectRatio(orientationBias);
-    }
-    
-    photos.push(createSyntheticPhoto(
-      `photo-${i + 1}`,
-      aspectRatio,
-      isHero ? 1 : 3
-    ));
-  }
-  
-  return photos;
+if (besidePhotos.length >= 8) {
+  // Try 3 rows first, then 2, then 1
+} else if (besidePhotos.length >= 4) {
+  // Try 2 rows first, then 1, then 3
+} else {
+  // Try 1 row first
 }
 ```
 
-## What This Removes
+**New logic**:
+```typescript
+import { calculateOptimalBesideRowCount, getPreferredRowModes } from '@/lib/layoutMath';
 
-- The `applySmartCropVariation` function that was pulling 50% of photos toward square
-- The `smartCropRatio` parameter (unused after this change)
-- All conditional calls to smart crop simulation
+// Calculate optimal row count based on aspect ratio geometry
+const optimalRows = calculateOptimalBesideRowCount(heroAspect, besideDimensions);
+const rowModesToTry = getPreferredRowModes(optimalRows);
+
+// Then iterate through rowModesToTry instead of hardcoded order
+```
+
+This is approximately a 10-15 line change in one location.
+
+## What We're NOT Changing
+- The row-building logic itself (how photos get assigned to rows)
+- The scoring/penalty system
+- The height budgeting calculations
+- The `minPhotosPerRow` parameter (leaving it broken for now)
 
 ## Expected Outcome
+Landscape heroes should more frequently get 1-2 rows of beside photos instead of always 3, resulting in a shorter hero unit that doesn't force portrait orientation.
 
-With only the triangular distribution sampling (centered by `orientationBias`), we should see:
-- More extreme aspect ratios preserved (very portrait and very landscape)
-- Better variety in canvas shapes
-- The `orientationBias` having its intended effect without being dampened
+## How to Validate
+After making this change, upload the same 24-photo test set and observe:
+1. Does a landscape hero now get fewer beside rows?
+2. Does the overall collage aspect ratio shift toward landscape/square?
+3. Check the debug panel to see which row modes are being tried
 
-After this change, reset the session and page through to see if we get more variety. If still too portrait-heavy, we can then consider switching to uniform sampling.
-
-## Files Modified
-
-| File | Changes |
-|------|---------|
-| `src/test/layout/photoGenerator.ts` | Remove `applySmartCropVariation` and all calls to it |

@@ -1,110 +1,106 @@
 
 
-# Fix V2 Row Packing: Align Height Calculation
+# Fix V2 Hero-Side: Copy V1's Algebraic Calculation
 
-## Root Cause
+## Problem Summary
 
-V2's `packRowsToFit` and `packRow` calculate row heights **independently**, causing a mismatch:
-
-```text
-packRowsToFit (lines 143-152):          packRow (line 41):
-┌─────────────────────────────────┐     ┌─────────────────────────────────┐
-│ rowHeight = proportional weight │     │ rowHeight = availableWidth /    │
-│             distribution        │     │             sum(aspectRatios)   │
-│                                 │     │                                 │
-│ Uses this for Y positioning     │     │ Uses THIS for cell.height       │
-└─────────────────────────────────┘     └─────────────────────────────────┘
-                ↓                                       ↓
-         Different values → Overlap/Gaps!
-```
-
-V1's `calculateLayoutWithOffset` calculates height once per row and uses it for BOTH cell heights and Y advancement - no mismatch possible.
+The V2 `strategyHeroSide` function has two critical flaws:
+1. **Hardcoded 0.55 hero width fraction** - ignores photo geometry entirely
+2. **Overwrites hero height with beside column height** (line 175) - destroys hero's aspect ratio
 
 ## Solution
 
-Follow V1's pattern: calculate each row's natural height in `packRowsToFit` and use that exact value for both:
-1. Passing to `packRow` (or calculating cells directly)
-2. Advancing the Y position
-
-The simplest fix: have `packRowsToFit` calculate cells directly like V1 does, rather than delegating to `packRow` with a region.
+Copy V1's algebraic hero fraction calculation into V2's math module, then use it in the hero-side strategy. No imports from V1 - V2 will be fully self-contained and V1 can be deleted later.
 
 ---
 
 ## Technical Changes
 
-### File: `src/lib/v2/pack.ts`
+### 1. File: `src/lib/v2/math.ts`
 
-Rewrite `packRowsToFit` to calculate natural row heights and use them consistently:
+Add the algebraic calculation functions from V1 (adapted to V2's `PhotoDimension` type which already has `aspectRatio`):
 
 ```typescript
-export function packRowsToFit(
-  photos: PhotoDimension[],
-  region: RegionSpec,
+// ============================================================================
+// Hero Fraction Calculation
+// ============================================================================
+
+interface RowAspectInfo {
+  aspectSums: number[];
+  photoCounts: number[];
+}
+
+/**
+ * Calculate aspect sums for each row using the same split logic as packing.
+ */
+function getRowAspectInfo(photos: PhotoDimension[], rowCount: 1 | 2 | 3): RowAspectInfo {
+  // ... copied from V1 heroLayout.ts lines 68-103
+}
+
+/**
+ * Calculate the heroWidthFraction that produces scaleFactor ≈ 1.0
+ * given the specific beside photos and hero aspect ratio.
+ * 
+ * Mathematical derivation: See V1 heroLayout.ts lines 109-122
+ */
+export function calculateOptimalHeroFraction(
+  heroAspect: number,
+  besidePhotos: PhotoDimension[],
+  canvasWidth: number,
   gap: number,
-  targetPhotosPerRow: number = 3.5
-): LayoutCell[] {
-  if (photos.length === 0) return [];
-  
-  // Determine row distribution
-  const rowCount = Math.max(1, Math.round(photos.length / targetPhotosPerRow));
-  const photosPerRow = Math.ceil(photos.length / rowCount);
-  const rows: PhotoDimension[][] = [];
-  
-  for (let i = 0; i < photos.length; i += photosPerRow) {
-    rows.push(photos.slice(i, Math.min(i + photosPerRow, photos.length)));
-  }
-  
-  // Build cells row by row, letting each row take its natural height
-  const cells: LayoutCell[] = [];
-  let y = region.y;
-  
-  for (const row of rows) {
-    // Calculate THIS row's natural height (like V1 does)
-    const totalAR = sum(row.map(p => p.aspectRatio));
-    const availableWidth = region.width - gap * (row.length - 1);
-    const rowHeight = availableWidth / totalAR;
-    
-    // Position photos in this row
-    let x = region.x;
-    for (const photo of row) {
-      const width = rowHeight * photo.aspectRatio;
-      cells.push({
-        photoId: photo.id,
-        x,
-        y,
-        width,
-        height: rowHeight,  // Same height used for cells
-      });
-      x += width + gap;
-    }
-    
-    y += rowHeight + gap;  // Same height used for Y advancement
-  }
-  
-  return cells;
+  rowCount: 1 | 2 | 3,
+  minFraction: number = 0.30,
+  maxFraction: number = 0.60
+): { fraction: number; clamped: boolean } {
+  // ... copied from V1 heroLayout.ts lines 123-191
 }
 ```
 
-### File: `src/lib/v2/strategy.ts`
+This requires importing `PhotoDimension` from `./types`.
 
-Update strategies to derive `canvasHeight` from actual cell bounds rather than pre-estimating:
+### 2. File: `src/lib/v2/strategy.ts`
 
+Replace the hardcoded fraction and fix the height override:
+
+**Before (lines 133-140):**
 ```typescript
-export function strategySimpleRows(...): LayoutCandidate {
-  const region: RegionSpec = { x: 0, y: 0, width: canvasWidth, height: 0 };
-  const cells = packRowsToFit(photos, region, gap, targetPhotosPerRow);
-  
-  // Calculate actual canvas height from cells
-  const canvasHeight = cells.reduce(
-    (max, c) => Math.max(max, c.y + c.height), 
-    0
-  );
-  
-  return { cells, canvasWidth, canvasHeight, score: 0, metadata: { strategy: 'simpleRows' } };
-}
+const heroWidthFraction = 0.55;
+const heroWidth = (canvasWidth - gap) * heroWidthFraction;
+const besideWidth = canvasWidth - heroWidth - gap;
+const heroHeight = heroWidth / hero.aspectRatio;
 ```
 
-Apply similar fix to `strategyHeroTop` and `strategyHeroSide`.
+**After:**
+```typescript
+// Calculate optimal fraction algebraically (no magic numbers!)
+const { fraction } = calculateOptimalHeroFraction(
+  hero.aspectRatio,
+  besidePhotos,
+  canvasWidth,
+  gap,
+  1  // Single column of beside photos
+);
+
+const heroWidth = (canvasWidth - gap) * fraction;
+const besideWidth = canvasWidth - heroWidth - gap;
+const heroHeight = heroWidth / hero.aspectRatio;
+```
+
+**Delete lines 173-175** (the height override bug):
+```typescript
+// DELETE THESE:
+const actualBesideHeight = besideY - gap;
+const finalHeroHeight = actualBesideHeight;
+```
+
+**Delete lines 207-222** (the equal-height recalculation):
+```typescript
+// DELETE THESE:
+const correctedBesideCells: LayoutCell[] = [];
+// ... through line 222
+```
+
+**Keep the hero height based on its own aspect ratio** and pack beside photos to match that height properly.
 
 ---
 
@@ -112,22 +108,27 @@ Apply similar fix to `strategyHeroTop` and `strategyHeroSide`.
 
 | File | Change |
 |------|--------|
-| `src/lib/v2/pack.ts` | Rewrite `packRowsToFit` to calculate natural heights inline (like V1) |
-| `src/lib/v2/strategy.ts` | Derive `canvasHeight` from actual cell bounds |
+| `src/lib/v2/math.ts` | Add `getRowAspectInfo()` and `calculateOptimalHeroFraction()` copied from V1 |
+| `src/lib/v2/strategy.ts` | Use algebraic calculation, remove hardcoded 0.55, remove height override |
 
 ---
 
-## Why This Works
+## What Gets Copied from V1
 
-V1's approach is mathematically self-consistent:
+From `src/lib/heroLayout.ts`:
+- Lines 60-103: `RowAspectInfo` interface and `getRowAspectInfo()` function
+- Lines 123-191: `calculateOptimalHeroFraction()` function
 
-```text
-For a row of photos with aspect ratios [AR1, AR2, AR3]:
-- Total AR sum = AR1 + AR2 + AR3
-- Row height = availableWidth / sum
-- Photo widths = [h * AR1, h * AR2, h * AR3]
-- Sum of widths = h * (AR1 + AR2 + AR3) = h * sum = availableWidth ✓
-```
+These are pure math functions with no dependencies on V1-specific types or logic. The V2 `PhotoDimension` type already has `aspectRatio` which is all these functions need.
 
-Every photo in the row has the same height, and widths sum to exactly the available width. This is the correct algebra - no proportional allocation needed.
+---
+
+## Expected Result
+
+After fix:
+- Hero width fraction is calculated from actual photo geometry
+- Landscape hero (AR 1.5) gets a landscape cell
+- Beside photos match hero height without distorting either
+- No magic numbers in the codebase
+- V1 can be deleted once V2 is validated
 

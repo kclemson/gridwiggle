@@ -1,71 +1,91 @@
 
-# Fix: Constrain Log Category Column to Prevent Spill
+# Fix BESIDE Row Width Alignment
 
 ## Problem
-The left column in the debug logs (`[v3-split] Valid split candidate`) isn't width-constrained, causing text to spill over the data column on the right side.
 
-## Visual Explanation
-Current: 
-```
-[v3-split] Valid split candidate    besideCount:4, besideRowCount:3...
-           ↑ This text overflows → → →
-```
+When `packToFillHeight` packs photos into multiple rows, each row ends up with its **natural width** at a fixed row height. Rows with different photo AR combinations have different widths, leaving gaps on the right edge:
 
-Desired:
 ```
-[v3-split] Valid split     besideCount:4, besideRowCount:3...
-           candidate       (text wraps within its column)
+Hero   |  Row 1: ████████░░░░   (narrow - gap on right)
+       |  Row 2: ████████████   (wider - defines region width)
 ```
 
-## Technical Fix
+## Design Intent
 
-### File: `src/pages/V3Test.tsx`
+All rows in the BESIDE region should have **identical width** (flush right edge). This is the same behavior `packToFillWidth` achieves for the BELOW region - all rows stretch to fill the target width.
 
-**Line 183-186** - The log entry layout needs to:
-1. Keep the 2-column grid structure
-2. Add `overflow-hidden` or proper width constraints
-3. Allow the label to wrap within its column instead of `whitespace-nowrap`
+## The Fix: Unified Formula
+
+The current code has a special case for "column mode" (each row has 1 photo) that correctly derives a common width from the height constraint. The multi-row case should use the **same formula**, just treating each row as a unit instead of each photo.
+
+### The Math
+
+For R rows with varying photos per row, to achieve:
+- Total height = `targetHeight`
+- All rows have same width `W`
+- Each row's height varies based on its content
+
+**Formula:**
+```
+W = (targetHeight - totalGapHeight) / Σ(1 / rowAR_i)
+```
+
+Where `rowAR_i = sum of photo aspect ratios in row i`.
+
+This is **identical** to the column mode formula - column mode is just the case where each row has one photo, so `rowAR = photoAR`.
+
+## Technical Changes
+
+### File: `src/lib/v3/normalized-pack.ts`
+
+**Lines 104-149** - Replace the current multi-row logic with the unified approach:
 
 ```typescript
-// Current (line 183):
-<div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-  <div className="flex gap-1 shrink-0">
-    <span className="text-blue-500">[{entry.category}]</span>
-    <span className="text-foreground whitespace-nowrap">{entry.label}</span>
-  </div>
+// Current (broken):
+const rowHeight = (targetHeight - totalGapHeight) / rows.length;  // Fixed height per row
+// Each row gets its natural width → uneven right edges
 
-// Fixed:
-<div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-  <div className="flex gap-1 overflow-hidden">
-    <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-    <span className="text-foreground truncate" title={entry.label}>{entry.label}</span>
-  </div>
+// Fixed (unified):
+// 1. Calculate each row's "aspect ratio" (sum of photo ARs)
+const rowARs = rows.map(row => 
+  row.reduce((sum, p) => sum + p.aspectRatio, 0) + 
+  (row.length - 1) * normalizedGap / 1  // Account for intra-row gaps
+);
+
+// 2. Derive common width from height constraint
+const sumInverseRowAR = rowARs.reduce((sum, ar) => sum + 1 / ar, 0);
+const regionWidth = (targetHeight - totalGapHeight) / sumInverseRowAR;
+
+// 3. Pack each row at regionWidth (variable row heights)
+rows.forEach(row => {
+  const rowAR = rowARs[rowIndex];
+  const rowHeight = regionWidth / rowAR;  // This row's height at regionWidth
+  // ... position photos
+});
 ```
 
-Key changes:
-- Remove `shrink-0` from the container (it was preventing width constraint)
-- Add `overflow-hidden` to the container
-- Add `shrink-0` to the category badge (keeps `[v3-split]` intact)
-- Replace `whitespace-nowrap` with `truncate` on the label (or we could allow wrapping)
+### Key Insight
 
-**Alternative: Allow wrapping instead of truncation:**
-```typescript
-<div className="flex gap-1 min-w-0">
-  <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-  <span className="text-foreground break-words min-w-0">{entry.label}</span>
-</div>
+The column mode code (lines 67-102) already implements this correctly for single-photo rows. The fix extends the same principle to multi-photo rows.
+
+**Before:** Row height is fixed → widths vary → gaps on right
+**After:** Region width is derived → heights vary per row → flush right edge
+
+## Visual Result
+
 ```
-
-This allows the label text to wrap to multiple lines within the 260px column.
-
-## Recommendation
-
-Use **wrapping** rather than truncation since seeing the full log label is valuable for debugging. The `break-words` + `min-w-0` combo will keep text within its column while allowing it to flow to the next line.
-
----
+Before:                          After:
+Hero  | ████████░░░░             Hero  | ████████████
+      | ████████████                   | ████████████
+      (uneven right edge)              (flush right edge)
+```
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `src/pages/V3Test.tsx` | Fix log column overflow by allowing text wrapping within the 260px left column |
+| File | Lines | Change |
+|------|-------|--------|
+| `src/lib/v3/normalized-pack.ts` | 104-149 | Replace fixed-rowHeight logic with unified width-derivation formula |
+
+## Unification Benefit
+
+After this fix, the column mode special case (lines 67-102) can actually be **removed** - it's just a specific instance of the general formula where each row happens to have one photo. However, keeping it as an optimization is fine since it's a common case.

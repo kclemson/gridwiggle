@@ -7,7 +7,7 @@
  */
 
 import { PhotoDimension, RegionSpec, LayoutCell, V3Tuning } from './types';
-import { randomInt } from './utils';
+import { randomInt, mean } from './utils';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -115,7 +115,7 @@ export function packPhotosIntoRegion(
   const minRows = Math.max(1, Math.ceil(photos.length / maxPhotosPerRow));
   
   // Start with optimal row count
-  let rowCount = pickRandomRowCount(photos.length, region.width, tuning);
+  let rowCount = pickRandomRowCount(photos, region.width, tuning);
   
   // Iteratively reduce row count until constraints are satisfied
   // Fewer rows = more photos per row = smaller cells = lower height
@@ -258,25 +258,45 @@ function packWithRowCount(
 /**
  * Pick a random row count from the valid geometric range.
  * 
- * Constraints:
- * - minRows: Enough rows so cells aren't narrower than region_minWidth
- * - maxRows: At least 2 photos per row on average
+ * The row count determines canvas aspect ratio via:
+ *   canvasAR ≈ regionWidth / (rows × avgRowHeight)
+ *            ≈ n × avgAR / r²
  * 
- * avgAR is NOT used - individual photo ARs are respected during
- * row packing, we don't need them to influence row count selection.
+ * Solving for r given target AR: r = sqrt(n × avgAR / targetAR)
+ * 
+ * We use canvas_minAR and canvas_maxAR to derive the allowed row range,
+ * then intersect with physical constraints (region_minWidth).
  */
 function pickRandomRowCount(
-  photoCount: number,
+  photos: PhotoDimension[],
   regionWidth: number,
   tuning: V3Tuning
 ): number {
+  const n = photos.length;
+  const avgAR = mean(photos.map(p => p.aspectRatio));
+  
+  // Physical constraint: cells can't be narrower than region_minWidth
   const maxPhotosPerRow = Math.floor(regionWidth / tuning.region_minWidth);
-  const minRows = Math.max(1, Math.ceil(photoCount / maxPhotosPerRow));
-  const maxRows = Math.max(minRows, Math.ceil(photoCount / 2));
+  const physicalMinRows = Math.max(1, Math.ceil(n / maxPhotosPerRow));
+  
+  // Canvas AR constraint: derive row bounds from target proportions
+  // More rows → taller canvas → lower AR (more portrait)
+  // Fewer rows → shorter canvas → higher AR (more landscape)
+  const rowsForMaxAR = Math.sqrt(n * avgAR / tuning.canvas_maxAR); // fewest rows (most landscape)
+  const rowsForMinAR = Math.sqrt(n * avgAR / tuning.canvas_minAR); // most rows (most portrait)
+  
+  // Combine constraints
+  const minRows = Math.max(physicalMinRows, Math.ceil(rowsForMaxAR));
+  const maxRows = Math.max(minRows, Math.floor(rowsForMinAR));
+  
   const chosen = randomInt(minRows, maxRows);
   
   devLogger.log('v3', 'Row count selection', {
-    photoCount,
+    n,
+    avgAR: avgAR.toFixed(2),
+    physicalMinRows,
+    rowsForMaxAR: rowsForMaxAR.toFixed(1),
+    rowsForMinAR: rowsForMinAR.toFixed(1),
     minRows,
     maxRows,
     chosen,

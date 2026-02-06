@@ -77,33 +77,67 @@ export interface LayoutOptions {
 
 /**
  * Tuning parameters for v2 algorithm.
- * All based on continuous values, not discrete thresholds.
+ * ALL configurable values live here - no magic numbers in algorithm code.
  */
 export interface V2Tuning {
+  // === Hero Area ===
   /** Target area multiplier for hero photos (default 2.0 = 2x area) */
   heroAreaMultiplier: number;
-  
   /** Minimum hero area as % of total canvas (default 0.15 = 15%) */
   minHeroCanvasPercent: number;
-  
   /** Maximum hero area as % of total canvas (default 0.30 = 30%) */
   maxHeroCanvasPercent: number;
   
-  /** Weight for area uniformity in scoring (default 1.0) */
-  areaUniformityWeight: number;
+  // === Hero Side Layout ===
+  /** Minimum hero width as fraction of row for side layouts */
+  heroMinWidthFraction: number;
+  /** Maximum hero width as fraction of row for side layouts */
+  heroMaxWidthFraction: number;
+  /** Maximum photos beside hero in side layouts */
+  maxBesidePhotos: number;
   
-  /** Weight for shape compliance in scoring (default 2.0) */
-  shapeComplianceWeight: number;
-  
-  /** Preferred photos per row for standard content (default 3.5) */
+  // === Row Layout ===
+  /** Preferred photos per row for standard content */
   targetPhotosPerRow: number;
+  
+  // === Shape Thresholds ===
+  /** AR >= this is considered landscape */
+  landscapeMinAR: number;
+  /** AR <= this is considered portrait */
+  portraitMaxAR: number;
+  /** ±this tolerance from 1.0 for square */
+  squareTolerance: number;
+  
+  // === Scoring Weights ===
+  /** Weight for area uniformity in scoring */
+  areaUniformityWeight: number;
+  /** Weight for shape compliance in scoring */
+  shapeComplianceWeight: number;
+  /** Weight for hero prominence in scoring */
+  heroProminenceWeight: number;
 }
 
 export const DEFAULT_V2_TUNING: V2Tuning = {
+  // Hero Area
   heroAreaMultiplier: 2.0,
   minHeroCanvasPercent: 0.15,
   maxHeroCanvasPercent: 0.30,
+  
+  // Hero Side Layout
+  heroMinWidthFraction: 0.30,
+  heroMaxWidthFraction: 0.60,
+  maxBesidePhotos: 4,
+  
+  // Row Layout
+  targetPhotosPerRow: 3.5,
+  
+  // Shape Thresholds
+  landscapeMinAR: 1.2,
+  portraitMaxAR: 0.83,
+  squareTolerance: 0.1,
+  
+  // Scoring Weights
   areaUniformityWeight: 1.0,
   shapeComplianceWeight: 2.0,
-  targetPhotosPerRow: 3.5,
+  heroProminenceWeight: 1.5,
 };

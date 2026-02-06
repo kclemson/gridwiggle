@@ -42,6 +42,8 @@ export interface GenerateLayoutV2Options {
   photoWeights?: Record<string, number>;
   randomize?: boolean;
   tuning?: Partial<V2Tuning>;
+  /** Canvas width - no longer hardcoded, caller provides */
+  canvasWidth?: number;
 }
 
 /**
@@ -59,12 +61,23 @@ export function generateCollageLayoutV2(
 ): CollageLayout | null {
   if (photos.length < 2) return null;
   
-  const { photoWeights = {}, randomize = false, tuning: tuningOverrides } = options;
+  const { 
+    photoWeights = {}, 
+    randomize = false, 
+    tuning: tuningOverrides,
+    canvasWidth: providedCanvasWidth,
+  } = options;
   const tuning: V2Tuning = { ...DEFAULT_V2_TUNING, ...tuningOverrides };
+  
+  // Canvas width from caller - fall back to a reasonable default
+  // This should ideally come from the container/preview size
+  const canvasWidth = providedCanvasWidth ?? 480;
+  const gap = settings.gapSize;
   
   devLogger.log('v2', 'Starting V2 layout generation', {
     photoCount: photos.length,
     shape: settings.shape,
+    canvasWidth,
     randomize,
   });
   
@@ -80,10 +93,6 @@ export function generateCollageLayoutV2(
     heroCount: heroIds.size,
     avgAR: dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length,
   });
-  
-  // Canvas width (fixed)
-  const canvasWidth = 480;
-  const gap = settings.gapSize;
   
   // Generate candidates from different strategies
   const candidates = generateCandidates(

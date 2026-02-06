@@ -36,7 +36,8 @@ export function scoreAreaUniformity(cells: LayoutCell[]): number {
 export function scoreShapeCompliance(
   canvasWidth: number,
   canvasHeight: number,
-  target: ShapeTarget
+  target: ShapeTarget,
+  tuning: Pick<V2Tuning, 'landscapeMinAR' | 'portraitMaxAR' | 'squareTolerance'>
 ): number {
   if (target === 'auto') return 1; // Always compliant
   
@@ -44,22 +45,24 @@ export function scoreShapeCompliance(
   
   switch (target) {
     case 'landscape':
-      // AR > 1.2 is clearly landscape
-      if (ar >= 1.2) return 1;
-      if (ar >= 1.0) return (ar - 1.0) / 0.2; // Partial credit
+      // AR >= landscapeMinAR is clearly landscape
+      if (ar >= tuning.landscapeMinAR) return 1;
+      if (ar >= 1.0) return (ar - 1.0) / (tuning.landscapeMinAR - 1.0); // Partial credit
       return 0;
       
     case 'portrait':
-      // AR < 0.83 is clearly portrait
-      if (ar <= 0.83) return 1;
-      if (ar <= 1.0) return (1.0 - ar) / 0.17; // Partial credit
+      // AR <= portraitMaxAR is clearly portrait
+      if (ar <= tuning.portraitMaxAR) return 1;
+      if (ar <= 1.0) return (1.0 - ar) / (1.0 - tuning.portraitMaxAR); // Partial credit
       return 0;
       
     case 'square':
-      // AR between 0.9 and 1.1 is square-ish
+      // AR within squareTolerance of 1.0 is square-ish
       const deviation = Math.abs(ar - 1.0);
-      if (deviation <= 0.1) return 1;
-      if (deviation <= 0.3) return 1 - (deviation - 0.1) / 0.2;
+      if (deviation <= tuning.squareTolerance) return 1;
+      if (deviation <= tuning.squareTolerance * 3) {
+        return 1 - (deviation - tuning.squareTolerance) / (tuning.squareTolerance * 2);
+      }
       return 0;
       
     default:
@@ -132,17 +135,18 @@ export function scoreLayout(
   tuning: V2Tuning
 ): ScoreBreakdown {
   const areaUniformity = scoreAreaUniformity(cells);
-  const shapeCompliance = scoreShapeCompliance(canvasWidth, canvasHeight, target);
+  const shapeCompliance = scoreShapeCompliance(canvasWidth, canvasHeight, target, tuning);
   const heroProminence = scoreHeroProminence(
     cells, heroIds, canvasWidth, canvasHeight, tuning
   );
   
   // Weighted combination
+  const totalWeight = tuning.areaUniformityWeight + tuning.shapeComplianceWeight + tuning.heroProminenceWeight;
   const total = (
     areaUniformity * tuning.areaUniformityWeight +
     shapeCompliance * tuning.shapeComplianceWeight +
-    heroProminence * 1.5 // Heroes are important
-  ) / (tuning.areaUniformityWeight + tuning.shapeComplianceWeight + 1.5);
+    heroProminence * tuning.heroProminenceWeight
+  ) / totalWeight;
   
   return {
     areaUniformity,

@@ -16,6 +16,8 @@ import { mean } from './utils';
 export interface PackingConstraints {
   maxCellArea?: number;
   maxHeight?: number;
+  /** Scale content to fill this exact height (for bounded regions like BESIDE) */
+  fillHeight?: number;
 }
 
 export interface PackingResult {
@@ -38,6 +40,7 @@ export interface PackingResult {
  * 3. Scale each row to fill region width
  * 4. Stack rows with gaps
  * 5. If constraints violated, reduce row count and retry
+ * 6. If fillHeight specified and content is shorter, scale up to fill
  */
 export function packPhotosIntoRegion(
   photos: PhotoDimension[],
@@ -53,12 +56,11 @@ export function packPhotosIntoRegion(
   // Single photo: fill the region width, maintain aspect ratio
   if (photos.length === 1) {
     const photo = photos[0];
-    const width = region.width;
-    const height = width / photo.aspectRatio;
-    const cellArea = width * height;
+    let width = region.width;
+    let height = width / photo.aspectRatio;
     
     // Check constraints for single photo
-    const violatesArea = constraints.maxCellArea && cellArea > constraints.maxCellArea;
+    const violatesArea = constraints.maxCellArea && (width * height) > constraints.maxCellArea;
     const violatesHeight = constraints.maxHeight && height > constraints.maxHeight;
     
     if (violatesArea || violatesHeight) {
@@ -66,8 +68,30 @@ export function packPhotosIntoRegion(
       return { 
         cells: [], 
         actualHeight: height, 
-        maxCellArea: cellArea, 
+        maxCellArea: width * height, 
         usedRowCount: 1 
+      };
+    }
+    
+    // Apply fillHeight scaling for single photo
+    if (constraints.fillHeight && height < constraints.fillHeight) {
+      const scaleFactor = constraints.fillHeight / height;
+      height = constraints.fillHeight;
+      width = height * photo.aspectRatio;
+      // Center horizontally after width scaling
+      const xOffset = (region.width - width) / 2;
+      
+      return {
+        cells: [{
+          photoId: photo.id,
+          x: region.x + xOffset,
+          y: region.y,
+          width,
+          height,
+        }],
+        actualHeight: height,
+        maxCellArea: width * height,
+        usedRowCount: 1,
       };
     }
     
@@ -80,7 +104,7 @@ export function packPhotosIntoRegion(
         height,
       }],
       actualHeight: height,
-      maxCellArea: cellArea,
+      maxCellArea: width * height,
       usedRowCount: 1,
     };
   }
@@ -101,6 +125,10 @@ export function packPhotosIntoRegion(
     const violatesHeight = constraints.maxHeight && result.actualHeight > constraints.maxHeight;
     
     if (!violatesArea && !violatesHeight) {
+      // Apply fillHeight scaling if needed
+      if (constraints.fillHeight && result.actualHeight < constraints.fillHeight) {
+        return scaleToFillHeight(result, region, constraints.fillHeight);
+      }
       return result;
     }
     
@@ -109,7 +137,82 @@ export function packPhotosIntoRegion(
   }
   
   // Couldn't satisfy constraints - return the best attempt (minRows)
-  return packWithRowCount(photos, region, gap, minRows);
+  const result = packWithRowCount(photos, region, gap, minRows);
+  
+  // Still apply fillHeight scaling if applicable
+  if (constraints.fillHeight && result.actualHeight < constraints.fillHeight) {
+    return scaleToFillHeight(result, region, constraints.fillHeight);
+  }
+  
+  return result;
+}
+
+/**
+ * Scale packed cells to fill a target height.
+ * Scales all cells proportionally and centers horizontally.
+ */
+function scaleToFillHeight(
+  result: PackingResult,
+  region: RegionSpec,
+  fillHeight: number
+): PackingResult {
+  const scaleFactor = fillHeight / result.actualHeight;
+  
+  // Scale all cells
+  const scaledCells = result.cells.map(cell => {
+    const newHeight = cell.height * scaleFactor;
+    const newWidth = cell.width * scaleFactor;
+    
+    // Scale Y offset from region top
+    const yOffset = (cell.y - region.y) * scaleFactor;
+    
+    return {
+      photoId: cell.photoId,
+      x: cell.x, // X will be adjusted per-row below
+      y: region.y + yOffset,
+      width: newWidth,
+      height: newHeight,
+    };
+  });
+  
+  // Group cells by row (same Y position within threshold)
+  const rows: typeof scaledCells[] = [];
+  scaledCells.forEach(cell => {
+    const existingRow = rows.find(row => 
+      row.length > 0 && Math.abs(row[0].y - cell.y) < 1
+    );
+    if (existingRow) {
+      existingRow.push(cell);
+    } else {
+      rows.push([cell]);
+    }
+  });
+  
+  // Center each row horizontally
+  rows.forEach(row => {
+    row.sort((a, b) => a.x - b.x);
+    const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) + (row.length - 1) * 0; // gaps already scaled
+    const xOffset = (region.width - rowWidth) / 2;
+    
+    let currentX = region.x + xOffset;
+    row.forEach(cell => {
+      cell.x = currentX;
+      currentX += cell.width; // gap is implicit in spacing
+    });
+  });
+  
+  // Recalculate max cell area
+  const maxCellArea = scaledCells.reduce(
+    (max, cell) => Math.max(max, cell.width * cell.height),
+    0
+  );
+  
+  return {
+    cells: scaledCells,
+    actualHeight: fillHeight,
+    maxCellArea,
+    usedRowCount: result.usedRowCount,
+  };
 }
 
 /**

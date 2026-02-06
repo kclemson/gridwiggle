@@ -4,7 +4,7 @@ import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualizat
 import { MetricsBadges } from '@/components/layout-rating/MetricsBadges';
 import { RatingControls } from '@/components/layout-rating/RatingControls';
 import { generateTestBatch, runLayoutTest } from '@/test/layout/layoutAdapter';
-import { LayoutTestCase, LayoutTestResult, RatedLayout, RatingSession, LayoutTag } from '@/test/layout/types';
+import { LayoutTestResult, RatedLayout, RatingSession, LayoutTag } from '@/test/layout/types';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 
@@ -19,7 +19,7 @@ const BATCH_SIZE = 44;
  */
 export default function LayoutRating() {
   // Generate test cases on mount
-  const [testCases, setTestCases] = useState<LayoutTestCase[]>([]);
+  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; hasHero: boolean; orientationBias: number; tuning?: { minPhotosPerRow?: number } }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<RatedLayout[]>([]);
   const [selectedTags, setSelectedTags] = useState<LayoutTag[]>([]);
@@ -30,7 +30,7 @@ export default function LayoutRating() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        const session = JSON.parse(saved) as { testCases: LayoutTestCase[]; ratings: RatedLayout[]; currentIndex: number };
+        const session = JSON.parse(saved) as { testCases: typeof testCases; ratings: RatedLayout[]; currentIndex: number };
         setTestCases(session.testCases);
         setRatings(session.ratings);
         setCurrentIndex(session.currentIndex);
@@ -69,7 +69,7 @@ export default function LayoutRating() {
     
     const ratedLayout: RatedLayout = {
       photoCount: currentResult.testCase.photos.length,
-      distribution: currentResult.testCase.distribution,
+      orientationBias: currentResult.testCase.orientationBias,
       shape: currentResult.testCase.shape,
       hasHero: currentResult.testCase.hasHero,
       rowCount: currentResult.rowCount,
@@ -201,8 +201,13 @@ export default function LayoutRating() {
         
         {/* Shape indicator banner */}
         {(() => {
-          const { hasHero, shape, photos } = currentResult.testCase;
+          const { hasHero, shape, photos, orientationBias } = currentResult.testCase;
           const photoCount = photos.length;
+          
+          // Show bias direction
+          const biasLabel = orientationBias > 0.2 ? '→L' 
+                          : orientationBias < -0.2 ? '→P' 
+                          : '→M';  // L=landscape, P=portrait, M=mixed
           
           // For hero layouts, show input (auto) and resulting aspect
           if (hasHero) {
@@ -212,7 +217,7 @@ export default function LayoutRating() {
             
             return (
               <div className="text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider bg-amber-500/20 text-amber-400">
-                AUTO + HERO ({photoCount}) → {resultAspect}
+                AUTO + HERO ({photoCount}) {biasLabel} → {resultAspect}
               </div>
             );
           }
@@ -226,7 +231,7 @@ export default function LayoutRating() {
               shape === 'square' && "bg-green-500/20 text-green-400",
               shape === 'auto' && "bg-muted text-muted-foreground",
             )}>
-              {(shape === 'square' ? 'SQUARE-ISH' : shape.toUpperCase())} ({photoCount})
+              {(shape === 'square' ? 'SQUARE-ISH' : shape.toUpperCase())} ({photoCount}) {biasLabel}
             </div>
           );
         })()}

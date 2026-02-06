@@ -1,18 +1,10 @@
-import { SyntheticPhoto, AspectDistribution } from './types';
+import { SyntheticPhoto } from './types';
 
 /**
- * Common aspect ratios from real-world photo sources.
+ * Aspect ratio bounds for sampling.
  */
-export const COMMON_RATIOS = {
-  phone_landscape: 4 / 3,      // 1.33
-  phone_portrait: 3 / 4,       // 0.75
-  wide_landscape: 16 / 9,      // 1.78
-  wide_portrait: 9 / 16,       // 0.56
-  square: 1.0,                 // 1:1
-  dslr_landscape: 3 / 2,       // 1.5
-  dslr_portrait: 2 / 3,        // 0.67
-  social_portrait: 4 / 5,      // 0.8 (Instagram)
-} as const;
+const MIN_ASPECT = 0.5;   // 9:16 portrait
+const MAX_ASPECT = 2.0;   // 16:9 landscape
 
 /**
  * Photo counts designed to expose edge cases in row-packing math.
@@ -29,40 +21,20 @@ export function applySmartCropVariation(baseAspect: number): number {
 }
 
 /**
- * Pick a random ratio based on distribution preset.
+ * Sample an aspect ratio using triangular distribution.
+ * orientationBias: -1 (portrait) to +1 (landscape), 0 = balanced
  */
-function pickRatioForDistribution(distribution: AspectDistribution): number {
-  const rand = Math.random();
+export function sampleAspectRatio(orientationBias: number): number {
+  // Center shifts from 0.75 (portrait-ish) to 1.25 (landscape-ish)
+  const center = 1.0 + orientationBias * 0.25;
+  const spread = 0.5;
   
-  switch (distribution) {
-    case 'phone-mix':
-      // 70% portrait (3:4), 30% landscape (4:3)
-      return rand < 0.7 ? COMMON_RATIOS.phone_portrait : COMMON_RATIOS.phone_landscape;
-      
-    case 'social-mix':
-      // Mix of 1:1 (40%), 4:5 (35%), 16:9 (25%)
-      if (rand < 0.4) return COMMON_RATIOS.square;
-      if (rand < 0.75) return COMMON_RATIOS.social_portrait;
-      return COMMON_RATIOS.wide_landscape;
-      
-    case 'camera-mix':
-      // 60% 3:2 landscape, 40% 2:3 portrait
-      return rand < 0.6 ? COMMON_RATIOS.dslr_landscape : COMMON_RATIOS.dslr_portrait;
-      
-    case 'balanced':
-    default:
-      // Equal mix of all common ratios
-      const ratios = [
-        COMMON_RATIOS.phone_landscape,
-        COMMON_RATIOS.phone_portrait,
-        COMMON_RATIOS.wide_landscape,
-        COMMON_RATIOS.wide_portrait,
-        COMMON_RATIOS.square,
-        COMMON_RATIOS.dslr_landscape,
-        COMMON_RATIOS.dslr_portrait,
-      ];
-      return ratios[Math.floor(rand * ratios.length)];
-  }
+  // Triangular distribution: sum of two uniforms shifted and scaled
+  const u = Math.random();
+  const v = Math.random();
+  const sample = center + spread * (u - v);
+  
+  return Math.max(MIN_ASPECT, Math.min(MAX_ASPECT, sample));
 }
 
 /**
@@ -90,76 +62,43 @@ function createSyntheticPhoto(
  * Generate a set of synthetic photos for testing.
  * 
  * @param count Number of photos to generate
- * @param distribution Distribution preset for aspect ratios
+ * @param orientationBias Bias from -1 (portrait) to +1 (landscape), 0 = balanced
  * @param hasHero Whether to include a hero photo (priority 1)
  * @param smartCropRatio Fraction of photos to apply smart crop variation (0-1)
  */
 export function generatePhotoSet(
   count: number,
-  distribution: AspectDistribution,
+  orientationBias: number,
   hasHero: boolean,
   smartCropRatio: number = 0.5
 ): SyntheticPhoto[] {
   const photos: SyntheticPhoto[] = [];
   
   for (let i = 0; i < count; i++) {
-    const id = `photo-${i + 1}`;
-    let aspectRatio = pickRatioForDistribution(distribution);
-    
-    // Apply smart crop variation to most photos
-    if (Math.random() < smartCropRatio) {
-      aspectRatio = applySmartCropVariation(aspectRatio);
-    }
-    
-    // First photo is hero if hasHero is true
     const isHero = hasHero && i === 0;
-    const priority: 1 | 2 | 3 = isHero ? 1 : 3;
+    let aspectRatio: number;
     
-    // Hero photos tend to be landscape or square
     if (isHero) {
-      const heroRand = Math.random();
-      if (heroRand < 0.5) {
-        aspectRatio = COMMON_RATIOS.dslr_landscape; // 3:2
-      } else if (heroRand < 0.8) {
-        aspectRatio = COMMON_RATIOS.phone_landscape; // 4:3
-      } else {
-        aspectRatio = COMMON_RATIOS.square; // 1:1
-      }
-      // Light smart crop variation on hero too
+      // Hero biased toward landscape/square (0.3 to 0.7 range)
+      aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
       if (Math.random() < 0.5) {
+        aspectRatio = applySmartCropVariation(aspectRatio);
+      }
+    } else {
+      aspectRatio = sampleAspectRatio(orientationBias);
+      
+      // Apply smart crop variation to some photos
+      if (Math.random() < smartCropRatio) {
         aspectRatio = applySmartCropVariation(aspectRatio);
       }
     }
     
-    photos.push(createSyntheticPhoto(id, aspectRatio, priority));
+    photos.push(createSyntheticPhoto(
+      `photo-${i + 1}`,
+      aspectRatio,
+      isHero ? 1 : 3
+    ));
   }
   
   return photos;
-}
-
-/**
- * Distribution weights for test case generation.
- */
-export const DISTRIBUTION_WEIGHTS: Record<AspectDistribution, number> = {
-  'phone-mix': 0.35,    // Most common (phone photos)
-  'balanced': 0.30,     // Good variety
-  'social-mix': 0.25,   // Instagram imports
-  'camera-mix': 0.10,   // DSLR (less common)
-};
-
-/**
- * Pick a distribution based on weights.
- */
-export function weightedRandomDistribution(): AspectDistribution {
-  const rand = Math.random();
-  let cumulative = 0;
-  
-  for (const [dist, weight] of Object.entries(DISTRIBUTION_WEIGHTS)) {
-    cumulative += weight;
-    if (rand < cumulative) {
-      return dist as AspectDistribution;
-    }
-  }
-  
-  return 'balanced';
 }

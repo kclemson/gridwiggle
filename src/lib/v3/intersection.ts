@@ -413,8 +413,14 @@ function generateSimpleRowsLayout(
   const estimatedHeight = canvasWidth; // Rough estimate
   const normalizedGap = gap / estimatedHeight;
   
-  // Determine row count using geometry-aware calculation
-  const rowCount = calculateBelowRowCount(photos, 1.0, normalizedGap, tuning.canvas_minAR);
+  // Determine row count using geometry-aware calculation (enforces both min and max AR)
+  const rowCount = calculateBelowRowCount(
+    photos, 
+    1.0, 
+    normalizedGap, 
+    tuning.canvas_minAR,
+    tuning.canvas_maxAR
+  );
   
   // Pack in normalized space (use width = 1.0 as reference)
   const normalizedResult = packToFillWidth(photos, 1.0, normalizedGap, rowCount);
@@ -431,6 +437,17 @@ function generateSimpleRowsLayout(
   }));
   
   const canvasHeight = normalizedResult.height * scaleFactor;
+  const canvasAR = canvasWidth / canvasHeight;
+  
+  // Validate canvas AR bounds
+  if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+    devLogger.log('v3', 'Simple rows layout outside AR bounds', {
+      canvasAR: canvasAR.toFixed(2),
+      minAR: tuning.canvas_minAR,
+      maxAR: tuning.canvas_maxAR,
+    });
+    return null;
+  }
   
   // Create dummy proposal for compatibility
   const dummyProposal: HeroProposal = {

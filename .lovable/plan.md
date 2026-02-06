@@ -1,125 +1,158 @@
 
 
-# Fix BESIDE Region + Compact Cell Labels
+# Fixing V3 Layout Test Issues - Step 1
 
-## Issue 1: Cell Label Separator (Cosmetic)
+We'll tackle these issues separately to avoid tangling. Let me start with two focused fixes:
+
+## Fix 1: Hero Border Inside (Styling)
 
 **File**: `src/components/layout-rating/LayoutVisualization.tsx`
 
-The label currently shows `1.07 · 18%` with a middle-dot separator. Change to just a space for more compact display.
+Current styling uses `ring-2 ring-amber-400` which renders OUTSIDE the element.
 
-**Line 112 change**:
+**Change line 96**:
 ```tsx
 // Before
-{photo?.aspectRatio.toFixed(2)} · {areaPercent}%
+isHero && "ring-2 ring-amber-400 z-10"
 
-// After
-{photo?.aspectRatio.toFixed(2)} {areaPercent}%
+// After  
+isHero && "border-2 border-amber-400 z-10"
+```
+
+Or use `ring-inset`:
+```tsx
+isHero && "ring-2 ring-inset ring-amber-400 z-10"
 ```
 
 ---
 
-## Issue 2: BESIDE Region Not Working (Critical Bug)
+## Fix 2: Cells Overflowing Canvas (Critical Bug)
 
-### Root Cause
+Looking at screenshot 3, cells B and C extend beyond the canvas boundary. This is a bug in `scaleToFillHeight` in `row-pack.ts`.
 
-The `decomposeCorner` function in `canvas.ts` always creates the BESIDE region to the RIGHT of the hero:
+**Root Cause**: When scaling cells to fill height, the width scales proportionally. But the code doesn't re-pack the row horizontally - it just adjusts X based on the original positions. When scaled, cells can exceed the region width.
 
+**Current buggy code** (lines 192-201):
 ```typescript
-const besideX = heroRect.x + heroRect.width + gap;
-const besideWidth = canvasWidth - besideX;
+// Center each row horizontally
+rows.forEach(row => {
+  row.sort((a, b) => a.x - b.x);
+  const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) + (row.length - 1) * 0; // gaps already scaled
+  const xOffset = (region.width - rowWidth) / 2;
+  
+  let currentX = region.x + xOffset;
+  row.forEach(cell => {
+    cell.x = currentX;
+    currentX += cell.width; // gap is implicit in spacing
+  });
+});
 ```
 
-For `top-right` corner placement:
-- `heroRect.x = canvasWidth - heroWidth = 480 - 272 = 208`
-- `besideX = 208 + 272 + 8 = 488`
-- `besideWidth = 480 - 488 = -8` (NEGATIVE!)
+**Problems**:
+1. Gap isn't being added between cells (`+ (row.length - 1) * 0` - the `* 0` is wrong)
+2. If `rowWidth > region.width`, `xOffset` becomes negative, pushing cells outside
 
-Since `besideWidth` is negative or very small, the BESIDE region is either skipped or marked as non-viable. All photos go to BELOW.
+**Fix**: After scaling, re-pack cells to fit within region bounds. If scaled row is wider than region, we need to clamp or not apply fillHeight scaling.
 
-### Solution
-
-Make `decomposeCorner` position-aware:
-
-**File**: `src/lib/v3/entities/canvas.ts`
-
-Update `decomposeCorner` to accept the hero position and create BESIDE on the correct side:
+**File**: `src/lib/v3/row-pack.ts`
 
 ```typescript
-function decomposeCorner(
-  canvasWidth: number,
-  heroRect: RegionSpec,
-  gap: number,
-  tuning: V3Tuning,
-  position: 'top-left' | 'top-right'  // NEW parameter
-): DecompositionResult {
-  const regions: RegionSpec[] = [];
+function scaleToFillHeight(
+  result: PackingResult,
+  region: RegionSpec,
+  fillHeight: number
+): PackingResult {
+  const scaleFactor = fillHeight / result.actualHeight;
   
-  let besideX: number;
-  let besideWidth: number;
+  // Scale all cells
+  const scaledCells = result.cells.map(cell => {
+    const newHeight = cell.height * scaleFactor;
+    const newWidth = cell.width * scaleFactor;
+    
+    // Scale Y offset from region top
+    const yOffset = (cell.y - region.y) * scaleFactor;
+    
+    return {
+      photoId: cell.photoId,
+      x: cell.x,
+      y: region.y + yOffset,
+      width: newWidth,
+      height: newHeight,
+    };
+  });
   
-  if (position === 'top-left') {
-    // BESIDE is to the RIGHT of hero
-    besideX = heroRect.x + heroRect.width + gap;
-    besideWidth = canvasWidth - besideX;
-  } else {
-    // BESIDE is to the LEFT of hero (top-right position)
-    besideX = 0;
-    besideWidth = heroRect.x - gap;
-  }
+  // Group cells by row (same Y position within threshold)
+  const rows: typeof scaledCells[] = [];
+  scaledCells.forEach(cell => {
+    const existingRow = rows.find(row => 
+      row.length > 0 && Math.abs(row[0].y - cell.y) < 1
+    );
+    if (existingRow) {
+      existingRow.push(cell);
+    } else {
+      rows.push([cell]);
+    }
+  });
   
-  if (besideWidth > tuning.region_minWidth) {
-    regions.push({
-      x: besideX,
-      y: heroRect.y,
-      width: besideWidth,
-      height: heroRect.height,
+  // Calculate gap from original spacing
+  const originalGap = result.cells.length > 1 
+    ? result.cells[1].x - (result.cells[0].x + result.cells[0].width)
+    : 0;
+  const scaledGap = originalGap * scaleFactor;
+  
+  // Pack each row to fit region width
+  rows.forEach(row => {
+    row.sort((a, b) => a.x - b.x);
+    const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) 
+      + (row.length - 1) * scaledGap;
+    
+    // Clamp row to fit region - scale down cells if needed
+    if (rowWidth > region.width) {
+      const clampScale = region.width / rowWidth;
+      row.forEach(cell => {
+        cell.width *= clampScale;
+        cell.height *= clampScale;
+      });
+    }
+    
+    // Calculate actual row width after potential clamping
+    const finalRowWidth = row.reduce((sum, cell) => sum + cell.width, 0)
+      + (row.length - 1) * scaledGap * (rowWidth > region.width ? region.width / rowWidth : 1);
+    
+    // Center horizontally
+    const xOffset = (region.width - finalRowWidth) / 2;
+    
+    let currentX = region.x + xOffset;
+    row.forEach(cell => {
+      cell.x = currentX;
+      currentX += cell.width + scaledGap;
     });
-  }
+  });
   
-  // ... BELOW region unchanged
+  // ... rest unchanged
 }
 ```
 
-Also update `decomposeCanvas` to pass the position:
+---
 
-```typescript
-case 'corner':
-  return decomposeCorner(canvasWidth, heroRect, gap, tuning, proposal.position);
-```
+## What About Issues 1 & 2 (Blank Space)?
 
-### Why This Was Masked
+These require deeper architectural discussion. The current "corner" decomposition creates only **2 regions** (beside + below), not **3 regions** (left + right + below).
 
-The algorithm currently evaluates multiple proposals (top-left, top-right, edge-left, etc.) and picks the best valid one. Since top-left DOES work correctly, that proposal gets selected and the layout renders - just always with hero on the left and no photos beside.
+Your mockups show:
+- 3 "slices": left of hero, right of hero, below hero
 
-The top-right proposal was finding valid splits but the BESIDE region itself wasn't viable due to the negative width, so effectively all photos went to BELOW which passed constraints.
+Current architecture:
+- 2 regions: one beside (left OR right), one below
+
+To achieve what you're showing, we'd need to implement **"edge" mode** which would create 3 regions. This is a bigger change that we should discuss separately.
 
 ---
 
-## Files to Change
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/components/layout-rating/LayoutVisualization.tsx` | Replace ` · ` with ` ` |
-| `src/lib/v3/entities/canvas.ts` | Pass position to decomposeCorner, calculate BESIDE on correct side |
-| `src/lib/v3/intersection.ts` | Pass proposal.position to decomposeCanvas |
-| `src/lib/v3/types.ts` | May need to update DecompositionMode to include position |
-
----
-
-## Technical Details
-
-The position parameter needs to flow through the call chain:
-
-```text
-proposePositions() → proposal.position = 'top-right'
-    ↓
-evaluateProposal() calls decomposeCanvas()
-    ↓
-decomposeCanvas() calls decomposeCorner(position)
-    ↓
-decomposeCorner() creates BESIDE on LEFT if position='top-right'
-```
-
-After this fix, shuffling should produce layouts with the hero on either side AND with photos in the BESIDE region.
+| `src/components/layout-rating/LayoutVisualization.tsx` | Hero border inside |
+| `src/lib/v3/row-pack.ts` | Fix cell overflow after height scaling |
 

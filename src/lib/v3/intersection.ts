@@ -185,15 +185,54 @@ function evaluateNormalizedProposal(
   const normalizedWidth = heroRowWidth;
   const normalizedHeight = 1.0 + estimatedNormalizedGap + belowResult.height;
   
-  // Calculate scale factor to convert to pixels
-  const scaleFactor = canvasWidth / normalizedWidth;
-  const pixelGap = gap; // Use actual pixel gap
+  // ============================================================================
+  // Bottom-Up: Derive scale factor from geometry
+  // ============================================================================
   
-  // Recalculate with correct normalized gap
-  const correctedNormalizedGap = pixelGap / scaleFactor;
+  // Find minimum normalized cell dimensions (content cells only)
+  const allNormalizedCells = [
+    ...besideResult.cells,
+    ...belowResult.cells,
+  ];
   
-  // If gap correction is significant, repack (for now, accept small error)
-  // This could be iterative for higher precision
+  let minNormalizedCellWidth = Infinity;
+  let minNormalizedCellHeight = Infinity;
+  
+  for (const cell of allNormalizedCells) {
+    minNormalizedCellWidth = Math.min(minNormalizedCellWidth, cell.width);
+    minNormalizedCellHeight = Math.min(minNormalizedCellHeight, cell.height);
+  }
+  
+  // Calculate minimum scale factor for cell size constraints
+  // pixelWidth = normalizedWidth × scale >= minCellWidth
+  // → scale >= minCellWidth / normalizedWidth
+  const scaleForWidth = allNormalizedCells.length > 0 
+    ? tuning.region_minWidth / minNormalizedCellWidth 
+    : 1;
+  const scaleForHeight = allNormalizedCells.length > 0 
+    ? tuning.region_minHeight / minNormalizedCellHeight 
+    : 1;
+  const minScale = Math.max(scaleForWidth, scaleForHeight);
+  
+  // Use the larger of: minimum required scale, or preferred scale for target width
+  const preferredScale = canvasWidth / normalizedWidth;
+  const scaleFactor = Math.max(minScale, preferredScale);
+  
+  // Derive actual canvas dimensions
+  const actualCanvasWidth = normalizedWidth * scaleFactor;
+  const actualCanvasHeight = normalizedHeight * scaleFactor;
+  
+  devLogger.log('v3', 'Derived canvas dimensions', {
+    normalizedWidth: normalizedWidth.toFixed(2),
+    normalizedHeight: normalizedHeight.toFixed(2),
+    minScale: minScale.toFixed(2),
+    preferredScale: preferredScale.toFixed(2),
+    scaleFactor: scaleFactor.toFixed(2),
+    actualWidth: Math.round(actualCanvasWidth),
+    actualHeight: Math.round(actualCanvasHeight),
+  });
+  
+  const pixelGap = gap;
   
   // Convert all cells to pixels
   const pixelCells = convertToPixels(
@@ -207,9 +246,8 @@ function evaluateNormalizedProposal(
     normalizedWidth
   );
   
-  // Calculate actual canvas dimensions
-  const canvasHeight = normalizedHeight * scaleFactor;
-  const canvasAR = canvasWidth / canvasHeight;
+  // Calculate canvas AR for validation
+  const canvasAR = actualCanvasWidth / actualCanvasHeight;
   
   // Validate canvas AR
   if (canvasAR < tuning.canvas_minAR) {
@@ -241,16 +279,7 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  // Validate minimum cell sizes
-  const minCellSize = Math.min(tuning.region_minWidth, tuning.region_minHeight);
-  const hasSmallCells = pixelCells.some(c => 
-    c.width < minCellSize || c.height < minCellSize
-  );
-  
-  if (hasSmallCells) {
-    devLogger.log('v3', 'Cells too small', { minCellSize });
-    return null;
-  }
+  // Cell sizes are now guaranteed valid by construction (we derived scale from them)
   
   // Score the configuration
   const score = scoreConfiguration(prominence.ratio, pixelCells, tuning);
@@ -281,7 +310,8 @@ function evaluateNormalizedProposal(
       totalAssigned: contentPhotos.length 
     },
     cells: pixelCells,
-    canvasHeight,
+    canvasHeight: actualCanvasHeight,
+    canvasWidth: actualCanvasWidth,
     prominenceRatio: prominence.ratio,
     score,
   };
@@ -417,24 +447,58 @@ function generateSimpleRowsLayout(
     return null;
   }
   
-  // Calculate normalized gap
-  const estimatedHeight = canvasWidth; // Rough estimate
-  const normalizedGap = gap / estimatedHeight;
+  // Calculate normalized gap (rough estimate for row count calculation)
+  const estimatedNormalizedGap = 0.02;
   
   // Determine row count using geometry-aware calculation (enforces both min and max AR)
   const rowCount = calculateBelowRowCount(
     photos, 
     1.0, 
-    normalizedGap, 
+    estimatedNormalizedGap, 
     tuning.canvas_minAR,
     tuning.canvas_maxAR
   );
   
   // Pack in normalized space (use width = 1.0 as reference)
-  const normalizedResult = packToFillWidth(photos, 1.0, normalizedGap, rowCount);
+  const normalizedResult = packToFillWidth(photos, 1.0, estimatedNormalizedGap, rowCount);
   
-  // Scale to canvas width
-  const scaleFactor = canvasWidth;
+  // ============================================================================
+  // Bottom-Up: Derive scale factor from geometry
+  // ============================================================================
+  
+  // Find minimum normalized cell dimensions
+  let minNormalizedCellWidth = Infinity;
+  let minNormalizedCellHeight = Infinity;
+  
+  for (const cell of normalizedResult.cells) {
+    minNormalizedCellWidth = Math.min(minNormalizedCellWidth, cell.width);
+    minNormalizedCellHeight = Math.min(minNormalizedCellHeight, cell.height);
+  }
+  
+  // Calculate minimum scale factor for cell size constraints
+  const scaleForWidth = normalizedResult.cells.length > 0 
+    ? tuning.region_minWidth / minNormalizedCellWidth 
+    : 1;
+  const scaleForHeight = normalizedResult.cells.length > 0 
+    ? tuning.region_minHeight / minNormalizedCellHeight 
+    : 1;
+  const minScale = Math.max(scaleForWidth, scaleForHeight);
+  
+  // Use the larger of: minimum required scale, or preferred scale for target width
+  const preferredScale = canvasWidth / 1.0; // normalizedWidth = 1.0
+  const scaleFactor = Math.max(minScale, preferredScale);
+  
+  // Derive actual canvas dimensions
+  const actualCanvasWidth = 1.0 * scaleFactor;
+  const actualCanvasHeight = normalizedResult.height * scaleFactor;
+  
+  devLogger.log('v3', 'Simple rows: derived canvas dimensions', {
+    normalizedHeight: normalizedResult.height.toFixed(2),
+    minScale: minScale.toFixed(2),
+    scaleFactor: scaleFactor.toFixed(2),
+    actualWidth: Math.round(actualCanvasWidth),
+    actualHeight: Math.round(actualCanvasHeight),
+  });
   
   const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
     photoId: cell.photoId,
@@ -444,8 +508,7 @@ function generateSimpleRowsLayout(
     height: cell.height * scaleFactor,
   }));
   
-  const canvasHeight = normalizedResult.height * scaleFactor;
-  const canvasAR = canvasWidth / canvasHeight;
+  const canvasAR = actualCanvasWidth / actualCanvasHeight;
   
   // Validate canvas AR bounds
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
@@ -472,7 +535,8 @@ function generateSimpleRowsLayout(
     proposal: dummyProposal,
     distribution: { assignments: new Map([[0, photos.map(p => p.id)]]), totalAssigned: photos.length },
     cells,
-    canvasHeight,
+    canvasHeight: actualCanvasHeight,
+    canvasWidth: actualCanvasWidth,
     prominenceRatio: 1,
     score: areaUniformity,
   };

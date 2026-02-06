@@ -219,7 +219,9 @@ export interface ScoredConfiguration {
   distribution: PhotoDistribution;
   /** Final positioned cells */
   cells: LayoutCell[];
-  /** Total canvas height */
+  /** Derived canvas width (geometry-driven) */
+  canvasWidth: number;
+  /** Derived canvas height */
   canvasHeight: number;
   /** Hero prominence ratio achieved */
   prominenceRatio: number;

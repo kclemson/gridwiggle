@@ -1,65 +1,67 @@
 
+# Remove SmartCrop Simulation
 
-# Fix: Increase Orientation Bias Strength
+## Goal
 
-## Problem Identified
-
-The mathematical sampling formula uses too weak a multiplier:
-
-```typescript
-const center = 1.0 + orientationBias * 0.25;
-```
-
-| Bias | Center | Actual Range (±0.5 spread) |
-|------|--------|---------------------------|
-| +0.6 (max landscape) | 1.15 | 0.65 - 1.65 |
-| 0.0 (balanced) | 1.0 | 0.5 - 1.5 |
-| -0.6 (max portrait) | 0.85 | 0.35 - 1.35 |
-
-Even with maximum landscape bias, the center barely shifts past 1.0, so most photos still end up near square or portrait-ish. The row-stacking algorithm then produces tall canvases.
-
-## Solution
-
-Increase the multiplier from `0.25` to `0.5` so the bias has meaningful effect:
-
-```typescript
-const center = 1.0 + orientationBias * 0.5;
-```
-
-| Bias | New Center | New Range |
-|------|------------|-----------|
-| +0.6 | 1.30 | 0.8 - 1.8 (mostly landscape) |
-| 0.0 | 1.0 | 0.5 - 1.5 (balanced) |
-| -0.6 | 0.70 | 0.2 - 1.2 (mostly portrait) |
-
-This produces genuinely different input distributions that should result in varied canvas shapes.
+Remove the `applySmartCropVariation` function and all calls to it. This eliminates the logic that pulls aspect ratios toward 1.0 (square), which was identified as a major contributor to the portrait bias.
 
 ## Changes
 
 ### File: `src/test/layout/photoGenerator.ts`
 
-**Line 29** - Increase bias strength:
+1. **Delete** the `applySmartCropVariation` function (lines 14-21)
+
+2. **Remove** the `smartCropRatio` parameter from `generatePhotoSet` (line 73)
+
+3. **Simplify** the photo generation loop to just use `sampleAspectRatio` directly:
 
 ```typescript
-// Before
-const center = 1.0 + orientationBias * 0.25;
-
-// After  
-const center = 1.0 + orientationBias * 0.5;
+export function generatePhotoSet(
+  count: number,
+  orientationBias: number,
+  hasHero: boolean
+): SyntheticPhoto[] {
+  const photos: SyntheticPhoto[] = [];
+  
+  for (let i = 0; i < count; i++) {
+    const isHero = hasHero && i === 0;
+    let aspectRatio: number;
+    
+    if (isHero) {
+      // Hero biased toward landscape/square
+      aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+    } else {
+      aspectRatio = sampleAspectRatio(orientationBias);
+    }
+    
+    photos.push(createSyntheticPhoto(
+      `photo-${i + 1}`,
+      aspectRatio,
+      isHero ? 1 : 3
+    ));
+  }
+  
+  return photos;
+}
 ```
+
+## What This Removes
+
+- The `applySmartCropVariation` function that was pulling 50% of photos toward square
+- The `smartCropRatio` parameter (unused after this change)
+- All conditional calls to smart crop simulation
 
 ## Expected Outcome
 
-After this change and a reset:
-- `→L` cases should produce more landscape/square canvases
-- `→P` cases should still produce portrait canvases  
-- `→M` cases should be a mix
+With only the triangular distribution sampling (centered by `orientationBias`), we should see:
+- More extreme aspect ratios preserved (very portrait and very landscape)
+- Better variety in canvas shapes
+- The `orientationBias` having its intended effect without being dampened
 
-The tool will actually test the algorithm's handling of different input photo distributions instead of always feeding it portrait-ish inputs.
+After this change, reset the session and page through to see if we get more variety. If still too portrait-heavy, we can then consider switching to uniform sampling.
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
-| `src/test/layout/photoGenerator.ts` | Increase bias multiplier from 0.25 to 0.5 |
-
+| File | Changes |
+|------|---------|
+| `src/test/layout/photoGenerator.ts` | Remove `applySmartCropVariation` and all calls to it |

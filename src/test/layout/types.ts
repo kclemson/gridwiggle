@@ -37,23 +37,13 @@ export interface SyntheticPhoto {
 }
 
 /**
- * Distribution presets for photo generation.
- * Weighted toward common real-world use cases.
- */
-export type AspectDistribution = 
-  | 'phone-mix'    // 70% portrait (3:4), 30% landscape (4:3)
-  | 'social-mix'   // Mix of 1:1, 4:5, 16:9
-  | 'camera-mix'   // 60% 3:2 landscape, 40% 2:3 portrait
-  | 'balanced';    // Equal mix of all common ratios
-
-/**
  * A single test case to run through the layout algorithm.
  */
 export interface LayoutTestCase {
   photos: SyntheticPhoto[];
   shape: CollageSettings['shape'];
   hasHero: boolean;
-  distribution: AspectDistribution;
+  orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
   tuning?: Partial<LayoutTuning>;
 }
 
@@ -85,7 +75,7 @@ export interface LayoutTestResult {
 export interface RatedLayout {
   // Inputs
   photoCount: number;
-  distribution: AspectDistribution;
+  orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
   shape: CollageSettings['shape'];
   hasHero: boolean;
   

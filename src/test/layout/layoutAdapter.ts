@@ -9,13 +9,11 @@ import {
 } from '@/types/collage';
 import { 
   SyntheticPhoto, 
-  AspectDistribution, 
   LayoutTestCase, 
   LayoutTestResult 
 } from './types';
 import { 
   generatePhotoSet, 
-  weightedRandomDistribution, 
   TEST_PHOTO_COUNTS 
 } from './photoGenerator';
 import { coefficientOfVariation, shuffleArray } from '@/lib/layoutMath';
@@ -191,7 +189,7 @@ function randomMinPhotosPerRow(): number {
  * Generate a batch of diverse test cases for rating.
  * Hero layouts always use 'auto' shape (matches app UX constraint).
  * Non-hero layouts test all available shapes for regression coverage.
- * Generates 2 variations per combination for more variety.
+ * Generates 5 variations per photo count for variety.
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
@@ -201,16 +199,17 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
     for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {
       // 80% hero, 20% no-hero for regression coverage
       const hasHero = Math.random() < 0.8;
-      const distribution = weightedRandomDistribution();
+      // Random bias from -0.6 to +0.6 (avoid extremes)
+      const orientationBias = (Math.random() - 0.5) * 1.2;
       const tuning = { minPhotosPerRow: randomMinPhotosPerRow() };
       
       if (hasHero) {
         // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
         cases.push({
-          photos: generatePhotoSet(photoCount, distribution, true),
+          photos: generatePhotoSet(photoCount, orientationBias, true),
           shape: 'auto',
           hasHero: true,
-          distribution,
+          orientationBias,
           tuning,
         });
       } else {
@@ -223,10 +222,10 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
         // Pick one random shape for this variation
         const shape = shapes[Math.floor(Math.random() * shapes.length)];
         cases.push({
-          photos: generatePhotoSet(photoCount, distribution, false),
+          photos: generatePhotoSet(photoCount, orientationBias, false),
           shape,
           hasHero: false,
-          distribution,
+          orientationBias,
           tuning,
         });
       }

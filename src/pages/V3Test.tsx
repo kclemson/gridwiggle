@@ -208,8 +208,8 @@ export default function V3Test() {
             )}
             
             {layout && (
-              <div className="mt-2 text-xs text-muted-foreground text-center">
-                Canvas: {layout.width}×{layout.height}px
+              <div className="mt-3 text-base font-medium text-foreground text-center">
+                Canvas: {layout.width}×{layout.height}px ({(layout.width / layout.height).toFixed(2)} AR, 1:{(layout.height / layout.width).toFixed(2)})
               </div>
             )}
           </div>

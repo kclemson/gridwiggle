@@ -364,7 +364,8 @@ export function packAllRegions(
   distribution: DistributionResult,
   gap: number,
   tuning: V3Tuning,
-  maxCellArea?: number
+  maxCellArea?: number,
+  maxUnboundedHeight?: number  // Canvas-level height budget for unbounded regions (BELOW)
 ): PackAllRegionsResult {
   const allCells: LayoutCell[] = [];
   const contentAreas: number[] = [];
@@ -396,6 +397,9 @@ export function packAllRegions(
       constraints.maxHeight = region.height;
       // For bounded regions (like BESIDE), fill the available height
       constraints.fillHeight = region.height;
+    } else if (maxUnboundedHeight) {
+      // Apply canvas-level height budget to unbounded regions (BELOW)
+      constraints.maxHeight = maxUnboundedHeight;
     }
     
     // Pack photos into this region

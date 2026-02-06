@@ -11,9 +11,7 @@ import {
   PhotoDimension,
   shuffleArray,
   getPhotoDimensions,
-  calculateOptimalBesideRowCount,
   calculateMaxBesideCount,
-  getPreferredRowModes,
 } from '@/lib/layoutMath';
 import { devLogger } from '@/lib/devLogger';
 
@@ -704,13 +702,10 @@ function generateEdgeAnchoredHeroLayout(
   // Collect candidates and score them
   const candidates: HeroCandidate[] = [];
 
-  // ASPECT-RATIO-AWARE: Calculate optimal row count based on geometry
-  // Formula: r = sqrt(besideCount * avgBesideAR / heroAR)
-  // This naturally produces fewer rows for landscape heroes with portrait photos
-  const optimalRows = calculateOptimalBesideRowCount(hero.aspectRatio, remainingPhotos);
-  const rowModesToTry = getPreferredRowModes(optimalRows);
+  // RANDOM-FIRST: Shuffle row modes and try each until one fits
+  const rowModesToTry = shuffleArray([1, 2, 3] as (1 | 2 | 3)[]);
   
-  // Try row modes in preferred order (based on aspect ratio math)
+  // Try row modes in shuffled order
   for (const rowMode of rowModesToTry) {
     if (rowMode === 3) {
       // Try 3-row packing

@@ -13,7 +13,7 @@
  */
 
 import { CollageLayout, CollageCell } from '@/types/collage';
-import { PhotoDimension, shuffleArray, calculateOptimalBesideRowCount, mean } from '@/lib/layoutMath';
+import { PhotoDimension, shuffleArray, mean } from '@/lib/layoutMath';
 import { devLogger } from '@/lib/devLogger';
 
 // Re-export for consumers that imported from here
@@ -167,10 +167,10 @@ export function buildHeroUnitBlock(
   const fractionMax = Math.floor(totalPhotoCount * maxBesideFraction);
   const reservedMax = totalPhotoCount - minContentPhotos - 1; // -1 for hero itself
   
-  // Determine optimal row mode using aspect-ratio math
-  const optimalRows = rowMode === 'auto'
-    ? calculateOptimalBesideRowCount(hero.aspectRatio, candidates)
-    : rowMode === '1-row' ? 1 : rowMode === '2-row' ? 2 : 3;
+  // Simple: random order, validate each
+  const rowModesToTry: (1 | 2 | 3)[] = rowMode === 'auto'
+    ? shuffleArray([1, 2, 3] as (1 | 2 | 3)[])
+    : [rowMode === '1-row' ? 1 : rowMode === '2-row' ? 2 : 3];
   
   // Calculate effective max for each row mode (respects fraction and reservation)
   const minPhotos1Row = 1;
@@ -179,21 +179,11 @@ export function buildHeroUnitBlock(
   const effectiveMax1Row = Math.min(maxBeside1Row, fractionMax, Math.max(minPhotos1Row, reservedMax));
   const effectiveMax2Row = Math.min(maxBeside2Row, fractionMax, Math.max(minPhotos2Row, reservedMax));
   const effectiveMax3Row = Math.min(maxBeside3Row, fractionMax, Math.max(minPhotos3Row, reservedMax));
-  
-  // Build ordered list of row modes to try, starting with optimal
-  const rowModesToTry: (1 | 2 | 3)[] = optimalRows === 1 
-    ? [1, 2, 3] 
-    : optimalRows === 3 
-    ? [3, 2, 1] 
-    : [2, 3, 1];
 
   // Log row selection decision
-  const avgCandidateAR = candidates.length > 0 ? mean(candidates.map(p => p.aspectRatio)) : 1.0;
   devLogger.log('layout', 'Row selection', {
     heroAR: hero.aspectRatio,
     candidateCount: candidates.length,
-    avgCandidateAR,
-    optimalRows,
     rowModesToTry,
   });
   

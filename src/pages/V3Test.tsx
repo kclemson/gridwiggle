@@ -24,6 +24,42 @@ const GAP_SIZE = 8;
 const PLACEHOLDER_BLOB = new Blob([''], { type: 'image/png' });
 
 /**
+ * Format log data for display:
+ * - Flatten nested objects with underscore prefix
+ * - Remove JSON syntax characters
+ * - Format as comma-separated key:value pairs
+ */
+function formatLogData(data: Record<string, unknown>): string {
+  const pairs: string[] = [];
+  
+  function flatten(obj: Record<string, unknown>, prefix = '') {
+    for (const [key, value] of Object.entries(obj)) {
+      const fullKey = prefix ? `${prefix}_${key}` : key;
+      
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        // Recursively flatten nested objects
+        flatten(value as Record<string, unknown>, fullKey);
+      } else if (Array.isArray(value)) {
+        // Format arrays as [val1, val2, ...]
+        const formatted = value.map(v => 
+          typeof v === 'number' ? v.toFixed(2) : String(v)
+        ).join(', ');
+        pairs.push(`${fullKey}:[${formatted}]`);
+      } else if (typeof value === 'number') {
+        // Format numbers to 2 decimal places if float
+        const formatted = Number.isInteger(value) ? value : value.toFixed(2);
+        pairs.push(`${fullKey}:${formatted}`);
+      } else {
+        pairs.push(`${fullKey}:${value}`);
+      }
+    }
+  }
+  
+  flatten(data);
+  return pairs.join(', ');
+}
+
+/**
  * Convert SyntheticPhoto to PhotoItem for layout generation.
  */
 function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
@@ -132,7 +168,7 @@ export default function V3Test() {
         </div>
         
         {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-[520px_1fr] gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[670px_1fr] gap-6">
           {/* Left: Debug Logs */}
           <div className="border rounded-lg bg-card overflow-hidden order-2 lg:order-1">
             <div className="p-3 border-b font-medium text-sm">
@@ -144,12 +180,14 @@ export default function V3Test() {
                   <div className="text-muted-foreground">No logs yet</div>
                 ) : (
                   logs.map((entry, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-                      <span className="text-foreground">{entry.label}</span>
+                    <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
+                      <div className="flex gap-1 shrink-0">
+                        <span className="text-blue-500">[{entry.category}]</span>
+                        <span className="text-foreground whitespace-nowrap">{entry.label}</span>
+                      </div>
                       {Object.keys(entry.data).length > 0 && (
                         <span className="text-muted-foreground break-all">
-                          {JSON.stringify(entry.data)}
+                          {formatLogData(entry.data)}
                         </span>
                       )}
                     </div>

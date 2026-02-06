@@ -146,8 +146,15 @@ export function generateCollageLayoutV3(
     height: Math.round(cell.height),
   }));
   
+  devLogger.log('v3', 'Final layout dimensions', {
+    inputWidth: canvasWidth,
+    outputWidth: Math.round(config.canvasWidth),
+    outputHeight: Math.round(config.canvasHeight),
+    outputAR: (config.canvasWidth / config.canvasHeight).toFixed(2),
+  });
+  
   return {
-    width: Math.round(canvasWidth),
+    width: Math.round(config.canvasWidth),
     height: Math.round(config.canvasHeight),
     cells,
   };

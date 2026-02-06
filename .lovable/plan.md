@@ -1,90 +1,143 @@
 
-# Add Randomize Support to V3
+# Fix V3 Hero Layout Failures
 
-## Problem
+## Root Cause Analysis
 
-V3 currently doesn't accept or use the `randomize` option. Looking at `Index.tsx` lines 112-115, the V3 call doesn't pass `randomize`:
+V3 hero layouts fail because of a **prominence inversion bug** in how content photos are packed into regions.
 
-```typescript
-const layout = algorithmVersion === 'v3'
-  ? generateCollageLayoutV3(photosToUse, settings, { 
-      photoWeights,
-      // randomize is NOT passed!
-    })
+### The Math Problem
+
+When a hero is placed (corner mode), the canvas is decomposed into:
+- **BESIDE region**: Right of hero, same height as hero
+- **BELOW region**: Full width, below the hero row
+
+The BESIDE region gets a subset of content photos. But here's the bug:
+
+```text
+Canvas: 480px wide
+Hero: ~160px wide (derived from prominence target)
+BESIDE region: 480 - 160 - gap = ~312px wide
+
+If BESIDE gets 1-2 photos, they scale to fill 312px width:
+  - 1 photo with AR=1.0 → 312x312 = 97,344 px²
+  - Hero area: ~25,000 px²
+  - Prominence ratio: 25,000 / 97,344 = 0.26
+  
+Required minimum: 1.3
+Result: REJECTED
 ```
 
-Meanwhile V1 and V2 both receive and use `randomize` for variety on refresh.
+**The hero ends up smaller than the content photos beside it!**
 
-## Solution
+### Why Hero-less Works
 
-Two changes needed:
+Without a hero, all photos go into a single full-width region. Row packing distributes them across multiple rows (e.g., 4-5 rows of 4-5 photos each), resulting in reasonably-sized cells.
 
-### 1. Update V3 Options Interface (`src/lib/v3/index.ts`)
+---
 
-Add `randomize` to the options type and implement Fisher-Yates shuffle:
+## Solution Options
 
-```typescript
-export interface GenerateLayoutV3Options {
-  photoWeights?: Record<string, number>;
-  tuning?: Partial<V3Tuning>;
-  canvasWidth?: number;
-  randomize?: boolean;  // NEW
-}
-```
+### Option A: Constrain Hero Minimum Size (Quick Fix)
 
-### 2. Shuffle Photos When Randomizing (`src/lib/v3/index.ts`)
+Ensure hero width is at least 50% of canvas, guaranteeing the BESIDE region is narrow enough that photos can't exceed hero size.
 
-Add a shuffle helper and apply it before layout generation:
+**Pros**: Simple, one-line change
+**Cons**: Limits layout variety
 
-```typescript
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-```
+### Option B: Prominence-Aware Packing (Better)
 
-Then in `generateCollageLayoutV3`:
+Before finalizing the layout, check if any content cell would exceed hero prominence. If so:
+1. Reduce BESIDE region allocation (fewer photos)
+2. Or increase hero size to compensate
+3. Or reject that proposal and try another
 
-```typescript
-const { 
-  photoWeights = {}, 
-  tuning: tuningOverrides,
-  canvasWidth: providedCanvasWidth,
-  randomize = false,  // NEW
-} = options;
+**Pros**: Maintains layout variety, mathematically sound
+**Cons**: More complex
 
-// Extract dimensions with weights
-let dimensions = extractPhotoDimensions(photos, photoWeights);
+### Option C: Iterative Hero Sizing (Best Long-term)
 
-// Shuffle for variety when requested
-if (randomize) {
-  dimensions = shuffleArray(dimensions);
-}
-```
+Instead of computing hero size upfront, iterate:
+1. Start with minimum viable hero
+2. Pack content regions
+3. Check prominence
+4. If failing, grow hero and re-pack
+5. Repeat until valid or reject
 
-### 3. Pass Randomize from Index.tsx (`src/pages/Index.tsx`)
+**Pros**: Optimal layouts
+**Cons**: Most complex, save for Phase 2
 
-Update the V3 call to include the `randomize` parameter:
+---
 
-```typescript
-const layout = algorithmVersion === 'v3'
-  ? generateCollageLayoutV3(photosToUse, settings, { 
-      photoWeights,
-      randomize,  // ADD THIS
-    })
-```
+## Recommended Fix (Option B - Prominence-Aware)
 
-## Files to Modify
+### Changes
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/index.ts` | Add `randomize` option, add `shuffleArray` helper, apply shuffle when `randomize` is true |
-| `src/pages/Index.tsx` | Pass `randomize` to V3 options (line 114) |
+| `src/lib/v3/intersection.ts` | Add diagnostic logging to `evaluateProposal` |
+| `src/lib/v3/entities/hero.ts` | Increase hero minimum size to ensure prominence |
+| `src/lib/v3/intersection.ts` | Validate BESIDE region can't exceed hero prominence |
 
-## Result
+### Implementation Details
 
-After this change, clicking the refresh button with V3 will shuffle photo order, producing different row arrangements and visual variety.
+1. **Clamp hero size to ensure prominence**:
+   In `computeHeroSize`, ensure `clampedWidth` is at least large enough that the BESIDE region (with minimum photos) can't exceed prominence.
+
+   ```typescript
+   // Current: clamp to 80% of canvas
+   const clampedWidth = Math.min(heroWidth, canvasWidth * 0.8);
+   
+   // Fix: Also ensure minimum size for prominence
+   // BESIDE can have at most 2-3 photos, each with max AR ~2.0
+   // besideWidth = canvas - heroWidth - gap
+   // Worst case: 1 photo at besideWidth, height = besideWidth / AR
+   // Content area = besideWidth² / AR
+   // Hero area = heroWidth * heroHeight
+   // Need: heroArea >= 1.3 * contentArea
+   const minHeroWidth = canvasWidth * 0.55; // Ensures BESIDE is narrow
+   const clampedWidth = Math.max(minHeroWidth, Math.min(heroWidth, canvasWidth * 0.8));
+   ```
+
+2. **Add diagnostic logging**:
+   In `evaluateProposal`, log why proposals fail so we can debug:
+
+   ```typescript
+   if (!decomposition.valid) {
+     devLogger.log('v3', 'Proposal rejected: decomposition invalid', {
+       mode: proposal.mode,
+       reason: decomposition.invalidReason,
+     });
+     return null;
+   }
+   ```
+
+3. **Log prominence failures**:
+   ```typescript
+   if (!prominence.valid) {
+     devLogger.log('v3', 'Proposal rejected: prominence too low', {
+       heroArea,
+       runnerUpArea: Math.max(...contentAreas),
+       ratio: prominence.ratio,
+       required: tuning.hero_minProminence,
+     });
+     return null;
+   }
+   ```
+
+---
+
+## Files to Modify
+
+| File | Purpose |
+|------|---------|
+| `src/lib/v3/entities/hero.ts` | Increase minimum hero width to ensure prominence |
+| `src/lib/v3/intersection.ts` | Add diagnostic logging for debugging |
+
+---
+
+## Expected Outcome
+
+After this fix:
+1. Hero layouts will generate successfully (hero guaranteed large enough)
+2. Console logs will show proposal evaluation details for debugging
+3. Prominence ratio will be >= 1.3 as designed

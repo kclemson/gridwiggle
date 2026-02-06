@@ -1,98 +1,129 @@
 
 
-# Evolve Existing Fraction Logic to Ensure Hero Prominence
+# Fix Hero Prominence: Canvas-Level Area Check
 
-## The Insight
+## Problem
 
-The `calculateOptimalHeroFraction` function already computes what fraction of canvas width the hero should occupy. It also returns `clamped: boolean` indicating whether the math wanted a fraction outside the allowed range.
+The `clamped` check we added works for row-level geometry issues, but doesn't prevent 1-row layouts where the hero ends up as a small fraction of the **total canvas area**.
 
-**Key observation**: When 1-row mode produces `clamped: true`, it means the geometry doesn't naturally support the layout. Currently we accept these clamped configurations anyway. Instead, we should **reject clamped 1-row configurations** because they fundamentally can't produce a prominent hero.
+**Current state (from your screenshot):**
+- Hero AR: 2.27 (landscape)
+- Config accepted: 1-row, 4 beside photos, heroWidthFraction: 0.34
+- Hero Area: **~6%** of total canvas
 
-## Current Flow
+The hero *looks* fine at the row level (it's 34% of the row width), but when you add 17 more photos below in full-width rows, the hero becomes a tiny 6% of the overall canvas.
+
+## Root Cause
+
+The `calculateOptimalHeroFraction` function returns `clamped: false` for this configuration because the **row-level geometry works**. But there's no check for **canvas-level prominence**.
+
+## Solution: Add Minimum Hero Coverage Check
+
+After building a hero unit block (and before accepting it), estimate what % of the final canvas the hero will occupy. Reject configurations where hero coverage is too low.
 
 ```text
-calculateOptimalHeroFraction(heroAR, besidePhotos, ..., rowCount=1)
-  → { fraction: 0.42, clamped: true }  // wanted 0.25 but clamped to 0.30
-
-tryBuildHeroUnit(..., rowCount=1)
-  → uses clamped fraction anyway
-  → hero isn't prominent, but accepted
+┌─────────────────────────────────────────────────────────────┐
+│   After building hero block:                                │
+│                                                             │
+│   1. Estimate total canvas height:                          │
+│      - heroHeight + gap + remainingPhotosHeight             │
+│                                                             │
+│   2. Calculate estimated hero coverage:                     │
+│      - heroArea / (canvasWidth × estimatedTotalHeight)      │
+│                                                             │
+│   3. Reject if coverage < minHeroCoverage (e.g., 8%)        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Proposed Flow
+## Technical Changes
 
-```text
-calculateOptimalHeroFraction(heroAR, besidePhotos, ..., rowCount=1)
-  → { fraction: 0.42, clamped: true }
+### File 1: `src/types/collage.ts`
 
-tryBuildHeroUnit(..., rowCount=1)
-  → sees clamped=true for 1-row
-  → rejects with "fraction clamped for 1-row"
-  → tries next row mode (2 or 3)
-```
-
-## Why This Works
-
-The 1-row math produces a non-clamped fraction only when:
-- Hero AR is significantly larger than beside photos, OR
-- There are very few beside photos
-
-These are exactly the cases where 1-row produces a prominent hero!
-
-When the hero and beside photos have similar ARs, the math wants a low hero fraction (e.g., 20%) but we clamp to 30%. This produces the "hero isn't prominent" problem.
-
-## Technical Change
-
-**File: `src/lib/layoutBlocks.ts`** (in `tryBuildHeroUnit`, ~line 253-260)
+Add new tuning parameter:
 
 ```typescript
-// BEFORE:
-const { fraction: optimalFraction } = calculateOptimalHeroFraction(
-  hero.aspectRatio,
-  besidePhotos,
-  canvasWidth,
-  gap,
-  rowCount
-);
+interface LayoutTuning {
+  // ... existing fields ...
+  
+  /** Minimum hero area as % of total canvas (default 0.08 = 8%) */
+  minHeroCoverage: number;
+}
 
-// AFTER:
-const { fraction: optimalFraction, clamped } = calculateOptimalHeroFraction(
-  hero.aspectRatio,
-  besidePhotos,
-  canvasWidth,
-  gap,
-  rowCount
-);
+export const DEFAULT_TUNING: LayoutTuning = {
+  // ... existing defaults ...
+  minHeroCoverage: 0.08,  // 8% of canvas
+};
+```
 
-// For 1-row: reject if clamped (geometry doesn't support prominent hero)
-if (rowCount === 1 && clamped) {
+### File 2: `src/lib/layoutBlocks.ts`
+
+In `buildHeroUnitBlock`, after successfully building a hero unit but before returning, estimate canvas coverage:
+
+```typescript
+// After line 368 (after building successful hero unit)
+
+// Estimate total canvas height to check hero coverage
+const remainingCount = candidates.length - besidePhotos.length;
+const avgRemainingAR = remainingCount > 0 
+  ? candidates.slice(besideCount).reduce((s, p) => s + p.aspectRatio, 0) / remainingCount
+  : 1.0;
+
+// Estimate rows needed for remaining photos (rough: photosPerRow ≈ 3-4)
+const estimatedRowsBelow = Math.max(0, Math.ceil(remainingCount / 3.5));
+const estimatedRowHeight = canvasWidth / (3.5 * avgRemainingAR); // Approximate
+const estimatedBelowHeight = estimatedRowsBelow * (estimatedRowHeight + gap);
+
+const estimatedTotalHeight = scaledHeroHeight + gap + estimatedBelowHeight;
+const estimatedHeroCoverage = (scaledHeroWidth * scaledHeroHeight) / 
+                               (canvasWidth * estimatedTotalHeight);
+
+// Check if hero will have sufficient canvas presence
+const minHeroCoverage = options.minHeroCoverage ?? 0.08;
+if (estimatedHeroCoverage < minHeroCoverage) {
   devLogger.log('layout', 'Config rejected', {
     rowCount,
     besideCount,
-    reason: 'fraction clamped for 1-row (hero would lack prominence)',
+    estimatedHeroCoverage,
+    reason: `hero coverage ${(estimatedHeroCoverage * 100).toFixed(1)}% < ${minHeroCoverage * 100}%`,
   });
   continue;
 }
 ```
 
+### File 3: `src/lib/heroLayout.ts`
+
+Pass the new tuning parameter when calling `buildHeroUnitBlock`:
+
+```typescript
+// In generateBlockBasedHeroLayout, add to options:
+{
+  // ... existing options ...
+  minHeroCoverage: tuning.minHeroCoverage,
+}
+```
+
 ## Expected Behavior
 
-| Hero AR | Beside ARs | Optimal Fraction | Clamped? | 1-Row Result |
-|---------|-----------|-----------------|----------|--------------|
-| 2.5 (panorama) | 0.8, 0.9 (portraits) | 0.55 | No | Accepted ✓ |
-| 1.5 (landscape) | 1.2, 1.3 (landscape) | 0.28 | Yes (→0.30) | Rejected → try 2-row |
-| 0.7 (portrait) | 1.0, 1.1, 1.2 | 0.18 | Yes (→0.30) | Rejected → try 2-row |
+| Scenario | Photo Count | 1-Row Coverage | Result |
+|----------|-------------|----------------|--------|
+| 22 photos, 1-row, 4 beside | 22 | ~6% | **Rejected** → tries 2-row |
+| 22 photos, 2-row, 6 beside | 22 | ~10-12% | Accepted |
+| 8 photos, 1-row, 4 beside | 8 | ~20% | Accepted |
+
+The 1-row mode will still work for smaller photo sets where the hero naturally takes up more canvas space, but will be rejected for large sets where the "below zone" would dwarf the hero.
 
 ## Why This Is Clean
 
-- **No new validation**: Evolves existing `clamped` return value
-- **Mathematically grounded**: Uses geometry, not arbitrary thresholds
-- **Minimal code**: ~6 lines added
-- **Preserves variety**: 1-row still works when geometry supports it
+1. **Uses existing pattern**: Same rejection-and-continue flow as scale tolerance
+2. **Mathematically grounded**: Based on estimated canvas area, not arbitrary rules
+3. **Tunable**: `minHeroCoverage` can be adjusted via debug panel
+4. **Preserves variety**: 1-row still works when hero naturally dominates
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/lib/layoutBlocks.ts` | Use existing `clamped` flag to reject 1-row when geometry is poor (~6 lines) |
+| `src/types/collage.ts` | Add `minHeroCoverage` to LayoutTuning |
+| `src/lib/layoutBlocks.ts` | Add hero coverage estimation and rejection check |
+| `src/lib/heroLayout.ts` | Pass `minHeroCoverage` option |
 

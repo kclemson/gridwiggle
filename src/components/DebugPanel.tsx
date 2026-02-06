@@ -3,10 +3,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
 import { LayoutTuning } from '@/types/collage';
 import { TuningSection } from '@/components/TuningSection';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
-export type AlgorithmVersion = 'v1' | 'v2';
+export type AlgorithmVersion = 'v1' | 'v2' | 'v3';
 
 interface DebugPanelProps {
   logs: LogEntry[];
@@ -130,26 +129,25 @@ export function DebugPanel({
           </span>
           <div className="flex items-center gap-3">
             {/* Algorithm Version Toggle */}
-            <div className="flex items-center gap-2">
-              <Label 
-                htmlFor="algo-version" 
-                className={`text-xs font-mono cursor-pointer ${algorithmVersion === 'v1' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
+            <ToggleGroup 
+              type="single" 
+              value={algorithmVersion} 
+              onValueChange={(value) => value && onAlgorithmVersionChange(value as AlgorithmVersion)}
+              size="sm"
+            >
+              <ToggleGroupItem value="v1" className="text-xs font-mono px-2 h-6">
                 v1
-              </Label>
-              <Switch
-                id="algo-version"
-                checked={algorithmVersion === 'v2'}
-                onCheckedChange={(checked) => onAlgorithmVersionChange(checked ? 'v2' : 'v1')}
-                className="data-[state=checked]:bg-primary"
-              />
-              <Label 
-                htmlFor="algo-version" 
-                className={`text-xs font-mono cursor-pointer ${algorithmVersion === 'v2' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
+              </ToggleGroupItem>
+              <ToggleGroupItem value="v2" className="text-xs font-mono px-2 h-6">
                 v2
-              </Label>
-            </div>
+              </ToggleGroupItem>
+              <ToggleGroupItem 
+                value="v3" 
+                className="text-xs font-mono px-2 h-6 data-[state=on]:bg-amber-500/20 data-[state=on]:text-amber-600 dark:data-[state=on]:text-amber-400"
+              >
+                v3
+              </ToggleGroupItem>
+            </ToggleGroup>
             {timestamp && (
               <span className="text-[10px] text-muted-foreground font-mono">
                 {timestamp}

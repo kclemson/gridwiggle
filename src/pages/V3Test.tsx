@@ -181,9 +181,9 @@ export default function V3Test() {
                 ) : (
                   logs.map((entry, idx) => (
                     <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-                      <div className="flex gap-1 shrink-0">
-                        <span className="text-blue-500">[{entry.category}]</span>
-                        <span className="text-foreground whitespace-nowrap">{entry.label}</span>
+                      <div className="flex gap-1 min-w-0">
+                        <span className="text-blue-500 shrink-0">[{entry.category}]</span>
+                        <span className="text-foreground break-words min-w-0">{entry.label}</span>
                       </div>
                       {Object.keys(entry.data).length > 0 && (
                         <span className="text-muted-foreground break-all">

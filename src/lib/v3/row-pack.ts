@@ -7,7 +7,8 @@
  */
 
 import { PhotoDimension, RegionSpec, LayoutCell, V3Tuning } from './types';
-import { mean } from './utils';
+import { randomInt } from './utils';
+import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
 // Types
@@ -114,7 +115,7 @@ export function packPhotosIntoRegion(
   const minRows = Math.max(1, Math.ceil(photos.length / maxPhotosPerRow));
   
   // Start with optimal row count
-  let rowCount = calculateOptimalRowCount(photos, region, gap, tuning);
+  let rowCount = pickRandomRowCount(photos.length, region.width, tuning);
   
   // Iteratively reduce row count until constraints are satisfied
   // Fewer rows = more photos per row = smaller cells = lower height
@@ -255,39 +256,33 @@ function packWithRowCount(
 }
 
 /**
- * Calculate optimal row count based on region geometry and photo ARs.
+ * Pick a random row count from the valid geometric range.
  * 
- * Goal: Find row count that gives roughly equal-height rows while
- * respecting region_minWidth for cells.
+ * Constraints:
+ * - minRows: Enough rows so cells aren't narrower than region_minWidth
+ * - maxRows: At least 2 photos per row on average
+ * 
+ * avgAR is NOT used - individual photo ARs are respected during
+ * row packing, we don't need them to influence row count selection.
  */
-function calculateOptimalRowCount(
-  photos: PhotoDimension[],
-  region: RegionSpec,
-  gap: number,
+function pickRandomRowCount(
+  photoCount: number,
+  regionWidth: number,
   tuning: V3Tuning
 ): number {
-  const avgAR = mean(photos.map(p => p.aspectRatio));
-  const n = photos.length;
+  const maxPhotosPerRow = Math.floor(regionWidth / tuning.region_minWidth);
+  const minRows = Math.max(1, Math.ceil(photoCount / maxPhotosPerRow));
+  const maxRows = Math.max(minRows, Math.ceil(photoCount / 2));
+  const chosen = randomInt(minRows, maxRows);
   
-  // Estimate: If we have r rows with n/r photos each
-  // Row height ≈ (regionWidth - gaps) / (photosPerRow * avgAR)
-  // Total height ≈ r * rowHeight
-  // 
-  // We want rows where cells aren't too narrow (region_minWidth)
-  // Max photos per row ≈ regionWidth / region_minWidth
-  const maxPhotosPerRow = Math.floor(region.width / tuning.region_minWidth);
-  const minRows = Math.ceil(n / maxPhotosPerRow);
+  devLogger.log('v3', 'Row count selection', {
+    photoCount,
+    minRows,
+    maxRows,
+    chosen,
+  });
   
-  // Also don't want too many rows - estimate based on reasonable cell height
-  // A cell with avgAR at minWidth has height = minWidth / avgAR
-  // Max rows ≈ regionHeight / (minWidth / avgAR)
-  // But region height is dynamic, so we use a heuristic
-  const maxRows = Math.ceil(n / 2); // At least 2 photos per row on average
-  
-  // Target: distribute evenly, respecting bounds
-  const targetRows = Math.max(minRows, Math.min(maxRows, Math.ceil(Math.sqrt(n / avgAR))));
-  
-  return Math.max(1, targetRows);
+  return chosen;
 }
 
 /**

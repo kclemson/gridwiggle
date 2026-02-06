@@ -103,6 +103,16 @@ export function isRegionViable(
 /**
  * Shuffle array using Fisher-Yates algorithm.
  */
+/**
+ * Random integer in range [min, max] inclusive.
+ */
+export function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * Shuffle array using Fisher-Yates algorithm.
+ */
 export function shuffleArray<T>(array: T[]): T[] {
   const result = [...array];
   for (let i = result.length - 1; i > 0; i--) {

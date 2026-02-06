@@ -1,74 +1,57 @@
 
 
-# Implement Layout Rating Test Case Variety Improvements
+# Fix: Generate More Test Cases (Target ~44)
 
-## Goal
+## Problem
 
-Make the Layout Rating Tool produce noticeably different layouts when reset, by adding more meaningful randomization at the test case generation level.
+The current loop generates only **18 test cases**:
+- 9 photo counts × 2 variations = 18 cases
+- `BATCH_SIZE = 44` is ignored because there are only 18 cases to shuffle/slice from
 
-## Changes
+## Solution
 
-### File 1: `src/test/layout/photoGenerator.ts`
+Increase `VARIATIONS_PER_COMBO` from 2 to 5 to generate ~45 cases, which will be sliced to 44:
 
-**Change 1** - Wider smart crop variation (line 26-29):
-```typescript
-// Before: 10-30% toward square
-const variation = 0.1 + Math.random() * 0.2;
+**9 photo counts × 5 variations = 45 cases → slice(0, 44) = 44 cases**
 
-// After: 15-50% toward square
-const variation = 0.15 + Math.random() * 0.35;
-```
+This provides good coverage while keeping the simple loop structure.
 
-**Change 2** - Lower default smart crop rate (line 101):
+## Change
+
+### File: `src/test/layout/layoutAdapter.ts`
+
+**Line 198** - Update constant:
+
 ```typescript
 // Before
-smartCropRatio: number = 0.7
+const VARIATIONS_PER_COMBO = 2;
 
-// After  
-smartCropRatio: number = 0.5
+// After
+const VARIATIONS_PER_COMBO = 5;
 ```
 
-### File 2: `src/test/layout/layoutAdapter.ts`
+## Math Breakdown
 
-**Change 1** - Generate 2 variations per combination:
-- For each `photoCount`, generate multiple test cases (not just one)
-- This ensures different random seeds produce different photo sets
+| Photo Counts | Variations | Total Cases | After Slice |
+|--------------|------------|-------------|-------------|
+| 9 | 2 | 18 | 18 (current - too few!) |
+| 9 | 5 | 45 | 44 (target) |
+| 9 | 6 | 54 | 44 (wasteful) |
 
-**Change 2** - Randomize `minPhotosPerRow` tuning:
-- Randomly pick between 2, 3, or 4 for each test case
-- This forces different row structures even with similar inputs
-- Add `tuning` field to `LayoutTestCase` type if needed
-
-**Change 3** - Update `runLayoutTest` to use tuning from test case:
-- Merge any per-case tuning with defaults before running layout
-
-### File 3: `src/test/layout/types.ts` (if needed)
-
-**Change** - Add optional `tuning` field to `LayoutTestCase` interface:
-```typescript
-interface LayoutTestCase {
-  photos: SyntheticPhoto[];
-  shape: CollageSettings['shape'];
-  hasHero: boolean;
-  distribution: AspectDistribution;
-  tuning?: Partial<LayoutTuning>;  // NEW
-}
-```
+Using 5 variations gives us exactly what we need with minimal waste.
 
 ## Expected Outcome
 
-After these changes, clicking "Reset" will produce visibly different layouts because:
-- Wider aspect ratio spread changes row packing decisions
-- Different `minPhotosPerRow` values create different row structures
-- Multiple variations per combination means different random seeds
-
-The layout algorithm remains deterministic for reproducibility - variety comes from more diverse inputs.
+- Reset will generate 44 test cases instead of 18
+- Each photo count gets 5 different test cases with varying:
+  - Hero vs non-hero (80/20 split)
+  - Random aspect distributions
+  - Random `minPhotosPerRow` tuning (2, 3, or 4)
+  - Random smart crop variations
 
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `src/test/layout/photoGenerator.ts` | Widen smart crop variation (15-50%), reduce application rate (50%) |
-| `src/test/layout/layoutAdapter.ts` | Generate 2 variations per combo, randomize `minPhotosPerRow` tuning |
-| `src/test/layout/types.ts` | Add optional `tuning` field to `LayoutTestCase` |
+| `src/test/layout/layoutAdapter.ts` | Change `VARIATIONS_PER_COMBO` from 2 to 5 |
 

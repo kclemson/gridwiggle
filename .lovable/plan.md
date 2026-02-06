@@ -1,59 +1,34 @@
 
-
-# Canvas AR-Constrained Row Count Selection
+# Update canvas_minAR Default
 
 ## Summary
 
-Replace the naive "at least 2 photos per row" constraint with geometry-derived bounds based on canvas aspect ratio limits. This ensures layouts stay within reasonable proportions while still allowing variety.
+Change the default `canvas_minAR` from 0.5 to 0.67 to prevent overly tall portrait layouts while keeping the landscape range unchanged.
 
 ---
 
 ## Design Intent
 
-**Problem**: The current random approach allows extreme outcomes (48 photos resulting in a 10:1 vertical strip) because it only enforces "at least 2 photos per row."
+**Problem**: The 1:2 portrait proportion (canvas_minAR = 0.5) feels visually awkward — too tall and narrow.
 
-**Solution**: Define explicit canvas AR guardrails and derive the allowed row count range from those bounds.
+**Solution**: Raise the floor to 0.67, allowing at most a 1:1.5 portrait proportion.
 
-**User Outcome**: Every shuffle produces a different layout, but all stay within "reasonable" proportions (e.g., between 1:2 and 2:1).
+**User Outcome**: Portrait-oriented collages stay comfortably proportioned (no taller than 1.5× their width) while landscape layouts can still stretch to 2:1.
 
 ---
 
-## Changes
+## Change
 
-### 1. Add tuning parameters to `src/lib/v3/types.ts`
+### `src/lib/v3/types.ts`
 
-Add to `V3Tuning` interface:
+Update the default value:
+
 ```typescript
-// === Canvas Proportion Limits ===
-/** Minimum canvas aspect ratio (most portrait allowed), e.g. 0.5 = 1:2 */
-canvas_minAR: number;
-/** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.0 = 2:1 */
-canvas_maxAR: number;
-```
-
-Add to defaults:
-```typescript
+// Before
 canvas_minAR: 0.5,
-canvas_maxAR: 2.0,
-```
 
-### 2. Update `pickRandomRowCount` in `src/lib/v3/row-pack.ts`
-
-- Add `mean` import back to utils
-- Change function signature to accept `photos: PhotoDimension[]` instead of `photoCount`
-- Calculate `avgAR` from photos
-- Derive row bounds using `r = sqrt(n * avgAR / canvasAR)`
-- Enhanced logging with all constraint values
-
-### 3. Update call site
-
-Change from:
-```typescript
-pickRandomRowCount(photos.length, region.width, tuning)
-```
-To:
-```typescript
-pickRandomRowCount(photos, region.width, tuning)
+// After  
+canvas_minAR: 0.67,
 ```
 
 ---
@@ -62,16 +37,4 @@ pickRandomRowCount(photos, region.width, tuning)
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/types.ts` | Add `canvas_minAR` and `canvas_maxAR` tuning parameters |
-| `src/lib/v3/row-pack.ts` | Update `pickRandomRowCount` to use canvas AR bounds, add `mean` import, update call site |
-
----
-
-## Result
-
-For 48 photos with avgAR ~1.2:
-
-**Before**: Valid range 8-24 rows (allows AR ~0.09 extremes)
-
-**After**: Valid range ~5-10 rows (all layouts between 1:2 and 2:1)
-
+| `src/lib/v3/types.ts` | Change `canvas_minAR` default from 0.5 to 0.67 |

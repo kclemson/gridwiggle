@@ -1,59 +1,134 @@
 
-# Fix: Enable Top-Right Hero Position
 
-## The Issue
+# Add Bottom-Left and Bottom-Right Hero Positions
 
-The `top-right` position is proposed in `hero.ts` but **never gets selected** because:
+## What You'll Get
 
-1. **Scoring is position-blind**: `scoreConfiguration` only considers prominence ratio and area uniformity
-2. **Identical geometry**: `top-left` and `top-right` are geometric mirrors - same prominence, same cell sizes
-3. **First-wins behavior**: When scores tie, the first proposal (`top-left`) always wins
+When shuffling, the hero photo will appear in **all four corners** of the collage - adding more visual variety.
 
-## The Fix
+```text
+┌───┬──┐  ┌──┬───┐  ┌──────┐  ┌──────┐
+│ H │  │  │  │ H │  │      │  │      │
+├───┴──┤  ├──┴───┤  ├───┬──┤  ├──┬───┤
+│      │  │      │  │ H │  │  │  │ H │
+└──────┘  └──────┘  └───┴──┘  └──┴───┘
+top-left  top-right bottom-left bottom-right
+```
 
-Add a **random tiebreaker** to the scoring function so equally-valid positions have equal chance of being selected.
+## Design
+
+Bottom corners require flipping the vertical layout:
+
+| Top Corners (current) | Bottom Corners (new) |
+|-----------------------|----------------------|
+| Hero row at y = 0 | Hero row at y = belowHeight + gap |
+| BELOW at y = heroHeight + gap | BELOW at y = 0 |
+
+The normalized space packing is identical - we just swap which region goes on top during pixel conversion.
 
 ## Technical Changes
 
-### File: `src/lib/v3/intersection.ts`
+### 1. Add Bottom Corner Proposals
 
-**Lines 407-420** - Add randomization to break ties:
+**File:** `src/lib/v3/entities/hero.ts` (after line 60)
+
+Add two new corner proposals:
 
 ```typescript
-function scoreConfiguration(
-  prominenceRatio: number,
-  cells: LayoutCell[],
-  tuning: V3Tuning
-): number {
-  // Base score from prominence (higher prominence = better)
-  const prominenceScore = prominenceRatio / tuning.hero_targetProminence;
-  
-  // Cell area uniformity (lower variance = better)
-  const areas = cells.slice(1).map(c => c.width * c.height);
-  const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
-  
-  // Random tiebreaker for equally-valid configurations (1% variation)
-  const randomTiebreaker = Math.random() * 0.01;
-  
-  return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
-}
+// Bottom-left: hero at bottom-left, BELOW region above
+proposals.push({
+  rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
+  mode: 'corner',
+  position: 'bottom-left',
+});
+
+// Bottom-right: hero at bottom-right, BELOW region above  
+proposals.push({
+  rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
+  mode: 'corner',
+  position: 'bottom-right',
+});
 ```
 
-## Why This Works
+### 2. Update Pixel Conversion for Bottom Positioning
 
-| Configuration | Base Score | With Tiebreaker |
-|--------------|------------|-----------------|
-| top-left     | 1.234      | 1.234 + 0.007   |
-| top-right    | 1.234      | 1.234 + 0.003   |
+**File:** `src/lib/v3/intersection.ts`
 
-The 1% random variation is small enough to never override a genuinely better configuration, but large enough to give equal-scoring positions an equal chance of being selected.
+The `convertToPixels` function needs to:
+1. Accept `belowHeight` as a parameter (needed to calculate hero Y position)
+2. Handle vertical flipping for bottom corners
 
-## Expected Outcome
+**Updated function signature (line 327):**
+```typescript
+function convertToPixels(
+  heroPhoto: PhotoDimension,
+  position: string,
+  heroAR: number,
+  besideCells: { ... }[],
+  belowCells: { ... }[],
+  belowHeight: number,  // NEW PARAMETER
+  scaleFactor: number,
+  gap: number,
+  normalizedWidth: number
+): LayoutCell[]
+```
 
-When shuffling, the hero will appear in **both** top-left and top-right positions roughly equally.
+**Updated positioning logic:**
+
+```typescript
+// Determine if this is a bottom position
+const isBottom = position === 'bottom-left' || position === 'bottom-right';
+const isRight = position === 'top-right' || position === 'bottom-right';
+
+// Hero X position (same as before)
+const heroX = isRight 
+  ? (normalizedWidth - heroNormalizedWidth) * scaleFactor 
+  : 0;
+
+// Hero Y position (NEW: flip for bottom)
+const normalizedGap = gap / scaleFactor;
+const heroY = isBottom 
+  ? (belowHeight + normalizedGap) * scaleFactor  // Below the BELOW region
+  : 0;
+
+// BESIDE Y offset (same as hero)
+const besideOffsetY = isBottom ? (belowHeight + normalizedGap) : 0;
+
+// BELOW Y offset (inverted for bottom)
+const belowOffsetY = isBottom 
+  ? 0  // BELOW goes at top
+  : 1.0 + normalizedGap;  // BELOW goes below hero row
+```
+
+### 3. Update Function Call
+
+**File:** `src/lib/v3/intersection.ts` (around line 260)
+
+Pass `belowResult.height` to `convertToPixels`:
+
+```typescript
+const pixelCells = convertToPixels(
+  heroPhoto,
+  proposal.position,
+  heroAR,
+  besideResult.cells,
+  belowCells,
+  belowResult.height,  // NEW ARGUMENT
+  scaleFactor,
+  pixelGap,
+  normalizedWidth
+);
+```
 
 ## Files to Modify
 
 | File | Lines | Change |
 |------|-------|--------|
-| `src/lib/v3/intersection.ts` | 407-420 | Add `randomTiebreaker` to score calculation |
+| `src/lib/v3/entities/hero.ts` | 60-61 | Add bottom-left and bottom-right proposals |
+| `src/lib/v3/intersection.ts` | 327-396 | Update `convertToPixels` to handle bottom positions |
+| `src/lib/v3/intersection.ts` | ~260 | Pass `belowResult.height` to `convertToPixels` |
+
+## Expected Outcome
+
+When shuffling with V3 enabled, the hero will appear in all four corners with roughly equal probability (thanks to the random tiebreaker we just added).
+

@@ -11,8 +11,10 @@ import {
   HeroProposal,
   ScoredConfiguration,
   LayoutCell,
+  RegionSpec,
   DEFAULT_V3_TUNING
 } from './types';
+import { packPhotosIntoRegion } from './row-pack';
 import { calculateContentStats } from './utils';
 import { decomposeCanvas } from './entities/canvas';
 import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
@@ -41,9 +43,9 @@ export function findValidConfiguration(
   const heroPhoto = findHeroPhoto(photos);
   const contentPhotos = getContentPhotos(photos);
   
-  // If no hero, we can't do hero layout
+  // If no hero, generate simple rows layout
   if (!heroPhoto) {
-    return null;
+    return generateSimpleRowsLayout(photos, canvasWidth, gap, tuning);
   }
   
   // Get content statistics
@@ -198,4 +200,63 @@ function coefficientOfVariation(values: number[]): number {
   if (avg === 0) return 0;
   const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
   return Math.sqrt(variance) / avg;
+}
+
+// ============================================================================
+// Hero-less Layout Generation
+// ============================================================================
+
+/**
+ * Generate a layout with no hero - all photos in rows.
+ * Used when no hero photo is designated.
+ */
+function generateSimpleRowsLayout(
+  photos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,
+  tuning: V3Tuning
+): ScoredConfiguration | null {
+  if (photos.length === 0) {
+    return null;
+  }
+  
+  // Create a region spanning the full canvas width
+  const region: RegionSpec = {
+    x: 0,
+    y: 0,
+    width: canvasWidth,
+    height: Infinity, // Will be determined by packing
+  };
+  
+  // Pack all photos into rows
+  const { cells, actualHeight } = packPhotosIntoRegion(
+    photos,
+    region,
+    gap,
+    tuning
+  );
+  
+  if (cells.length === 0) {
+    return null;
+  }
+  
+  // Create a "dummy" proposal for consistency with ScoredConfiguration type
+  const dummyProposal: HeroProposal = {
+    rect: { x: 0, y: 0, width: 0, height: 0 },
+    mode: 'corner',
+    position: 'top-left',
+  };
+  
+  // Score based on area uniformity (no hero prominence to consider)
+  const areas = cells.map(c => c.width * c.height);
+  const areaUniformity = 1 / (1 + coefficientOfVariation(areas));
+  
+  return {
+    proposal: dummyProposal,
+    distribution: { assignments: new Map([[0, photos.map(p => p.id)]]), totalAssigned: photos.length },
+    cells,
+    canvasHeight: actualHeight,
+    prominenceRatio: 1, // No hero, so ratio is neutral
+    score: areaUniformity, // Simple scoring for hero-less layouts
+  };
 }

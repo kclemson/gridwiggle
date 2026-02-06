@@ -340,14 +340,31 @@ function tryBuildHeroUnit(
 /**
  * Build content rows from a set of photos.
  * Uses packPhotosIntoRegion to create optimal row arrangements.
+ * 
+ * @param photos - Photos to pack into rows
+ * @param canvasWidth - Total canvas width
+ * @param gap - Gap between photos
+ * @param packPhotosIntoRegion - Packing function from collageLayout.ts
+ * @param minPhotosPerRow - Minimum photos per row for scoring
+ * @param shape - Shape preference for scoring
+ * @param maxHeight - Height budget constraint (soft ceiling for total height)
  */
 export function buildContentRowsBlock(
   photos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  packPhotosIntoRegion: (dims: PhotoDimension[], options: { width: number; gap: number; offsetX: number; offsetY: number; minPhotosPerRow?: number; shape?: 'auto' | 'landscape' | 'portrait' | 'square' }) => { cells: CollageCell[]; achievedHeight: number; partition: PhotoDimension[][] },
-   minPhotosPerRow: number = 2,
-   shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto'
+  packPhotosIntoRegion: (dims: PhotoDimension[], options: { 
+    width: number; 
+    gap: number; 
+    offsetX: number; 
+    offsetY: number; 
+    minPhotosPerRow?: number; 
+    shape?: 'auto' | 'landscape' | 'portrait' | 'square';
+    maxHeight?: number;
+  }) => { cells: CollageCell[]; achievedHeight: number; partition: PhotoDimension[][] },
+  minPhotosPerRow: number = 2,
+  shape: 'auto' | 'landscape' | 'portrait' | 'square' = 'auto',
+  maxHeight?: number
 ): ContentRowsBlock | null {
   if (photos.length === 0) return null;
   
@@ -356,8 +373,9 @@ export function buildContentRowsBlock(
     gap,
     offsetX: 0,
     offsetY: 0,
-     minPhotosPerRow,
-    shape, // Pass through user's shape preference for scoring
+    minPhotosPerRow,
+    shape,
+    maxHeight,
   });
   
   if (result.cells.length === 0) return null;

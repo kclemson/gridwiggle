@@ -1331,8 +1331,26 @@ function generateBlockBasedHeroLayout(
   // 2. Get remaining photos (not used in hero block)
   const remaining = candidates.filter(p => !heroBlock.photoIds.has(p.id));
   
-  // 3. Build ONE content block with ALL remaining photos
-  // This allows shape-aware scoring to optimize the entire set
+  // 3. Calculate height budget for content rows
+  // This ensures the below zone respects the overall target shape
+  const [minAspect, maxAspect] = getAspectBounds(shape);
+  let targetAspect = (minAspect + maxAspect) / 2;
+  
+  // For 'auto' mode: adapt if hero is already taller than target
+  if (shape === 'auto') {
+    const heroAspectAlone = canvasWidth / heroBlock.height;
+    if (heroAspectAlone < targetAspect) {
+      // Hero is taller than midpoint - blend toward reality
+      // This prevents impossible budgets while still providing guidance
+      targetAspect = (heroAspectAlone + targetAspect) / 2;
+    }
+  }
+  
+  const targetTotalHeight = canvasWidth / targetAspect;
+  const budgetHeight = targetTotalHeight - heroBlock.height - gap;
+  
+  // 4. Build ONE content block with ALL remaining photos
+  // Pass height budget to ensure content rows respect overall shape
   const contentBlock = remaining.length > 0
     ? buildContentRowsBlock(
       remaining as PhotoDimension[],
@@ -1340,7 +1358,8 @@ function generateBlockBasedHeroLayout(
       gap,
       packPhotosIntoRegion,
       tuning.minPhotosPerRow,
-      shape
+      shape,
+      budgetHeight  // Height budget constraint
     )
     : null;
   

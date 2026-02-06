@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
-import { captureHeroLogs, HeroLogEntry } from '@/lib/debugLogger';
+import { devLogger, LogEntry } from '@/lib/devLogger';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { 
@@ -43,7 +43,7 @@ export default function Index() {
   const [smartCropProgress, setSmartCropProgress] = useState(0);
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
-  const [debugLogs, setDebugLogs] = useState<HeroLogEntry[]>([]);
+  const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [layoutTuning, setLayoutTuning] = useState<LayoutTuning>(DEFAULT_TUNING);
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
@@ -103,14 +103,13 @@ export default function Index() {
     }
     
     try {
-      const { result: layout, logs } = captureHeroLogs(() => 
-        generateCollageLayout(photosToUse, settings, { 
-          photoWeights,
-          randomize,
-          tuning,
-        })
-      );
-      setDebugLogs(logs);
+      devLogger.clear();
+      const layout = generateCollageLayout(photosToUse, settings, { 
+        photoWeights,
+        randomize,
+        tuning,
+      });
+      setDebugLogs(devLogger.getLogs());
       setLayout(layout);
     } catch (error) {
       console.error('Layout generation failed:', error);

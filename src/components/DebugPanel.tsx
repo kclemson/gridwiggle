@@ -1,11 +1,11 @@
-import { HeroLogEntry } from '@/lib/debugLogger';
+import { LogEntry } from '@/lib/devLogger';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
 import { LayoutTuning } from '@/types/collage';
 import { TuningSection } from '@/components/TuningSection';
 
 interface DebugPanelProps {
-  logs: HeroLogEntry[];
+  logs: LogEntry[];
   tuning: LayoutTuning;
   onTuningChange: (key: keyof LayoutTuning, value: number) => void;
 }
@@ -58,7 +58,7 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function LogEntry({ entry }: { entry: HeroLogEntry }) {
+function LogEntryRow({ entry }: { entry: LogEntry }) {
   const icon = getLogIcon(entry.label, entry.data);
   const dataEntries = Object.entries(entry.data);
   
@@ -137,13 +137,13 @@ export function DebugPanel({ logs, tuning, onTuningChange }: DebugPanelProps) {
               {/* Left column */}
               <div>
                 {leftLogs.map((entry, index) => (
-                  <LogEntry key={`${entry.timestamp}-${index}`} entry={entry} />
+                  <LogEntryRow key={`${entry.timestamp}-${index}`} entry={entry} />
                 ))}
               </div>
               {/* Right column */}
               <div>
                 {rightLogs.map((entry, index) => (
-                  <LogEntry key={`${entry.timestamp}-${midpoint + index}`} entry={entry} />
+                  <LogEntryRow key={`${entry.timestamp}-${midpoint + index}`} entry={entry} />
                 ))}
               </div>
             </div>

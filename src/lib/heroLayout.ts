@@ -15,6 +15,7 @@ import {
   calculateMaxBesideCount,
   getPreferredRowModes,
 } from '@/lib/layoutMath';
+import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
 // Constants
@@ -1423,8 +1424,16 @@ function generateBlockBasedHeroLayout(
   );
   
   if (!heroBlock) {
+    devLogger.log('layout', 'Hero block failed', { candidateCount: candidates.length });
     return null;
   }
+
+  devLogger.log('layout', 'Hero block built', {
+    anchorSide: heroBlock.anchorSide,
+    besideCount: heroBlock.besideCells.length,
+    heroHeight: heroBlock.height,
+    remainingPhotos: candidates.length - heroBlock.besideCells.length,
+  });
   
   // 2. Get remaining photos (not used in hero block)
   const remaining = candidates.filter(p => !heroBlock.photoIds.has(p.id));
@@ -1478,6 +1487,15 @@ function generateBlockBasedHeroLayout(
   const heroIndex = allBlocks.findIndex(b => b.type === 'hero-unit');
   const heroPosition = heroIndex === 0 ? 'top' : 
                        heroIndex === allBlocks.length - 1 ? 'bottom' : 'middle';
+
+  const heroPctOfCanvas = (heroBlock.heroCell.width * heroBlock.heroCell.height) / 
+                          (layout.width * layout.height) * 100;
+  
+  devLogger.log('layout', 'Layout complete', {
+    heroPosition,
+    totalBlocks: allBlocks.length,
+    heroPctOfCanvas,
+  });
   
   return layout;
 }

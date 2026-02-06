@@ -1,124 +1,110 @@
 
 
-# Improve V3Test Debug Log Readability
+# Remove Row Count Determinism and avgAR Bias
 
-## Overview
+## Summary
 
-Two UX improvements to the debug log panel in V3Test.tsx to make logs easier to scan.
+Replace the deterministic `calculateOptimalRowCount` function with random selection from a valid geometric range. This addresses:
 
----
-
-## Change 1: Wider Log Panel + Category Column Width
-
-**File**: `src/pages/V3Test.tsx`
-
-**Current** (line 135):
-```tsx
-<div className="grid grid-cols-1 lg:grid-cols-[520px_1fr] gap-6">
-```
-
-**Change to**:
-```tsx
-<div className="grid grid-cols-1 lg:grid-cols-[670px_1fr] gap-6">
-```
-
-Also update the log row layout to give more width to the category+label column. Currently each log entry is a flex row with three spans. We'll restructure to use a two-column grid with fixed widths:
-
-**Current** (lines 147-155):
-```tsx
-<div key={idx} className="flex gap-2">
-  <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-  <span className="text-foreground">{entry.label}</span>
-  {Object.keys(entry.data).length > 0 && (
-    <span className="text-muted-foreground break-all">
-      {JSON.stringify(entry.data)}
-    </span>
-  )}
-</div>
-```
-
-**Change to** (using a grid with fixed first column):
-```tsx
-<div key={idx} className="grid grid-cols-[180px_1fr] gap-2">
-  <div className="flex gap-1 shrink-0">
-    <span className="text-blue-500">[{entry.category}]</span>
-    <span className="text-foreground whitespace-nowrap">{entry.label}</span>
-  </div>
-  {Object.keys(entry.data).length > 0 && (
-    <span className="text-muted-foreground break-all">
-      {formatLogData(entry.data)}
-    </span>
-  )}
-</div>
-```
+1. **Determinism** - Each shuffle will explore different row counts
+2. **avgAR bias** - Row count selection no longer assumes portrait photos need tall canvases
 
 ---
 
-## Change 2: Cleaner Data Formatting
+## Changes
 
-**File**: `src/pages/V3Test.tsx`
+### 1. Add `randomInt` helper to `src/lib/v3/utils.ts`
 
-Add a helper function that:
-- Removes `{`, `}`, `"` characters
-- Flattens nested objects with `_` prefix
-- Outputs comma-separated `key:value` pairs
-
-**Add new function**:
 ```typescript
 /**
- * Format log data for display:
- * - Flatten nested objects with underscore prefix
- * - Remove JSON syntax characters
- * - Format as comma-separated key:value pairs
+ * Random integer in range [min, max] inclusive.
  */
-function formatLogData(data: Record<string, unknown>): string {
-  const pairs: string[] = [];
-  
-  function flatten(obj: Record<string, unknown>, prefix = '') {
-    for (const [key, value] of Object.entries(obj)) {
-      const fullKey = prefix ? `${prefix}_${key}` : key;
-      
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        // Recursively flatten nested objects
-        flatten(value as Record<string, unknown>, fullKey);
-      } else if (Array.isArray(value)) {
-        // Format arrays as [val1, val2, ...]
-        const formatted = value.map(v => 
-          typeof v === 'number' ? v.toFixed(2) : String(v)
-        ).join(', ');
-        pairs.push(`${fullKey}:[${formatted}]`);
-      } else if (typeof value === 'number') {
-        // Format numbers to 2 decimal places if float
-        const formatted = Number.isInteger(value) ? value : value.toFixed(2);
-        pairs.push(`${fullKey}:${formatted}`);
-      } else {
-        pairs.push(`${fullKey}:${value}`);
-      }
-    }
-  }
-  
-  flatten(data);
-  return pairs.join(', ');
+export function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 ```
 
-**Example transformation**:
+### 2. Replace `calculateOptimalRowCount` in `src/lib/v3/row-pack.ts`
 
-Before:
-```
-{"photoCount":48,"canvasWidth":480,"tuning":{"hero_targetProminence":1.5,"hero_minProminence":1.3}}
+**Before** (lines 263-291):
+```typescript
+function calculateOptimalRowCount(
+  photos: PhotoDimension[],
+  region: RegionSpec,
+  gap: number,
+  tuning: V3Tuning
+): number {
+  const avgAR = mean(photos.map(p => p.aspectRatio));
+  const n = photos.length;
+  const maxPhotosPerRow = Math.floor(region.width / tuning.region_minWidth);
+  const minRows = Math.ceil(n / maxPhotosPerRow);
+  const maxRows = Math.ceil(n / 2);
+  const targetRows = Math.max(minRows, Math.min(maxRows, Math.ceil(Math.sqrt(n / avgAR))));
+  return Math.max(1, targetRows);
+}
 ```
 
-After:
+**After**:
+```typescript
+function pickRandomRowCount(
+  photoCount: number,
+  regionWidth: number,
+  tuning: V3Tuning
+): number {
+  const maxPhotosPerRow = Math.floor(regionWidth / tuning.region_minWidth);
+  const minRows = Math.max(1, Math.ceil(photoCount / maxPhotosPerRow));
+  const maxRows = Math.max(minRows, Math.ceil(photoCount / 2));
+  const chosen = randomInt(minRows, maxRows);
+  
+  devLogger.log('v3', 'Row count selection', {
+    photoCount,
+    minRows,
+    maxRows,
+    chosen,
+  });
+  
+  return chosen;
+}
 ```
-photoCount:48, canvasWidth:480, tuning_hero_targetProminence:1.50, tuning_hero_minProminence:1.30
+
+### 3. Update call site in `packPhotosIntoRegion`
+
+**Before** (line 117):
+```typescript
+let rowCount = calculateOptimalRowCount(photos, region, gap, tuning);
 ```
+
+**After**:
+```typescript
+let rowCount = pickRandomRowCount(photos.length, region.width, tuning);
+```
+
+### 4. Update imports
+
+Add `randomInt` import and `devLogger` import to `row-pack.ts`.
 
 ---
 
-## Files to Change
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/pages/V3Test.tsx` | Widen grid (520px to 670px), add `formatLogData` helper, update log row layout |
+| `src/lib/v3/utils.ts` | Add `randomInt` helper |
+| `src/lib/v3/row-pack.ts` | Replace `calculateOptimalRowCount` with `pickRandomRowCount`, add logging, update imports |
+
+---
+
+## Result
+
+For 20 photos in a 480px region with `region_minWidth: 80`:
+
+```text
+maxPhotosPerRow = floor(480 / 80) = 6
+minRows = ceil(20 / 6) = 4
+maxRows = ceil(20 / 2) = 10
+
+Valid range: 4-10 rows
+```
+
+Each shuffle randomly picks from [4, 5, 6, 7, 8, 9, 10], producing canvas heights ranging from wide/short (4 rows) to tall/narrow (10 rows) - regardless of whether photos are portrait or landscape.
 

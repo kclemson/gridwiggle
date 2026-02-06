@@ -46,8 +46,11 @@ export function computeHeroSize(
   const heroHeight = Math.sqrt(targetHeroArea / heroAR);
   const heroWidth = heroHeight * heroAR;
   
-  // Clamp to reasonable bounds (don't exceed canvas width)
-  const clampedWidth = Math.min(heroWidth, canvasWidth * 0.8);
+  // Clamp to reasonable bounds
+  // Minimum: 55% of canvas ensures BESIDE region stays narrow enough for prominence
+  // Maximum: 80% of canvas to leave room for content
+  const minHeroWidth = canvasWidth * 0.55;
+  const clampedWidth = Math.max(minHeroWidth, Math.min(heroWidth, canvasWidth * 0.8));
   const clampedHeight = clampedWidth / heroAR;
   
   return { 

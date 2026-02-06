@@ -1,52 +1,59 @@
 
+# Fix: Enable Top-Right Hero Position
 
-# Remove Column Mode Special Case
+## The Issue
 
-## Overview
+The `top-right` position is proposed in `hero.ts` but **never gets selected** because:
 
-Remove the redundant "column mode" special case (lines 61-102) from `packToFillHeight`. The unified multi-row formula already handles this case correctly - when each row has 1 photo, `rowAR = photoAR` and `intraRowGaps = 0`, producing identical results.
+1. **Scoring is position-blind**: `scoreConfiguration` only considers prominence ratio and area uniformity
+2. **Identical geometry**: `top-left` and `top-right` are geometric mirrors - same prominence, same cell sizes
+3. **First-wins behavior**: When scores tie, the first proposal (`top-left`) always wins
 
-## Math Verification
+## The Fix
 
-**Column mode formula:**
-```
-W = (H - totalGapHeight) / Σ(1/photoAR_i)
-```
-
-**Unified formula when each row has 1 photo:**
-```
-rowAR_i = photoAR_i  (single photo per row)
-intraRowGaps_i = 0   (no gaps within row)
-sumGapOverAR = 0
-
-W = (H - totalGapHeight + 0) / Σ(1/rowAR_i)
-  = (H - totalGapHeight) / Σ(1/photoAR_i)  ✓ identical
-```
+Add a **random tiebreaker** to the scoring function so equally-valid positions have equal chance of being selected.
 
 ## Technical Changes
 
-### File: `src/lib/v3/normalized-pack.ts`
+### File: `src/lib/v3/intersection.ts`
 
-**Lines 61-102** - Remove the column mode special case entirely:
+**Lines 407-420** - Add randomization to break ties:
 
 ```typescript
-// DELETE this entire block:
-const allSinglePhotoRows = rows.every(row => row.length === 1);
-
-if (allSinglePhotoRows) {
-  // ... 35 lines of column-specific logic
+function scoreConfiguration(
+  prominenceRatio: number,
+  cells: LayoutCell[],
+  tuning: V3Tuning
+): number {
+  // Base score from prominence (higher prominence = better)
+  const prominenceScore = prominenceRatio / tuning.hero_targetProminence;
+  
+  // Cell area uniformity (lower variance = better)
+  const areas = cells.slice(1).map(c => c.width * c.height);
+  const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
+  
+  // Random tiebreaker for equally-valid configurations (1% variation)
+  const randomTiebreaker = Math.random() * 0.01;
+  
+  return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
 }
 ```
 
-The unified formula at lines 104-179 will now handle all cases - whether rows have 1, 2, or more photos each.
+## Why This Works
 
-## Result
+| Configuration | Base Score | With Tiebreaker |
+|--------------|------------|-----------------|
+| top-left     | 1.234      | 1.234 + 0.007   |
+| top-right    | 1.234      | 1.234 + 0.003   |
 
-| Before | After |
-|--------|-------|
-| 2 code paths: column mode + multi-photo rows | 1 unified code path for all row configurations |
-| Column mode: ~40 lines | Removed |
-| Multi-photo mode: ~75 lines | Same ~75 lines handles everything |
+The 1% random variation is small enough to never override a genuinely better configuration, but large enough to give equal-scoring positions an equal chance of being selected.
 
-This simplification also prepares us for the next improvement - removing round-robin distribution to allow creative row configurations like 2+3 photo splits.
+## Expected Outcome
 
+When shuffling, the hero will appear in **both** top-left and top-right positions roughly equally.
+
+## Files to Modify
+
+| File | Lines | Change |
+|------|-------|--------|
+| `src/lib/v3/intersection.ts` | 407-420 | Add `randomTiebreaker` to score calculation |

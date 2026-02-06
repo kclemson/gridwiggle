@@ -133,40 +133,32 @@ export function packRowsToFit(
     rows.push(photos.slice(i, Math.min(i + photosPerRow, photos.length)));
   }
   
-  // Calculate row heights that fill the region exactly
-  // Each row height is proportional to its "natural height"
-  // Natural height of a row = 1 / sum(aspectRatios) * rowWidth
-  const totalRowGaps = gap * (rows.length - 1);
-  const availableHeight = region.height - totalRowGaps;
-  
-  // Calculate natural height weight for each row
-  const rowWeights = rows.map(row => {
-    const sumAR = sum(row.map(p => p.aspectRatio));
-    // Natural height at unit width = 1 / sumAR
-    return 1 / sumAR;
-  });
-  
-  const totalWeight = sum(rowWeights);
-  
-  // Allocate height proportionally
-  const rowHeights = rowWeights.map(w => (w / totalWeight) * availableHeight);
-  
-  // Generate cells for each row
+  // Build cells row by row, letting each row take its natural height
+  // This follows V1's proven approach: calculate height once, use everywhere
   const cells: LayoutCell[] = [];
   let y = region.y;
   
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const rowHeight = rowHeights[i];
-    const rowRegion: RegionSpec = {
-      x: region.x,
-      y,
-      width: region.width,
-      height: rowHeight,
-    };
+  for (const row of rows) {
+    // Calculate THIS row's natural height (like V1 does)
+    const totalAR = sum(row.map(p => p.aspectRatio));
+    const availableWidth = region.width - gap * (row.length - 1);
+    const rowHeight = availableWidth / totalAR;
     
-    cells.push(...packRow(row, rowRegion, gap));
-    y += rowHeight + gap;
+    // Position photos in this row
+    let x = region.x;
+    for (const photo of row) {
+      const width = rowHeight * photo.aspectRatio;
+      cells.push({
+        photoId: photo.id,
+        x,
+        y,
+        width,
+        height: rowHeight,  // Same height used for cells
+      });
+      x += width + gap;
+    }
+    
+    y += rowHeight + gap;  // Same height used for Y advancement
   }
   
   return cells;

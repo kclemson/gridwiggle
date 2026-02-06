@@ -201,6 +201,7 @@ export interface SplitResult {
   besidePhotos: PhotoDimension[];
   belowPhotos: PhotoDimension[];
   besideRowCount: number;
+  belowRowCount: number;
   score: number;
 }
 

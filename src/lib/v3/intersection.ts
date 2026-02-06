@@ -18,7 +18,7 @@ import {
   HeroProposal,
   DEFAULT_V3_TUNING
 } from './types';
-import { packToFillHeight, packToFillWidth } from './normalized-pack';
+import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findBestSplit } from './split-search';
 import { calculateContentStats } from './utils';
 import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
@@ -162,13 +162,8 @@ function evaluateNormalizedProposal(
   // Calculate hero row width
   const heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
   
-  // Determine BELOW row count
-  const belowRowCount = calculateOptimalBelowRowCount(
-    splitResult.belowPhotos,
-    heroRowWidth,
-    estimatedNormalizedGap,
-    tuning
-  );
+  // Use the belowRowCount that was validated during split search
+  const belowRowCount = splitResult.belowRowCount;
   
   // Pack BELOW at hero row width
   const belowResult = packToFillWidth(
@@ -362,26 +357,6 @@ function convertToPixels(
   return cells;
 }
 
-// ============================================================================
-// Row Count Calculation for BELOW
-// ============================================================================
-
-/**
- * Calculate optimal row count for BELOW region.
- */
-function calculateOptimalBelowRowCount(
-  photos: PhotoDimension[],
-  targetWidth: number,
-  normalizedGap: number,
-  tuning: V3Tuning
-): number {
-  const n = photos.length;
-  if (n <= 1) return 1;
-  if (n <= 3) return 1;
-  if (n <= 6) return 2;
-  if (n <= 12) return 3;
-  return Math.min(n, Math.ceil(n / 4));
-}
 
 // ============================================================================
 // Scoring
@@ -438,8 +413,8 @@ function generateSimpleRowsLayout(
   const estimatedHeight = canvasWidth; // Rough estimate
   const normalizedGap = gap / estimatedHeight;
   
-  // Determine row count based on photo count
-  const rowCount = calculateOptimalBelowRowCount(photos, 1.0, normalizedGap, tuning);
+  // Determine row count using geometry-aware calculation
+  const rowCount = calculateBelowRowCount(photos, 1.0, normalizedGap, tuning.canvas_minAR);
   
   // Pack in normalized space (use width = 1.0 as reference)
   const normalizedResult = packToFillWidth(photos, 1.0, normalizedGap, rowCount);

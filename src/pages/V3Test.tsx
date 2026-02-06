@@ -7,14 +7,14 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { generatePhotoSet } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings } from '@/types/collage';
-import { Shuffle, ChevronDown, Star, Image } from 'lucide-react';
+import { Shuffle, Star, Image } from 'lucide-react';
 
 // Static settings matching production defaults
 const CANVAS_WIDTH = 480;
@@ -57,7 +57,6 @@ function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
 
 export default function V3Test() {
   const [photoSet, setPhotoSet] = useState(() => generateRandomSet());
-  const [logsOpen, setLogsOpen] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
   // Shuffle and regenerate
@@ -104,7 +103,7 @@ export default function V3Test() {
   
   return (
     <div className="min-h-screen bg-background p-6">
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">V3 Layout Test</h1>
@@ -132,51 +131,51 @@ export default function V3Test() {
           <div>Avg AR: {avgAR.toFixed(2)}</div>
         </div>
         
-        {/* Layout Visualization */}
-        <div className="border rounded-lg p-4 bg-card">
-          {layout ? (
-            <LayoutVisualization layout={layout} photos={photoSet.photos} />
-          ) : (
-            <div className="h-48 flex items-center justify-center text-muted-foreground">
-              Layout generation failed
+        {/* Two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
+          {/* Left: Debug Logs */}
+          <div className="border rounded-lg bg-card overflow-hidden order-2 lg:order-1">
+            <div className="p-3 border-b font-medium text-sm">
+              Debug Logs ({logs.length})
             </div>
-          )}
+            <ScrollArea className="h-[70vh]">
+              <div className="p-3 font-mono text-xs space-y-1">
+                {logs.length === 0 ? (
+                  <div className="text-muted-foreground">No logs yet</div>
+                ) : (
+                  logs.map((entry, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <span className="text-blue-500 shrink-0">[{entry.category}]</span>
+                      <span className="text-foreground">{entry.label}</span>
+                      {Object.keys(entry.data).length > 0 && (
+                        <span className="text-muted-foreground break-all">
+                          {JSON.stringify(entry.data)}
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
           
-          {layout && (
-            <div className="mt-2 text-xs text-muted-foreground text-center">
-              Canvas: {layout.width}×{layout.height}px
-            </div>
-          )}
+          {/* Right: Canvas */}
+          <div className="border rounded-lg p-4 bg-card order-1 lg:order-2">
+            {layout ? (
+              <LayoutVisualization layout={layout} photos={photoSet.photos} />
+            ) : (
+              <div className="h-48 flex items-center justify-center text-muted-foreground">
+                Layout generation failed
+              </div>
+            )}
+            
+            {layout && (
+              <div className="mt-2 text-xs text-muted-foreground text-center">
+                Canvas: {layout.width}×{layout.height}px
+              </div>
+            )}
+          </div>
         </div>
-        
-        {/* Debug Logs */}
-        <Collapsible open={logsOpen} onOpenChange={setLogsOpen}>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="w-full justify-between">
-              <span>Debug Logs ({logs.length})</span>
-              <ChevronDown className={`h-4 w-4 transition-transform ${logsOpen ? 'rotate-180' : ''}`} />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="mt-2 max-h-64 overflow-y-auto bg-muted/50 rounded-lg p-3 font-mono text-xs space-y-1">
-              {logs.length === 0 ? (
-                <div className="text-muted-foreground">No logs yet</div>
-              ) : (
-                logs.map((entry, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-                    <span className="text-foreground">{entry.label}</span>
-                    {Object.keys(entry.data).length > 0 && (
-                      <span className="text-muted-foreground truncate">
-                        {JSON.stringify(entry.data)}
-                      </span>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
       </div>
     </div>
   );

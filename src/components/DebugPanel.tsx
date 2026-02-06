@@ -3,11 +3,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
 import { LayoutTuning } from '@/types/collage';
 import { TuningSection } from '@/components/TuningSection';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+
+export type AlgorithmVersion = 'v1' | 'v2';
 
 interface DebugPanelProps {
   logs: LogEntry[];
   tuning: LayoutTuning;
   onTuningChange: (key: keyof LayoutTuning, value: number) => void;
+  algorithmVersion: AlgorithmVersion;
+  onAlgorithmVersionChange: (version: AlgorithmVersion) => void;
 }
 
 function getLogIcon(label: string, data: Record<string, unknown>) {
@@ -88,7 +94,13 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
   );
 }
 
-export function DebugPanel({ logs, tuning, onTuningChange }: DebugPanelProps) {
+export function DebugPanel({ 
+  logs, 
+  tuning, 
+  onTuningChange,
+  algorithmVersion,
+  onAlgorithmVersionChange,
+}: DebugPanelProps) {
   const timestamp = logs.length > 0 
     ? new Date(logs[0].timestamp).toLocaleTimeString() 
     : null;
@@ -114,13 +126,36 @@ export function DebugPanel({ logs, tuning, onTuningChange }: DebugPanelProps) {
         {/* Header */}
         <div className="bg-muted/50 px-3 py-1.5 border-b border-border flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Hero Layout Logs
+            Layout Logs
           </span>
-          {timestamp && (
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {timestamp}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Algorithm Version Toggle */}
+            <div className="flex items-center gap-2">
+              <Label 
+                htmlFor="algo-version" 
+                className={`text-xs font-mono cursor-pointer ${algorithmVersion === 'v1' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                v1
+              </Label>
+              <Switch
+                id="algo-version"
+                checked={algorithmVersion === 'v2'}
+                onCheckedChange={(checked) => onAlgorithmVersionChange(checked ? 'v2' : 'v1')}
+                className="data-[state=checked]:bg-primary"
+              />
+              <Label 
+                htmlFor="algo-version" 
+                className={`text-xs font-mono cursor-pointer ${algorithmVersion === 'v2' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                v2
+              </Label>
+            </div>
+            {timestamp && (
+              <span className="text-[10px] text-muted-foreground font-mono">
+                {timestamp}
+              </span>
+            )}
+          </div>
         </div>
         
         {/* Tuning controls */}

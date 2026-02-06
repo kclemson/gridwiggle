@@ -16,6 +16,7 @@ import {
 } from '../types';
 import { calculateContentStats, isRegionViable } from '../utils';
 import { packPhotosIntoRegion, PackingConstraints, PackingResult } from '../row-pack';
+import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
 // Content Statistics
@@ -144,6 +145,16 @@ function findOptimalSplit(
   
   // BESIDE region exists, must have at least 1 photo (0 would leave empty space)
   const minBesidePhotos = 1;
+  
+  devLogger.log('v3-split', 'Starting split search', {
+    photoCount: photos.length,
+    besideWidth: Math.round(besideRegion.width),
+    besideHeightLimit: Math.round(besideRegion.height),
+    belowWidth: Math.round(belowRegion.width),
+    maxCellArea: Math.round(maxCellArea),
+    searchRange: `${minBesidePhotos} to ${maxBesidePhotos}`,
+  });
+  
   for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
     const belowCount = photos.length - besideCount;
     
@@ -168,11 +179,23 @@ function findOptimalSplit(
       
       // Check if BESIDE fits its height constraint
       if (besideResult.actualHeight > besideRegion.height) {
+        devLogger.log('v3-split', 'BESIDE height constraint failed', {
+          besideCount,
+          besideHeightLimit: Math.round(besideRegion.height),
+          actualHeight: Math.round(besideResult.actualHeight),
+          usedRows: besideResult.usedRowCount,
+          photosARs: besidePhotos.map(p => p.aspectRatio.toFixed(2)),
+        });
         continue; // This split doesn't work
       }
       
       // Check if BESIDE cells are under cap
       if (besideResult.maxCellArea > maxCellArea) {
+        devLogger.log('v3-split', 'BESIDE area constraint failed', {
+          besideCount,
+          maxCellArea: Math.round(maxCellArea),
+          actualMaxCellArea: Math.round(besideResult.maxCellArea),
+        });
         continue; // This split doesn't work
       }
     }
@@ -190,6 +213,12 @@ function findOptimalSplit(
       
       // Check if BELOW cells are under cap
       if (belowResult.maxCellArea > maxCellArea) {
+        devLogger.log('v3-split', 'BELOW area constraint failed', {
+          besideCount,
+          belowCount,
+          maxCellArea: Math.round(maxCellArea),
+          actualMaxCellArea: Math.round(belowResult.maxCellArea),
+        });
         continue; // This split doesn't work
       }
     }
@@ -199,10 +228,23 @@ function findOptimalSplit(
     const worstCellArea = Math.max(besideResult.maxCellArea, belowResult.maxCellArea);
     const score = worstCellArea;
     
+    devLogger.log('v3-split', 'Valid split found', {
+      besideCount,
+      belowCount,
+      besideHeight: Math.round(besideResult.actualHeight),
+      belowHeight: Math.round(belowResult.actualHeight),
+      score: Math.round(score),
+    });
+    
     if (bestSplit === null || score < bestSplit.score) {
       bestSplit = { besideCount, score };
     }
   }
+  
+  devLogger.log('v3-split', 'Split search complete', {
+    bestSplit: bestSplit ? { besideCount: bestSplit.besideCount, score: Math.round(bestSplit.score) } : null,
+    triedCounts: `${minBesidePhotos} to ${maxBesidePhotos}`,
+  });
   
   // If no valid split found, return empty (will cause proposal rejection)
   if (bestSplit === null) {

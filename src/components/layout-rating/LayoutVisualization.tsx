@@ -70,7 +70,7 @@ export function LayoutVisualization({ layout, photos }: LayoutVisualizationProps
 
   return (
     <div
-      className="relative mx-auto border border-border rounded-lg overflow-hidden bg-muted/30"
+      className="relative mx-auto border border-border overflow-hidden bg-muted/30"
       style={{
         aspectRatio: `${layout.width} / ${layout.height}`,
         maxHeight: '50vh',

@@ -38,6 +38,23 @@ function extractPhotoDimensions(
 // Main API
 // ============================================================================
 
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// ============================================================================
+// Main API
+// ============================================================================
+
 export interface GenerateLayoutV3Options {
   /** Photo weights - hero photos have weight > 1 */
   photoWeights?: Record<string, number>;
@@ -45,6 +62,8 @@ export interface GenerateLayoutV3Options {
   tuning?: Partial<V3Tuning>;
   /** Canvas width - caller provides based on container */
   canvasWidth?: number;
+  /** Shuffle photos for variety (refresh button) */
+  randomize?: boolean;
 }
 
 /**
@@ -69,6 +88,7 @@ export function generateCollageLayoutV3(
     photoWeights = {}, 
     tuning: tuningOverrides,
     canvasWidth: providedCanvasWidth,
+    randomize = false,
   } = options;
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
@@ -85,7 +105,12 @@ export function generateCollageLayoutV3(
   });
   
   // Extract dimensions with weights
-  const dimensions = extractPhotoDimensions(photos, photoWeights);
+  let dimensions = extractPhotoDimensions(photos, photoWeights);
+  
+  // Shuffle for variety when requested
+  if (randomize) {
+    dimensions = shuffleArray(dimensions);
+  }
   
   // Check for hero
   const heroCount = dimensions.filter(d => d.weight > 1).length;

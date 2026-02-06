@@ -134,6 +134,24 @@ function evaluateProposal(
     tuning
   );
   
+  // Calculate maximum allowed content cell area
+  const heroArea = proposal.rect.width * proposal.rect.height;
+  const maxContentArea = heroArea / tuning.hero_minProminence;
+  
+  // Check if any content cell exceeds the cap
+  const largestContentArea = contentAreas.length > 0 ? Math.max(...contentAreas) : 0;
+  if (largestContentArea > maxContentArea) {
+    devLogger.log('v3', 'Proposal rejected: content cell exceeds cap', {
+      mode: proposal.mode,
+      position: proposal.position,
+      heroArea: Math.round(heroArea),
+      maxContentArea: Math.round(maxContentArea),
+      largestContentArea: Math.round(largestContentArea),
+      excessRatio: (largestContentArea / maxContentArea).toFixed(2),
+    });
+    return null;
+  }
+  
   // Add hero cell
   const heroCell: LayoutCell = {
     photoId: heroPhoto.id,
@@ -145,8 +163,7 @@ function evaluateProposal(
   
   const allCells = [heroCell, ...contentCells];
   
-  // Validate hero prominence
-  const heroArea = proposal.rect.width * proposal.rect.height;
+  // Validate hero prominence (heroArea already calculated above)
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {

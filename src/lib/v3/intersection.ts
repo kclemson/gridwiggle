@@ -126,6 +126,17 @@ function evaluateProposal(
     contentCount: contentPhotos.length,
   });
   
+  // Calculate canvas-level height constraint
+  const maxCanvasHeight = canvasWidth / tuning.canvas_minAR;
+  const heroBottom = proposal.rect.y + proposal.rect.height;
+  const maxBelowHeight = maxCanvasHeight - heroBottom - gap;
+  
+  devLogger.log('v3', 'Canvas height budget', {
+    maxCanvasHeight: Math.round(maxCanvasHeight),
+    heroBottom: Math.round(heroBottom),
+    maxBelowHeight: Math.round(maxBelowHeight),
+  });
+  
   // Decompose canvas around hero
   const decomposition = decomposeCanvas(
     canvasWidth,
@@ -181,7 +192,8 @@ function evaluateProposal(
     distribution,
     gap,
     tuning,
-    maxContentArea
+    maxContentArea,
+    maxBelowHeight  // Canvas-level height budget for unbounded regions
   );
   
   // Log per-region diagnostics
@@ -248,8 +260,8 @@ function evaluateProposal(
   }
   
   // Calculate canvas height (max of hero bottom and content bottom)
-  const heroBottom = proposal.rect.y + proposal.rect.height;
-  const canvasHeight = Math.max(heroBottom, totalHeight);
+  const heroRectBottom = proposal.rect.y + proposal.rect.height;
+  const canvasHeight = Math.max(heroRectBottom, totalHeight);
   
   // Score the configuration
   const score = scoreConfiguration(prominence.ratio, allCells, tuning);

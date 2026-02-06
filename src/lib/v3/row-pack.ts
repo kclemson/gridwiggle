@@ -258,14 +258,12 @@ function packWithRowCount(
 /**
  * Pick a random row count from the valid geometric range.
  * 
- * The row count determines canvas aspect ratio via:
- *   canvasAR ≈ regionWidth / (rows × avgRowHeight)
- *            ≈ n × avgAR / r²
+ * Row count is determined by physical constraints only.
+ * Canvas AR is enforced at the intersection level (single source of truth).
  * 
- * Solving for r given target AR: r = sqrt(n × avgAR / targetAR)
- * 
- * We use canvas_minAR and canvas_maxAR to derive the allowed row range,
- * then intersect with physical constraints (region_minWidth).
+ * Physical constraints:
+ * - minRows: ensures cells aren't narrower than region_minWidth
+ * - maxRows: ceil(n/2) ensures at least 2 photos per row on average
  */
 function pickRandomRowCount(
   photos: PhotoDimension[],
@@ -273,30 +271,20 @@ function pickRandomRowCount(
   tuning: V3Tuning
 ): number {
   const n = photos.length;
-  const avgAR = mean(photos.map(p => p.aspectRatio));
   
   // Physical constraint: cells can't be narrower than region_minWidth
   const maxPhotosPerRow = Math.floor(regionWidth / tuning.region_minWidth);
   const physicalMinRows = Math.max(1, Math.ceil(n / maxPhotosPerRow));
   
-  // Canvas AR constraint: derive row bounds from target proportions
-  // More rows → taller canvas → lower AR (more portrait)
-  // Fewer rows → shorter canvas → higher AR (more landscape)
-  const rowsForMaxAR = Math.sqrt(n * avgAR / tuning.canvas_maxAR); // fewest rows (most landscape)
-  const rowsForMinAR = Math.sqrt(n * avgAR / tuning.canvas_minAR); // most rows (most portrait)
-  
-  // Combine constraints
-  const minRows = Math.max(physicalMinRows, Math.ceil(rowsForMaxAR));
-  const maxRows = Math.max(minRows, Math.floor(rowsForMinAR));
+  // Upper bound: at least 2 photos per row on average (prevents extreme pillar layouts)
+  const minRows = physicalMinRows;
+  const maxRows = Math.max(minRows, Math.min(n, Math.ceil(n / 2)));
   
   const chosen = randomInt(minRows, maxRows);
   
   devLogger.log('v3', 'Row count selection', {
     n,
-    avgAR: avgAR.toFixed(2),
     physicalMinRows,
-    rowsForMaxAR: rowsForMaxAR.toFixed(1),
-    rowsForMinAR: rowsForMinAR.toFixed(1),
     minRows,
     maxRows,
     chosen,

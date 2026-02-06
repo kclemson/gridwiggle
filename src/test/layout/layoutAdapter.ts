@@ -179,39 +179,55 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
 }
 
 /**
+ * Pick a random minPhotosPerRow tuning value.
+ * This forces different row structures even with similar inputs.
+ */
+function randomMinPhotosPerRow(): number {
+  const options = [2, 3, 4];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+/**
  * Generate a batch of diverse test cases for rating.
  * Hero layouts always use 'auto' shape (matches app UX constraint).
  * Non-hero layouts test all available shapes for regression coverage.
+ * Generates 2 variations per combination for more variety.
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
+  const VARIATIONS_PER_COMBO = 2;
   
   for (const photoCount of TEST_PHOTO_COUNTS) {
-    // 80% hero, 20% no-hero for regression coverage
-    const hasHero = Math.random() < 0.8;
-    const distribution = weightedRandomDistribution();
-    
-    if (hasHero) {
-      // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
-      cases.push({
-        photos: generatePhotoSet(photoCount, distribution, true),
-        shape: 'auto',
-        hasHero: true,
-        distribution,
-      });
-    } else {
-      // No-hero layouts can test all available shapes
-      const shapes: CollageSettings['shape'][] = ['auto'];
-      if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
-      if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
-      if (isShapeAvailable('square', photoCount)) shapes.push('square');
+    for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {
+      // 80% hero, 20% no-hero for regression coverage
+      const hasHero = Math.random() < 0.8;
+      const distribution = weightedRandomDistribution();
+      const tuning = { minPhotosPerRow: randomMinPhotosPerRow() };
       
-      for (const shape of shapes) {
+      if (hasHero) {
+        // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
+        cases.push({
+          photos: generatePhotoSet(photoCount, distribution, true),
+          shape: 'auto',
+          hasHero: true,
+          distribution,
+          tuning,
+        });
+      } else {
+        // No-hero layouts can test all available shapes
+        const shapes: CollageSettings['shape'][] = ['auto'];
+        if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
+        if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
+        if (isShapeAvailable('square', photoCount)) shapes.push('square');
+        
+        // Pick one random shape for this variation
+        const shape = shapes[Math.floor(Math.random() * shapes.length)];
         cases.push({
           photos: generatePhotoSet(photoCount, distribution, false),
           shape,
           hasHero: false,
           distribution,
+          tuning,
         });
       }
     }

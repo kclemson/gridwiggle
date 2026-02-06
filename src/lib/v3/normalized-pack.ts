@@ -58,6 +58,49 @@ export function packToFillHeight(
   // Distribute photos across rows using round-robin
   const rows = distributeToRowsRoundRobin(photos, rowCount);
   
+  // === Handle column mode: all photos stacked vertically ===
+  // When each row has exactly 1 photo, we're in column mode.
+  // In this case, all photos should have the SAME WIDTH, and the
+  // column should fit exactly within targetHeight.
+  const allSinglePhotoRows = rows.every(row => row.length === 1);
+  
+  if (allSinglePhotoRows) {
+    // Column mode: derive width from targetHeight constraint
+    // Total height = W × sum(1/AR) + (n-1) × gap = targetHeight
+    // So: W = (targetHeight - (n-1) × gap) / sum(1/AR)
+    
+    const sumInverseAR = photos.reduce((sum, p) => sum + 1 / p.aspectRatio, 0);
+    const totalGapHeight = (photos.length - 1) * normalizedGap;
+    const columnWidth = (targetHeight - totalGapHeight) / sumInverseAR;
+    
+    if (columnWidth <= 0) {
+      return { cells: [], width: 0, height: 0, rowCount: 0 };
+    }
+    
+    // Position photos vertically at columnWidth
+    const columnCells: NormalizedCell[] = [];
+    let y = 0;
+    
+    photos.forEach(photo => {
+      const cellHeight = columnWidth / photo.aspectRatio;
+      columnCells.push({
+        photoId: photo.id,
+        x: 0,
+        y,
+        width: columnWidth,
+        height: cellHeight,
+      });
+      y += cellHeight + normalizedGap;
+    });
+    
+    return {
+      cells: columnCells,
+      width: columnWidth,
+      height: targetHeight,  // Exactly fills the target
+      rowCount: photos.length,
+    };
+  }
+  
   // Calculate row height (accounting for gaps between rows)
   const totalGapHeight = (rows.length - 1) * normalizedGap;
   const rowHeight = (targetHeight - totalGapHeight) / rows.length;
@@ -98,42 +141,10 @@ export function packToFillHeight(
     currentY += rowHeight + normalizedGap;
   });
   
-  // === Stretch single-photo rows to fill column width ===
-  // If a row has only 1 photo, stretch it to maxRowWidth
-  // This ensures vertical columns have flush edges
-  cells.forEach(cell => {
-    // Find if this cell is alone in its row (no other cells at same Y)
-    const cellsAtSameY = cells.filter(c => Math.abs(c.y - cell.y) < 0.001);
-    if (cellsAtSameY.length === 1) {
-      // Single photo in this row - stretch to full width
-      const photo = photos.find(p => p.id === cell.photoId);
-      if (photo) {
-        // New width is the column width
-        const newWidth = maxRowWidth;
-        // New height preserves aspect ratio
-        const newHeight = newWidth / photo.aspectRatio;
-        cell.width = newWidth;
-        cell.height = newHeight;
-      }
-    }
-  });
-
-  // === Recalculate Y positions after height changes ===
-  // Sort cells by original Y to maintain order
-  const sortedCells = [...cells].sort((a, b) => a.y - b.y);
-  let newY = 0;
-  sortedCells.forEach(cell => {
-    cell.y = newY;
-    newY += cell.height + normalizedGap;
-  });
-
-  // Update total height
-  const finalHeight = Math.max(0, newY - normalizedGap);
-  
   return {
-    cells: sortedCells,
+    cells,
     width: maxRowWidth,
-    height: finalHeight,
+    height: targetHeight,
     rowCount: rows.length,
   };
 }

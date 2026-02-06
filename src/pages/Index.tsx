@@ -47,7 +47,7 @@ export default function Index() {
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [layoutTuning, setLayoutTuning] = useState<LayoutTuning>(DEFAULT_TUNING);
-  const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v1');
+  const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);

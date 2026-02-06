@@ -47,9 +47,11 @@ export function MetricsBadges({ result }: MetricsBadgesProps) {
         Rows: [{rowSizes.join(', ')}]
       </Badge>
       
-      <Badge variant="secondary" className="font-mono text-xs">
-        Bias: {testCase.orientationBias > 0.2 ? 'L' : testCase.orientationBias < -0.2 ? 'P' : 'M'} ({testCase.orientationBias.toFixed(2)})
-      </Badge>
+      {testCase.orientationBias !== undefined && (
+        <Badge variant="secondary" className="font-mono text-xs">
+          Bias: {testCase.orientationBias > 0.2 ? 'L' : testCase.orientationBias < -0.2 ? 'P' : 'M'} ({testCase.orientationBias.toFixed(2)})
+        </Badge>
+      )}
     </div>
   );
 }

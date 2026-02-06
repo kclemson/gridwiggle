@@ -82,12 +82,13 @@ export function findBestSplit(
       // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
-      // Calculate optimal row count for BELOW
+      // Calculate optimal row count for BELOW (respecting both min and max AR)
       const belowRowCount = calculateBelowRowCount(
         belowPhotos, 
         heroRowWidth, 
         normalizedGap,
-        tuning.canvas_minAR
+        tuning.canvas_minAR,
+        tuning.canvas_maxAR
       );
       
       // Pack BELOW at derived width

@@ -259,11 +259,16 @@ export function calculateRowCountRange(
 /**
  * Calculate optimal row count for BELOW packing given width and photo geometry.
  */
+/**
+ * Calculate optimal row count for BELOW packing given width and photo geometry.
+ * Enforces both canvas_minAR (prevents too-tall) and canvas_maxAR (prevents too-wide).
+ */
 export function calculateBelowRowCount(
   photos: PhotoDimension[],
   targetWidth: number,
   normalizedGap: number,
   canvasMinAR: number,
+  canvasMaxAR: number = 2.0,
   heroRowHeight: number = 1.0
 ): number {
   const n = photos.length;
@@ -272,26 +277,27 @@ export function calculateBelowRowCount(
   // Mean AR of photos
   const meanAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0) / n;
   
-  // Estimate: with R rows and ~n/R photos per row
-  // rowWidth ≈ rowHeight * (n/R) * meanAR
-  // For rowWidth = targetWidth: rowHeight = targetWidth / ((n/R) * meanAR)
-  // Total BELOW height = R * rowHeight = R * targetWidth / ((n/R) * meanAR) = R² * targetWidth / (n * meanAR)
-  // 
+  // === Constraint 1: Prevent too-tall (minAR) ===
   // Canvas AR = targetWidth / (heroRowHeight + gap + belowHeight)
   // For canvas AR to stay above canvasMinAR:
   // belowHeight <= targetWidth / canvasMinAR - heroRowHeight - gap
-  
   const maxBelowHeight = targetWidth / canvasMinAR - heroRowHeight - normalizedGap;
   
   // From belowHeight = R² * targetWidth / (n * meanAR):
   // R² <= maxBelowHeight * n * meanAR / targetWidth
   // R <= sqrt(maxBelowHeight * n * meanAR / targetWidth)
-  const maxRowsByAR = Math.floor(Math.sqrt(Math.max(0, maxBelowHeight * n * meanAR / targetWidth)));
+  const maxRowsByMinAR = Math.floor(Math.sqrt(Math.max(0, maxBelowHeight * n * meanAR / targetWidth)));
   
-  // Practical limits
-  const minRows = 1;
-  const maxRows = Math.max(minRows, Math.min(n, maxRowsByAR, Math.ceil(n / 2)));
+  // === Constraint 2: Prevent too-wide (maxAR) ===
+  // canvasAR = width / height <= maxAR
+  // For hero-less: height = R² * width / (n * meanAR)
+  // So: n * meanAR / R² <= maxAR → R >= sqrt(n * meanAR / maxAR)
+  const minRowsByMaxAR = Math.ceil(Math.sqrt(n * meanAR / canvasMaxAR));
   
-  // Choose middle of range for balance
+  // === Combine constraints ===
+  const minRows = Math.max(1, minRowsByMaxAR);
+  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
+  
+  // Choose middle of valid range for balance
   return Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
 }

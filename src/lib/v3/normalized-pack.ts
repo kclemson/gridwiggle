@@ -101,33 +101,63 @@ export function packToFillHeight(
     };
   }
   
-  // Calculate row height (accounting for gaps between rows)
+  // Calculate total gap height between rows
   const totalGapHeight = (rows.length - 1) * normalizedGap;
-  const rowHeight = (targetHeight - totalGapHeight) / rows.length;
   
-  if (rowHeight <= 0) {
-    // Too many rows for the height - return empty
+  // Calculate each row's "effective aspect ratio" (sum of photo ARs + intra-row gaps)
+  // For a row at height H: width = H × rowAR, where rowAR accounts for gaps
+  // Gap contribution: each gap adds normalizedGap to width, which at height H means AR += gap/H
+  // Since we don't know H yet, we express gaps as AR contribution relative to row height
+  const rowARs = rows.map(row => {
+    const photoARSum = row.reduce((sum, p) => sum + p.aspectRatio, 0);
+    // Intra-row gaps: (row.length - 1) gaps, each contributing gap/rowHeight to width
+    // But rowHeight varies per row. The gap contribution to "effective AR" is tricky.
+    // Solution: treat row as unit. At width W: rowHeight = W / (photoARSum + gapContrib)
+    // gapContrib in AR-space = (row.length - 1) * normalizedGap / rowHeight
+    // This is circular. Instead, use the formula:
+    // rowWidth = rowHeight × photoARSum + (row.length - 1) × gap
+    // rowAR = rowWidth / rowHeight = photoARSum + (row.length - 1) × gap / rowHeight
+    // 
+    // For unified formula: we need 1/rowAR in terms of rowHeight.
+    // Actually, the simpler approach: given regionWidth W, 
+    // rowHeight = (W - intraRowGaps) / photoARSum
+    // We'll solve for W directly using the constraint that heights sum to targetHeight.
+    return photoARSum;
+  });
+  
+  // Calculate intra-row gap counts
+  const intraRowGaps = rows.map(row => (row.length - 1) * normalizedGap);
+  
+  // Solve for regionWidth W such that:
+  // sum of rowHeights + inter-row gaps = targetHeight
+  // rowHeight_i = (W - intraRowGaps_i) / rowAR_i
+  // 
+  // Σ[(W - intraRowGaps_i) / rowAR_i] = targetHeight - totalGapHeight
+  // W × Σ(1/rowAR_i) - Σ(intraRowGaps_i / rowAR_i) = targetHeight - totalGapHeight
+  // W = [targetHeight - totalGapHeight + Σ(intraRowGaps_i / rowAR_i)] / Σ(1/rowAR_i)
+  
+  const sumInverseRowAR = rowARs.reduce((sum, ar) => sum + 1 / ar, 0);
+  const sumGapOverAR = rows.reduce((sum, row, i) => sum + intraRowGaps[i] / rowARs[i], 0);
+  const regionWidth = (targetHeight - totalGapHeight + sumGapOverAR) / sumInverseRowAR;
+  
+  if (regionWidth <= 0) {
     return { cells: [], width: 0, height: 0, rowCount: 0 };
   }
   
-  // Pack rows and find max width
-  let maxRowWidth = 0;
+  // Pack each row at regionWidth (variable row heights)
   const cells: NormalizedCell[] = [];
   let currentY = 0;
   
-  rows.forEach(row => {
-    // Row width = sum of photo widths at this row height + gaps
-    const cellWidths = row.map(p => p.aspectRatio * rowHeight);
-    const rowWidth = cellWidths.reduce((sum, w) => sum + w, 0) + (row.length - 1) * normalizedGap;
+  rows.forEach((row, rowIndex) => {
+    const rowAR = rowARs[rowIndex];
+    const rowIntraGap = intraRowGaps[rowIndex];
+    // rowHeight such that: rowHeight × rowAR + rowIntraGap = regionWidth
+    const rowHeight = (regionWidth - rowIntraGap) / rowAR;
     
-    if (rowWidth > maxRowWidth) {
-      maxRowWidth = rowWidth;
-    }
-    
-    // Place cells left-aligned
+    // Position each photo in the row
     let currentX = 0;
-    row.forEach((photo, i) => {
-      const cellWidth = cellWidths[i];
+    row.forEach(photo => {
+      const cellWidth = rowHeight * photo.aspectRatio;
       cells.push({
         photoId: photo.id,
         x: currentX,
@@ -143,7 +173,7 @@ export function packToFillHeight(
   
   return {
     cells,
-    width: maxRowWidth,
+    width: regionWidth,
     height: targetHeight,
     rowCount: rows.length,
   };

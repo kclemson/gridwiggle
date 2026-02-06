@@ -251,13 +251,23 @@ function tryBuildHeroUnit(
     const besidePhotos = candidates.slice(0, besideCount);
     
     // Calculate optimal hero fraction for these photos
-    const { fraction: optimalFraction } = calculateOptimalHeroFraction(
+    const { fraction: optimalFraction, clamped } = calculateOptimalHeroFraction(
       hero.aspectRatio,
       besidePhotos,
       canvasWidth,
       gap,
       rowCount
     );
+    
+    // For 1-row: reject if clamped (geometry doesn't support prominent hero)
+    if (rowCount === 1 && clamped) {
+      devLogger.log('layout', 'Config rejected', {
+        rowCount,
+        besideCount,
+        reason: 'fraction clamped for 1-row (hero would lack prominence)',
+      });
+      continue;
+    }
     
     const targetBesideWidth = Math.round(canvasWidth * (1 - optimalFraction)) - gap;
     

@@ -98,10 +98,42 @@ export function packToFillHeight(
     currentY += rowHeight + normalizedGap;
   });
   
+  // === Stretch single-photo rows to fill column width ===
+  // If a row has only 1 photo, stretch it to maxRowWidth
+  // This ensures vertical columns have flush edges
+  cells.forEach(cell => {
+    // Find if this cell is alone in its row (no other cells at same Y)
+    const cellsAtSameY = cells.filter(c => Math.abs(c.y - cell.y) < 0.001);
+    if (cellsAtSameY.length === 1) {
+      // Single photo in this row - stretch to full width
+      const photo = photos.find(p => p.id === cell.photoId);
+      if (photo) {
+        // New width is the column width
+        const newWidth = maxRowWidth;
+        // New height preserves aspect ratio
+        const newHeight = newWidth / photo.aspectRatio;
+        cell.width = newWidth;
+        cell.height = newHeight;
+      }
+    }
+  });
+
+  // === Recalculate Y positions after height changes ===
+  // Sort cells by original Y to maintain order
+  const sortedCells = [...cells].sort((a, b) => a.y - b.y);
+  let newY = 0;
+  sortedCells.forEach(cell => {
+    cell.y = newY;
+    newY += cell.height + normalizedGap;
+  });
+
+  // Update total height
+  const finalHeight = Math.max(0, newY - normalizedGap);
+  
   return {
-    cells,
+    cells: sortedCells,
     width: maxRowWidth,
-    height: targetHeight,
+    height: finalHeight,
     rowCount: rows.length,
   };
 }

@@ -394,6 +394,8 @@ export function packAllRegions(
     const constraints: PackingConstraints = { maxCellArea };
     if (Number.isFinite(region.height)) {
       constraints.maxHeight = region.height;
+      // For bounded regions (like BESIDE), fill the available height
+      constraints.fillHeight = region.height;
     }
     
     // Pack photos into this region

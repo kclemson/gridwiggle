@@ -5,11 +5,12 @@ import { PhotoGrid } from '@/components/PhotoGrid';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
-import { DebugPanel } from '@/components/DebugPanel';
+import { DebugPanel, AlgorithmVersion } from '@/components/DebugPanel';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
+import { generateCollageLayoutV2 } from '@/lib/v2';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
@@ -45,6 +46,7 @@ export default function Index() {
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [layoutTuning, setLayoutTuning] = useState<LayoutTuning>(DEFAULT_TUNING);
+  const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v1');
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -104,18 +106,26 @@ export default function Index() {
     
     try {
       devLogger.clear();
-      const layout = generateCollageLayout(photosToUse, settings, { 
-        photoWeights,
-        randomize,
-        tuning,
-      });
+      
+      // Use v1 or v2 algorithm based on selection
+      const layout = algorithmVersion === 'v2'
+        ? generateCollageLayoutV2(photosToUse, settings, { 
+            photoWeights,
+            randomize,
+          })
+        : generateCollageLayout(photosToUse, settings, { 
+            photoWeights,
+            randomize,
+            tuning,
+          });
+      
       setDebugLogs(devLogger.getLogs());
       setLayout(layout);
     } catch (error) {
       console.error('Layout generation failed:', error);
       // Silent - button remains visible for retry
     }
-  }, [state.settings, setLayout, layoutTuning]);
+  }, [state.settings, setLayout, layoutTuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -469,7 +479,9 @@ export default function Index() {
                     <DebugPanel 
                       logs={debugLogs} 
                       tuning={layoutTuning} 
-                      onTuningChange={handleTuningChange} 
+                      onTuningChange={handleTuningChange}
+                      algorithmVersion={algorithmVersion}
+                      onAlgorithmVersionChange={setAlgorithmVersion}
                     />
                   </div>
                 )}

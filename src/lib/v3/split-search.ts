@@ -33,7 +33,8 @@ export function findBestSplit(
   photos: PhotoDimension[],
   heroAR: number,
   normalizedGap: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  maxPhotosPerRow: number = 6
 ): SplitResult | null {
   if (photos.length === 0) {
     return null;
@@ -63,6 +64,7 @@ export function findBestSplit(
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
     searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
+    maxPhotosPerRow,
   });
   
   for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
@@ -74,6 +76,18 @@ export function findBestSplit(
     const [minRows, maxRows] = calculateRowCountRange(besidePhotos, 1.0, normalizedGap);
     
     for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
+      // Check BESIDE density constraint
+      const photosPerRowBeside = Math.ceil(besidePhotos.length / besideRowCount);
+      if (photosPerRowBeside > maxPhotosPerRow) {
+        devLogger.log('v3-split', 'Split rejected: BESIDE too dense', {
+          besideCount,
+          besideRowCount,
+          photosPerRowBeside,
+          maxPhotosPerRow,
+        });
+        continue;
+      }
+      
       // Pack BESIDE at height = 1
       const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount);
       
@@ -90,6 +104,19 @@ export function findBestSplit(
         tuning.canvas_minAR,
         tuning.canvas_maxAR
       );
+      
+      // Check BELOW density constraint
+      const photosPerRowBelow = Math.ceil(belowPhotos.length / belowRowCount);
+      if (photosPerRowBelow > maxPhotosPerRow) {
+        devLogger.log('v3-split', 'Split rejected: BELOW too dense', {
+          besideCount,
+          belowCount: belowPhotos.length,
+          belowRowCount,
+          photosPerRowBelow,
+          maxPhotosPerRow,
+        });
+        continue;
+      }
       
       // Pack BELOW at derived width
       const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount);

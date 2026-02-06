@@ -123,10 +123,14 @@ function evaluateNormalizedProposal(
   // We'll refine this after we know the scale factor
   const estimatedNormalizedGap = 0.02; // ~2% of hero height
   
+  // Calculate max photos per row based on minimum cell size
+  const maxPhotosPerRow = Math.floor(canvasWidth / tuning.region_minWidth);
+  
   devLogger.log('v3', 'Evaluating normalized proposal', {
     mode: proposal.mode,
     position: proposal.position,
     heroAR: heroAR.toFixed(2),
+    maxPhotosPerRow,
   });
   
   // Edge and floating modes not yet implemented - use corner decomposition
@@ -140,7 +144,8 @@ function evaluateNormalizedProposal(
     contentPhotos,
     heroAR,
     estimatedNormalizedGap,
-    tuning
+    tuning,
+    maxPhotosPerRow
   );
   
   if (!splitResult) {

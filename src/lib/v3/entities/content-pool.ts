@@ -142,7 +142,9 @@ function findOptimalSplit(
   
   let bestSplit: { besideCount: number; score: number } | null = null;
   
-  for (let besideCount = 0; besideCount <= maxBesidePhotos; besideCount++) {
+  // BESIDE region exists, must have at least 1 photo (0 would leave empty space)
+  const minBesidePhotos = 1;
+  for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
     const belowCount = photos.length - besideCount;
     
     // Skip if BELOW would be empty (need at least 1 photo there for wide regions)

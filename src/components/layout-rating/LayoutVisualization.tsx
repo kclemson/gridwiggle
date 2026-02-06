@@ -109,7 +109,7 @@ export function LayoutVisualization({ layout, photos }: LayoutVisualizationProps
                 {getPhotoLabel(labelIndex)}
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {photo?.aspectRatio.toFixed(2)} · {areaPercent}%
+                {photo?.aspectRatio.toFixed(2)} {areaPercent}%
               </span>
             </span>
           </div>

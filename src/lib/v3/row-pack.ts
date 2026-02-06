@@ -127,7 +127,7 @@ export function packPhotosIntoRegion(
     if (!violatesArea && !violatesHeight) {
       // Apply fillHeight scaling if needed
       if (constraints.fillHeight && result.actualHeight < constraints.fillHeight) {
-        return scaleToFillHeight(result, region, constraints.fillHeight);
+        return scaleToFillHeight(result, region, constraints.fillHeight, gap);
       }
       return result;
     }
@@ -141,7 +141,7 @@ export function packPhotosIntoRegion(
   
   // Still apply fillHeight scaling if applicable
   if (constraints.fillHeight && result.actualHeight < constraints.fillHeight) {
-    return scaleToFillHeight(result, region, constraints.fillHeight);
+    return scaleToFillHeight(result, region, constraints.fillHeight, gap);
   }
   
   return result;
@@ -154,7 +154,8 @@ export function packPhotosIntoRegion(
 function scaleToFillHeight(
   result: PackingResult,
   region: RegionSpec,
-  fillHeight: number
+  fillHeight: number,
+  gap: number
 ): PackingResult {
   const scaleFactor = fillHeight / result.actualHeight;
   
@@ -168,7 +169,7 @@ function scaleToFillHeight(
     
     return {
       photoId: cell.photoId,
-      x: cell.x, // X will be adjusted per-row below
+      x: cell.x,
       y: region.y + yOffset,
       width: newWidth,
       height: newHeight,
@@ -188,16 +189,38 @@ function scaleToFillHeight(
     }
   });
   
-  // Center each row horizontally
+  // Scale gap proportionally
+  const scaledGap = gap * scaleFactor;
+  
+  // Pack each row to fit region width, clamping if needed
   rows.forEach(row => {
     row.sort((a, b) => a.x - b.x);
-    const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) + (row.length - 1) * 0; // gaps already scaled
-    const xOffset = (region.width - rowWidth) / 2;
+    const totalCellWidth = row.reduce((sum, cell) => sum + cell.width, 0);
+    const totalGapWidth = (row.length - 1) * scaledGap;
+    const rowWidth = totalCellWidth + totalGapWidth;
+    
+    // If row exceeds region width, scale down cells to fit
+    if (rowWidth > region.width) {
+      const clampScale = region.width / rowWidth;
+      row.forEach(cell => {
+        cell.width *= clampScale;
+        cell.height *= clampScale;
+      });
+    }
+    
+    // Recalculate row width after clamping
+    const finalCellWidth = row.reduce((sum, cell) => sum + cell.width, 0);
+    const finalGapWidth = (row.length - 1) * scaledGap * (rowWidth > region.width ? region.width / rowWidth : 1);
+    const finalRowWidth = finalCellWidth + finalGapWidth;
+    const actualGap = row.length > 1 ? finalGapWidth / (row.length - 1) : 0;
+    
+    // Center horizontally
+    const xOffset = Math.max(0, (region.width - finalRowWidth) / 2);
     
     let currentX = region.x + xOffset;
     row.forEach(cell => {
       cell.x = currentX;
-      currentX += cell.width; // gap is implicit in spacing
+      currentX += cell.width + actualGap;
     });
   });
   

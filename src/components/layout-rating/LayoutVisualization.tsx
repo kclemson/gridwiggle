@@ -93,7 +93,7 @@ export function LayoutVisualization({ layout, photos }: LayoutVisualizationProps
             className={cn(
               "absolute flex items-center justify-center text-xs font-mono",
               "border border-border/40 transition-all",
-              isHero && "ring-2 ring-amber-400 z-10"
+              isHero && "ring-2 ring-inset ring-amber-400 z-10"
             )}
             style={{
               left: `${(cell.x / layout.width) * 100}%`,

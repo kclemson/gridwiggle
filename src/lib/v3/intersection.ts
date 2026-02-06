@@ -19,6 +19,7 @@ import { calculateContentStats } from './utils';
 import { decomposeCanvas } from './entities/canvas';
 import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { distributePhotos, packAllRegions } from './entities/content-pool';
+import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
 // Main Intersection Algorithm
@@ -114,6 +115,10 @@ function evaluateProposal(
   
   // Check region viability
   if (!decomposition.valid) {
+    devLogger.log('v3', 'Proposal rejected: decomposition invalid', {
+      mode: proposal.mode,
+      position: proposal.position,
+    });
     return null;
   }
   
@@ -145,6 +150,14 @@ function evaluateProposal(
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
+    devLogger.log('v3', 'Proposal rejected: prominence too low', {
+      mode: proposal.mode,
+      position: proposal.position,
+      heroArea,
+      runnerUpArea: contentAreas.length > 0 ? Math.max(...contentAreas) : 0,
+      ratio: prominence.ratio,
+      required: tuning.hero_minProminence,
+    });
     return null;
   }
   

@@ -94,34 +94,6 @@ export function getPhotoDimensions(
 // ============================================================================
 
 /**
- * Calculate optimal row count for beside photos based on unified aspect geometry.
- * 
- * Formula: r = sqrt(besideCount * avgBesideAR / heroAR)
- * 
- * This single expression composes all inputs:
- * - More beside photos → more rows needed (n in numerator)
- * - Taller beside photos (low AR) → fewer rows (AR in numerator)  
- * - Wider hero (high AR) → fewer rows (AR in denominator)
- * 
- * The result is the row count where beside photos naturally fill
- * the same height as the hero without excessive scaling.
- */
-export function calculateOptimalBesideRowCount(
-  heroAspect: number,
-  besidePhotos: PhotoDimension[]
-): number {
-  if (besidePhotos.length === 0) return 1;
-  
-  const avgBesideAR = mean(besidePhotos.map(p => p.aspectRatio));
-  
-  // The unified formula - all inputs compose together
-  const optimalRows = Math.sqrt(besidePhotos.length * avgBesideAR / heroAspect);
-  
-  // Clamp to valid range [1, 3] and round to nearest integer
-  return Math.max(1, Math.min(3, Math.round(optimalRows)));
-}
-
-/**
  * Calculate maximum beside photo count based on total photos and aspect contrast.
  * 
  * Aspect contrast (heroAR / avgBesideAR) affects perception:
@@ -161,17 +133,6 @@ export function calculateMaxBesideCount(
   const maxFromReserve = totalNonHeroCount - tuning.minBelowPhotos;
   
   return Math.max(0, Math.min(maxFromFraction, maxFromReserve));
-}
-
-/**
- * Get row modes to try, ordered by preference based on optimal calculation.
- * 
- * Returns modes closest to optimal first, allowing graceful fallback.
- */
-export function getPreferredRowModes(optimalRows: number): (1 | 2 | 3)[] {
-  if (optimalRows <= 1.5) return [1, 2, 3];
-  if (optimalRows >= 2.5) return [3, 2, 1];
-  return [2, 1, 3]; // optimal around 2
 }
 
 /**

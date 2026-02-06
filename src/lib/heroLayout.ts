@@ -1415,6 +1415,7 @@ function generateBlockBasedHeroLayout(
       maxBesideFraction: tuning.maxBesideFraction,
       totalPhotoCount: standards.length + 1, // +1 for hero
       minContentPhotos: tuning.minContentPhotos,
+      minHeroCoverage: tuning.minHeroCoverage,
     }
   );
   

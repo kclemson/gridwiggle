@@ -112,6 +112,9 @@ export interface LayoutTuning {
   aspectContrastFloor: number;    // Min aspect contrast modifier (default 0.8)
   aspectContrastCap: number;      // Max aspect contrast modifier (default 1.3)
   minHeroProminenceRatio: number; // Hero must be this much bigger than runner-up (default 1.3)
+  
+  // Canvas-level hero prominence
+  minHeroCoverage: number;        // Minimum hero area as % of total canvas (default 0.08 = 8%)
 }
 
 export const DEFAULT_TUNING: LayoutTuning = {
@@ -133,6 +136,9 @@ export const DEFAULT_TUNING: LayoutTuning = {
   aspectContrastFloor: 0.8,
   aspectContrastCap: 1.3,
   minHeroProminenceRatio: 1.3,
+  
+  // Canvas-level hero prominence
+  minHeroCoverage: 0.08,  // 8% of canvas
 };
 
 /**

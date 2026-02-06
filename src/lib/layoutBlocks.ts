@@ -81,6 +81,8 @@ export interface HeroUnitOptions {
   minContentPhotos?: number;
   /** Shape preference for scoring (default 'auto') */
   shape?: 'auto' | 'landscape' | 'portrait' | 'square';
+  /** Minimum hero area as % of total canvas (default 0.08) */
+  minHeroCoverage?: number;
 }
 
 // ============================================================================
@@ -210,7 +212,8 @@ export function buildHeroUnitBlock(
       effectiveMax2Row,
       effectiveMax3Row,
       scaleToleranceLow,
-      scaleToleranceHigh
+      scaleToleranceHigh,
+      options.minHeroCoverage ?? 0.08
     );
     
     if (result) {
@@ -241,7 +244,8 @@ function tryBuildHeroUnit(
   maxBeside2Row: number,
   maxBeside3Row: number,
   scaleToleranceLow: number,
-  scaleToleranceHigh: number
+  scaleToleranceHigh: number,
+  minHeroCoverage: number
 ): HeroUnitBlock | null {
   const minPhotos = rowCount === 3 ? 3 : rowCount === 2 ? 2 : 1;
   const maxPhotos = rowCount === 3 ? maxBeside3Row : rowCount === 2 ? maxBeside2Row : maxBeside1Row;
@@ -350,11 +354,41 @@ function tryBuildHeroUnit(
       );
     }
     
+    // Estimate total canvas height to check hero coverage
+    const remainingCount = candidates.length - besidePhotos.length;
+    const avgRemainingAR = remainingCount > 0 
+      ? candidates.slice(besideCount).reduce((s, p) => s + p.aspectRatio, 0) / remainingCount
+      : 1.0;
+    
+    // Estimate rows needed for remaining photos (rough: photosPerRow ≈ 3.5)
+    const estimatedRowsBelow = Math.max(0, Math.ceil(remainingCount / 3.5));
+    const estimatedRowHeight = avgRemainingAR > 0 
+      ? canvasWidth / (3.5 * avgRemainingAR)
+      : 200; // Fallback
+    const estimatedBelowHeight = estimatedRowsBelow * (estimatedRowHeight + gap);
+    
+    const estimatedTotalHeight = scaledHeroHeight + gap + estimatedBelowHeight;
+    const estimatedHeroCoverage = estimatedTotalHeight > 0
+      ? (scaledHeroWidth * scaledHeroHeight) / (canvasWidth * estimatedTotalHeight)
+      : 0;
+    
+    // Check if hero will have sufficient canvas presence
+    if (estimatedHeroCoverage < minHeroCoverage) {
+      devLogger.log('layout', 'Config rejected', {
+        rowCount,
+        besideCount,
+        estimatedHeroCoverage,
+        reason: `hero coverage ${(estimatedHeroCoverage * 100).toFixed(1)}% < ${minHeroCoverage * 100}%`,
+      });
+      continue;
+    }
+    
     devLogger.log('layout', 'Config accepted', {
       rowCount,
       besideCount,
       scaleFactor,
       heroWidthFraction: scaledHeroWidth / canvasWidth,
+      estimatedHeroCoverage,
     });
 
     return {

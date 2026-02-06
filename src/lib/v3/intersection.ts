@@ -416,7 +416,10 @@ function scoreConfiguration(
   const areas = cells.slice(1).map(c => c.width * c.height); // Exclude hero
   const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
   
-  return (prominenceScore * 0.6) + (areaUniformity * 0.4);
+  // Random tiebreaker for equally-valid configurations (1% variation)
+  const randomTiebreaker = Math.random() * 0.01;
+  
+  return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
 }
 
 /**

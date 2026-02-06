@@ -1,20 +1,20 @@
 
 
-# Fix: Row Count Mismatch Between Split Search and Final Evaluation
+# Fix: Enforce Canvas AR Bounds for Hero-less Layouts
 
 ## Summary
 
-The split search correctly calculates how many rows are needed for the BELOW region, but the final evaluation throws that away and recalculates with a naive heuristic. This causes valid layouts to be rejected.
+Hero-less layouts produce ultra-wide collages (AR 6-9) because `generateSimpleRowsLayout` only calculates a row count that prevents the canvas from being **too tall** (via `canvas_minAR`), but never validates or constrains the **maximum width** (`canvas_maxAR`).
 
 ---
 
 ## Design Intent
 
 **What problem are we solving?**  
-Hero layouts are failing because the BELOW row count used in final packing differs from what was validated during split search. The search finds "2 rows works", but final eval uses "5 rows" and the layout becomes too tall.
+Hero-less layouts can produce extreme aspect ratios like 6.5:1 or 9:1. The `calculateBelowRowCount` function calculates a minimum row count to stay above `canvas_minAR` (prevent too-tall), but there's nothing preventing the layout from being too short/wide.
 
 **What will users experience?**  
-Hero layouts will start working again. The layouts will match what the search algorithm validated as acceptable.
+All layouts (with or without hero) will respect the configured aspect ratio bounds (default 0.67 to 2.0). No more pancake-shaped collages.
 
 ---
 
@@ -23,141 +23,167 @@ Hero layouts will start working again. The layouts will match what the search al
 ### Current Flow (Broken)
 
 ```text
-findBestSplit():
-  for each besideCount:
-    for each besideRowCount:
-      belowRowCount = calculateBelowRowCount(...)  // Smart: respects canvas AR
-      pack and validate...
-      save best split
-  return { besidePhotos, belowPhotos, besideRowCount }  // Missing belowRowCount!
+generateSimpleRowsLayout():
+  rowCount = calculateBelowRowCount(photos, width=1.0, gap, canvas_minAR)
+     └── Only enforces canvas_minAR (prevents too tall)
+     └── Never checks if result exceeds canvas_maxAR
 
-evaluateNormalizedProposal():
-  splitResult = findBestSplit(...)
-  besideResult = packToFillHeight(..., splitResult.besideRowCount)
-  belowRowCount = calculateOptimalBelowRowCount(...)  // Naive: ceil(n/4)
-  belowResult = packToFillWidth(..., belowRowCount)
-  // Layout rejected because wrong row count makes it too tall
+  pack and scale to pixels
+     └── No validation of final canvas AR
+
+  return result regardless of AR
 ```
 
-### Example from Debug Logs
+### Example
 
-With 20 photos going to BELOW and heroRowWidth ~2.14:
-
-| Function | Row Count | Canvas AR | Valid? |
-|----------|-----------|-----------|--------|
-| `calculateBelowRowCount` (search) | 2-3 | 0.8-1.2 | Yes |
-| `calculateOptimalBelowRowCount` (eval) | 5 | 0.55 | No (below 0.7 min) |
+With 7 photos of average AR 1.3:
+- `calculateBelowRowCount` suggests 1 row (tall enough for minAR 0.67)
+- 1 row of 7 photos → total width ~9.1 units → AR = 9.1
+- Exceeds `canvas_maxAR` (2.0) by 4.5x
+- User sees a pancake collage
 
 ---
 
 ## The Fix
 
-Pass the validated `belowRowCount` from split search to final evaluation.
+Add `canvas_maxAR` enforcement to `calculateBelowRowCount` and validate the final layout in `generateSimpleRowsLayout`.
 
 ### Fixed Flow
 
 ```text
-findBestSplit():
-  for each besideCount:
-    for each besideRowCount:
-      belowRowCount = calculateBelowRowCount(...)
-      pack and validate...
-      save best split with belowRowCount
-  return { besidePhotos, belowPhotos, besideRowCount, belowRowCount }  // Now includes it!
+calculateBelowRowCount():
+  Calculate minRows from canvas_minAR (prevent too tall)
+  Calculate minRows from canvas_maxAR (prevent too wide)  // NEW
+  Take maximum of both constraints
+  Return row count that satisfies both bounds
 
-evaluateNormalizedProposal():
-  splitResult = findBestSplit(...)
-  besideResult = packToFillHeight(..., splitResult.besideRowCount)
-  belowResult = packToFillWidth(..., splitResult.belowRowCount)  // Use stored value
-  // Layout matches what was validated
+generateSimpleRowsLayout():
+  ... existing packing logic ...
+  
+  canvasAR = canvasWidth / canvasHeight
+  if canvasAR > tuning.canvas_maxAR:
+    return null  // Reject invalid layout
+```
+
+---
+
+## The Math
+
+### Preventing Too-Wide Layouts
+
+For a row-packed layout with `R` rows:
+```text
+Each row: rowHeight = rowWidth / rowAR
+Total height ≈ R × rowHeight = R × (width / avgPhotosPerRow / meanAR)
+            = R × (width × R / n / meanAR)
+            = R² × width / (n × meanAR)
+
+Canvas AR = width / height
+         = width / (R² × width / (n × meanAR))
+         = n × meanAR / R²
+
+For canvasAR ≤ maxAR:
+  n × meanAR / R² ≤ maxAR
+  R² ≥ n × meanAR / maxAR
+  R ≥ sqrt(n × meanAR / maxAR)
+```
+
+So the **minimum** row count to stay under `canvas_maxAR` is:
+```text
+minRowsByMaxAR = ceil(sqrt(n × meanAR / canvas_maxAR))
 ```
 
 ---
 
 ## File Changes
 
-### 1. `src/lib/v3/types.ts` - Add belowRowCount to SplitResult
+### 1. `src/lib/v3/normalized-pack.ts` — Add maxAR constraint
+
+Update `calculateBelowRowCount` to take `canvas_maxAR` and calculate a minimum row count:
 
 ```typescript
-export interface SplitResult {
-  besidePhotos: PhotoDimension[];
-  belowPhotos: PhotoDimension[];
-  besideRowCount: number;
-  belowRowCount: number;  // ADD THIS
-  score: number;
+export function calculateBelowRowCount(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  normalizedGap: number,
+  canvasMinAR: number,
+  canvasMaxAR: number = 2.0,  // ADD parameter
+  heroRowHeight: number = 1.0
+): number {
+  const n = photos.length;
+  if (n <= 1) return 1;
+  
+  const meanAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0) / n;
+  
+  // === Constraint 1: Prevent too-tall (minAR) ===
+  // From existing logic: maxRows based on maxBelowHeight
+  const maxBelowHeight = targetWidth / canvasMinAR - heroRowHeight - normalizedGap;
+  const maxRowsByMinAR = Math.floor(Math.sqrt(Math.max(0, maxBelowHeight * n * meanAR / targetWidth)));
+  
+  // === Constraint 2: Prevent too-wide (maxAR) === NEW
+  // canvasAR = width / height ≤ maxAR
+  // For hero-less: height = R² × width / (n × meanAR)  
+  // So: n × meanAR / R² ≤ maxAR → R ≥ sqrt(n × meanAR / maxAR)
+  //
+  // For hero layouts, use heroRowHeight in the calculation
+  // height = heroRowHeight + gap + belowHeight
+  // This is more complex, so for now apply the simpler formula
+  const minRowsByMaxAR = Math.ceil(Math.sqrt(n * meanAR / canvasMaxAR));
+  
+  // === Combine constraints ===
+  const minRows = Math.max(1, minRowsByMaxAR);
+  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
+  
+  // Choose middle of valid range for balance
+  return Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
 }
 ```
 
-### 2. `src/lib/v3/split-search.ts` - Store belowRowCount in result
+### 2. `src/lib/v3/intersection.ts` — Pass canvas_maxAR and validate
 
-In `findBestSplit`, update the best split storage:
-
-```typescript
-// Current (line ~70):
-if (bestSplit === null || score > bestSplit.score) {
-  bestSplit = {
-    besidePhotos,
-    belowPhotos,
-    besideRowCount,
-    score,
-  };
-}
-
-// Fixed:
-if (bestSplit === null || score > bestSplit.score) {
-  bestSplit = {
-    besidePhotos,
-    belowPhotos,
-    besideRowCount,
-    belowRowCount,  // ADD THIS
-    score,
-  };
-}
-```
-
-### 3. `src/lib/v3/intersection.ts` - Use stored belowRowCount
-
-In `evaluateNormalizedProposal`, remove the naive calculation and use the stored value:
+Update calls to `calculateBelowRowCount` to pass `canvas_maxAR`:
 
 ```typescript
-// Current (lines ~115-122):
-const belowRowCount = calculateOptimalBelowRowCount(
-  splitResult.belowPhotos,
-  heroRowWidth,
-  estimatedNormalizedGap,
-  tuning
+// In generateSimpleRowsLayout (line ~417):
+const rowCount = calculateBelowRowCount(
+  photos, 
+  1.0, 
+  normalizedGap, 
+  tuning.canvas_minAR,
+  tuning.canvas_maxAR  // ADD this parameter
 );
-
-// Fixed:
-const belowRowCount = splitResult.belowRowCount;
 ```
 
-Also delete the `calculateOptimalBelowRowCount` helper function (lines ~190-199) since it's no longer needed.
+Add final validation before returning:
 
----
-
-## Technical Notes
-
-### Why the naive heuristic fails
-
-`calculateOptimalBelowRowCount` uses:
 ```typescript
-if (n <= 6) return 2;
-if (n <= 12) return 3;
-return Math.min(n, Math.ceil(n / 4));
+// After calculating canvasHeight (line ~433):
+const canvasAR = canvasWidth / canvasHeight;
+
+if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+  devLogger.log('v3', 'Simple rows layout outside AR bounds', {
+    canvasAR: canvasAR.toFixed(2),
+    minAR: tuning.canvas_minAR,
+    maxAR: tuning.canvas_maxAR,
+  });
+  return null;
+}
 ```
 
-For 20 photos: `ceil(20/4) = 5 rows`
+### 3. `src/lib/v3/split-search.ts` — Pass canvas_maxAR
 
-But `calculateBelowRowCount` in split-search uses the actual geometry:
+Update the call to `calculateBelowRowCount`:
+
 ```typescript
-// Estimates based on total AR sum and target canvas AR
-// For 20 photos with mixed ARs at width 2.14, calculates 2-3 rows needed
+// In findBestSplit (line ~107):
+const belowRowCount = calculateBelowRowCount(
+  belowPhotos,
+  estimatedHeroRowWidth,
+  normalizedGap,
+  tuning.canvas_minAR,
+  tuning.canvas_maxAR  // ADD this parameter
+);
 ```
-
-### No behavioral change to valid cases
-
-This fix only affects the data flow. The split search already validated the configuration works - we're just ensuring the final evaluation uses the same parameters.
 
 ---
 
@@ -165,15 +191,15 @@ This fix only affects the data flow. The split search already validated the conf
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/types.ts` | Add `belowRowCount` to `SplitResult` interface |
-| `src/lib/v3/split-search.ts` | Store `belowRowCount` in the returned split result |
-| `src/lib/v3/intersection.ts` | Use `splitResult.belowRowCount` instead of recalculating; delete unused helper |
+| `src/lib/v3/normalized-pack.ts` | Add `canvasMaxAR` parameter to `calculateBelowRowCount`, enforce minimum rows |
+| `src/lib/v3/intersection.ts` | Pass `canvas_maxAR` to `calculateBelowRowCount`, add final AR validation in `generateSimpleRowsLayout` |
+| `src/lib/v3/split-search.ts` | Pass `canvas_maxAR` to `calculateBelowRowCount` |
 
 ---
 
 ## Result
 
-**Before**: Split search finds valid 2-row config, final eval uses 5 rows, layout rejected
+**Before**: 7 photos → 1 row → AR 9.06 → user sees pancake
 
-**After**: Split search finds valid 2-row config, final eval uses 2 rows, layout accepted
+**After**: 7 photos → `minRowsByMaxAR = ceil(sqrt(7 × 1.3 / 2.0)) = 3 rows` → AR ~1.0 → balanced collage
 

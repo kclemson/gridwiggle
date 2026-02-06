@@ -1,0 +1,183 @@
+/**
+ * V3 Layout Test Page
+ * 
+ * Dev-only page for rapid V3 algorithm iteration.
+ * Uses synthetic photos (CSS rectangles) for fast testing.
+ */
+
+import { useState, useMemo, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
+import { generatePhotoSet } from '@/test/layout/photoGenerator';
+import { generateCollageLayoutV3 } from '@/lib/v3/index';
+import { devLogger, LogEntry } from '@/lib/devLogger';
+import { SyntheticPhoto } from '@/test/layout/types';
+import { PhotoItem, CollageSettings } from '@/types/collage';
+import { Shuffle, ChevronDown, Star, Image } from 'lucide-react';
+
+// Static settings matching production defaults
+const CANVAS_WIDTH = 480;
+const GAP_SIZE = 8;
+
+// Placeholder blob for synthetic photos (not used for CSS visualization)
+const PLACEHOLDER_BLOB = new Blob([''], { type: 'image/png' });
+
+/**
+ * Convert SyntheticPhoto to PhotoItem for layout generation.
+ */
+function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
+  return {
+    id: photo.id,
+    filename: photo.id,
+    objectUrl: '', // Not needed for CSS visualization
+    blob: PLACEHOLDER_BLOB,
+    originalWidth: photo.originalWidth,
+    originalHeight: photo.originalHeight,
+    smartCrop: null,
+    manualCrop: null,
+    isProcessing: false,
+    error: null,
+    priority: photo.priority,
+  };
+}
+
+/**
+ * Generate a random photo set with 80% hero probability.
+ */
+function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
+  const photoCount = Math.floor(Math.random() * 41) + 10; // 10-50
+  const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
+  const hasHero = Math.random() < 0.8; // 80% hero
+  const seed = Date.now(); // Use timestamp as pseudo-seed for reference
+  
+  const photos = generatePhotoSet(photoCount, orientationBias, hasHero);
+  return { photos, seed };
+}
+
+export default function V3Test() {
+  const [photoSet, setPhotoSet] = useState(() => generateRandomSet());
+  const [logsOpen, setLogsOpen] = useState(true);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  
+  // Shuffle and regenerate
+  const handleShuffle = useCallback(() => {
+    devLogger.clear();
+    const newSet = generateRandomSet();
+    setPhotoSet(newSet);
+    // Logs will be captured after layout generation
+  }, []);
+  
+  // Generate layout
+  const layout = useMemo(() => {
+    devLogger.clear();
+    
+    const photoItems = photoSet.photos.map(toPhotoItem);
+    const settings: CollageSettings = {
+      shape: 'auto',
+      gapColor: '#ffffff',
+      gapSize: GAP_SIZE,
+    };
+    
+    // Build photo weights (hero = priority 1 gets weight 2)
+    const photoWeights: Record<string, number> = {};
+    photoSet.photos.forEach(p => {
+      if (p.priority === 1) {
+        photoWeights[p.id] = 2;
+      }
+    });
+    
+    const result = generateCollageLayoutV3(photoItems, settings, {
+      photoWeights,
+      canvasWidth: CANVAS_WIDTH,
+    });
+    
+    // Capture logs after generation
+    setLogs(devLogger.getLogs());
+    
+    return result;
+  }, [photoSet]);
+  
+  // Stats
+  const heroPhoto = photoSet.photos.find(p => p.priority === 1);
+  const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
+  
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">V3 Layout Test</h1>
+          <Button onClick={handleShuffle} variant="outline" className="gap-2">
+            <Shuffle className="h-4 w-4" />
+            Shuffle
+          </Button>
+        </div>
+        
+        {/* Stats */}
+        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Image className="h-4 w-4" />
+            <span>{photoSet.photos.length} photos</span>
+          </div>
+          {heroPhoto && (
+            <div className="flex items-center gap-1">
+              <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+              <span>Hero AR: {heroPhoto.aspectRatio.toFixed(2)}</span>
+            </div>
+          )}
+          {!heroPhoto && (
+            <div className="text-muted-foreground/50">No hero</div>
+          )}
+          <div>Avg AR: {avgAR.toFixed(2)}</div>
+        </div>
+        
+        {/* Layout Visualization */}
+        <div className="border rounded-lg p-4 bg-card">
+          {layout ? (
+            <LayoutVisualization layout={layout} photos={photoSet.photos} />
+          ) : (
+            <div className="h-48 flex items-center justify-center text-muted-foreground">
+              Layout generation failed
+            </div>
+          )}
+          
+          {layout && (
+            <div className="mt-2 text-xs text-muted-foreground text-center">
+              Canvas: {layout.width}×{layout.height}px
+            </div>
+          )}
+        </div>
+        
+        {/* Debug Logs */}
+        <Collapsible open={logsOpen} onOpenChange={setLogsOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-between">
+              <span>Debug Logs ({logs.length})</span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${logsOpen ? 'rotate-180' : ''}`} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 max-h-64 overflow-y-auto bg-muted/50 rounded-lg p-3 font-mono text-xs space-y-1">
+              {logs.length === 0 ? (
+                <div className="text-muted-foreground">No logs yet</div>
+              ) : (
+                logs.map((entry, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    <span className="text-blue-500 shrink-0">[{entry.category}]</span>
+                    <span className="text-foreground">{entry.label}</span>
+                    {Object.keys(entry.data).length > 0 && (
+                      <span className="text-muted-foreground truncate">
+                        {JSON.stringify(entry.data)}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    </div>
+  );
+}

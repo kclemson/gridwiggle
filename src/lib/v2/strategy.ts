@@ -109,6 +109,22 @@ export function strategyHeroTop(
 // ============================================================================
 
 /**
+ * Determine row count for beside photos based on count.
+ * Uses tuning.maxBesidePhotos to determine thresholds.
+ */
+function determineBesideRowCount(besideCount: number, maxBeside: number): 1 | 2 | 3 {
+  // Scale thresholds based on maxBesidePhotos
+  // With max=4: 1-3 → 1 row, 4-6 → 2 rows, 7+ → 3 rows
+  // With max=6: 1-4 → 1 row, 5-8 → 2 rows, 9+ → 3 rows
+  const threshold1 = Math.ceil(maxBeside * 0.75); // ~3 for max=4
+  const threshold2 = Math.ceil(maxBeside * 1.5);  // ~6 for max=4
+  
+  if (besideCount <= threshold1) return 1;
+  if (besideCount <= threshold2) return 2;
+  return 3;
+}
+
+/**
  * Hero on one side, stacked photos beside it.
  * The "beside" photos stack vertically next to the hero.
  */
@@ -125,16 +141,16 @@ export function strategyHeroSide(
   
   const hero = heroes[0];
   
-  // Determine how many photos go beside (1-4 based on count)
-  const besideCount = Math.min(4, Math.max(1, Math.floor(others.length / 3)));
+  // Determine how many photos go beside (use tuning.maxBesidePhotos)
+  const besideCount = Math.min(
+    tuning.maxBesidePhotos, 
+    Math.max(1, Math.floor(others.length / 3))
+  );
   const besidePhotos = others.slice(0, besideCount);
   const belowPhotos = others.slice(besideCount);
   
   // Determine row count based on beside photo count
-  // 1-3 photos: 1 row, 4-6 photos: 2 rows, 7+: 3 rows
-  const rowCount: 1 | 2 | 3 = besidePhotos.length <= 3 ? 1 
-                            : besidePhotos.length <= 6 ? 2 
-                            : 3;
+  const rowCount = determineBesideRowCount(besidePhotos.length, tuning.maxBesidePhotos);
   
   // Calculate optimal hero width fraction algebraically for this row count
   const { fraction } = calculateOptimalHeroFraction(
@@ -142,7 +158,9 @@ export function strategyHeroSide(
     besidePhotos,
     canvasWidth,
     gap,
-    rowCount
+    rowCount,
+    tuning.heroMinWidthFraction,
+    tuning.heroMaxWidthFraction
   );
   
   const heroWidth = (canvasWidth - gap) * fraction;

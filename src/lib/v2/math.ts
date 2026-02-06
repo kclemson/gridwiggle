@@ -251,17 +251,30 @@ function getRowAspectInfo(photos: PhotoDimension[], rowCount: 2 | 3): RowAspectI
  * 
  * Solving for B, then: f = 1 - (B + g) / W
  */
+/**
+ * Calculate the heroWidthFraction that produces scaleFactor ≈ 1.0
+ * given the specific beside photos and hero aspect ratio.
+ * 
+ * @param heroAspect - Hero photo aspect ratio
+ * @param besidePhotos - Photos beside the hero
+ * @param canvasWidth - Canvas width
+ * @param gap - Gap between photos
+ * @param rowCount - Number of rows for beside photos
+ * @param minFraction - Minimum hero width fraction (from tuning)
+ * @param maxFraction - Maximum hero width fraction (from tuning)
+ */
 export function calculateOptimalHeroFraction(
   heroAspect: number,
   besidePhotos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
   rowCount: 1 | 2 | 3,
-  minFraction: number = 0.30,
-  maxFraction: number = 0.60
+  minFraction: number,
+  maxFraction: number
 ): { fraction: number; clamped: boolean } {
-  const MIN_FRACTION = minFraction;
-  const MAX_FRACTION = maxFraction;
+  
+  // Compute fallback as midpoint of allowed range
+  const fallbackFraction = (minFraction + maxFraction) / 2;
   
   // For 1-row: simpler geometry - photos in single row beside hero
   if (rowCount === 1) {
@@ -273,15 +286,15 @@ export function calculateOptimalHeroFraction(
     // f = 1 - (B + g) / W
     const aspectSum = besidePhotos.reduce((sum, p) => sum + p.aspectRatio, 0);
     if (aspectSum <= 0) {
-      return { fraction: 0.45, clamped: true };
+      return { fraction: fallbackFraction, clamped: true };
     }
     
     const k = 1 + heroAspect / aspectSum;
     const optimalBesideWidth = (canvasWidth - gap) / k;
     const optimalFraction = 1 - (optimalBesideWidth + gap) / canvasWidth;
     
-    const clamped = optimalFraction < MIN_FRACTION || optimalFraction > MAX_FRACTION;
-    const clampedFraction = Math.max(MIN_FRACTION, Math.min(MAX_FRACTION, optimalFraction));
+    const clamped = optimalFraction < minFraction || optimalFraction > maxFraction;
+    const clampedFraction = Math.max(minFraction, Math.min(maxFraction, optimalFraction));
     
     return { fraction: clampedFraction, clamped };
   }
@@ -291,7 +304,7 @@ export function calculateOptimalHeroFraction(
   
   // Validate we have valid rows
   if (aspectSums.some(s => s <= 0) || photoCounts.some(c => c <= 0)) {
-    return { fraction: 0.45, clamped: true }; // Fallback to middle value
+    return { fraction: fallbackFraction, clamped: true };
   }
   
   // Calculate k1 = heroAR × sum(1/Ri) + 1
@@ -315,8 +328,8 @@ export function calculateOptimalHeroFraction(
   const optimalFraction = 1 - (optimalBesideWidth + gap) / canvasWidth;
   
   // Clamp to reasonable range
-  const clamped = optimalFraction < MIN_FRACTION || optimalFraction > MAX_FRACTION;
-  const clampedFraction = Math.max(MIN_FRACTION, Math.min(MAX_FRACTION, optimalFraction));
+  const clamped = optimalFraction < minFraction || optimalFraction > maxFraction;
+  const clampedFraction = Math.max(minFraction, Math.min(maxFraction, optimalFraction));
   
   return { fraction: clampedFraction, clamped };
 }

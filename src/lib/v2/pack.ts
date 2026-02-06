@@ -192,3 +192,202 @@ export function calculateNaturalAspectRatio(
   // With gaps, actual AR is more complex, but this is a good approximation
   return avgRowAR / rowCount;
 }
+
+// ============================================================================
+// Beside Packing (for hero-side layouts)
+// ============================================================================
+
+export interface BesidePackResult {
+  cells: LayoutCell[];
+  combinedHeight: number;
+}
+
+/**
+ * Pack photos as a single horizontal row beside the hero.
+ * All photos share the same height and fill the target width exactly.
+ */
+export function packBeside1Row(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  gap: number,
+  offsetX: number,
+  offsetY: number
+): BesidePackResult {
+  if (photos.length === 0) return { cells: [], combinedHeight: 0 };
+  
+  const totalGaps = gap * (photos.length - 1);
+  const availableWidth = targetWidth - totalGaps;
+  const aspectSum = sum(photos.map(p => p.aspectRatio));
+  const rowHeight = availableWidth / aspectSum;
+  
+  const cells: LayoutCell[] = [];
+  let x = offsetX;
+  
+  for (const photo of photos) {
+    const width = rowHeight * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: offsetY,
+      width,
+      height: rowHeight,
+    });
+    x += width + gap;
+  }
+  
+  return { cells, combinedHeight: rowHeight };
+}
+
+/**
+ * Pack photos as 2 horizontal rows beside the hero.
+ * Each row fills the target width exactly.
+ */
+export function packBeside2Rows(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  gap: number,
+  offsetX: number,
+  offsetY: number
+): BesidePackResult {
+  if (photos.length === 0) return { cells: [], combinedHeight: 0 };
+  if (photos.length === 1) return packBeside1Row(photos, targetWidth, gap, offsetX, offsetY);
+  
+  // Split photos between 2 rows
+  const midpoint = Math.ceil(photos.length / 2);
+  const row1Photos = photos.slice(0, midpoint);
+  const row2Photos = photos.slice(midpoint);
+  
+  // Calculate heights for each row to fill targetWidth
+  const row1Gaps = gap * (row1Photos.length - 1);
+  const row1AspectSum = sum(row1Photos.map(p => p.aspectRatio));
+  const row1Height = (targetWidth - row1Gaps) / row1AspectSum;
+  
+  const row2Gaps = gap * (row2Photos.length - 1);
+  const row2AspectSum = sum(row2Photos.map(p => p.aspectRatio));
+  const row2Height = (targetWidth - row2Gaps) / row2AspectSum;
+  
+  const combinedHeight = row1Height + gap + row2Height;
+  
+  const cells: LayoutCell[] = [];
+  
+  // Row 1
+  let x = offsetX;
+  for (const photo of row1Photos) {
+    const width = row1Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: offsetY,
+      width,
+      height: row1Height,
+    });
+    x += width + gap;
+  }
+  
+  // Row 2
+  x = offsetX;
+  for (const photo of row2Photos) {
+    const width = row2Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: offsetY + row1Height + gap,
+      width,
+      height: row2Height,
+    });
+    x += width + gap;
+  }
+  
+  return { cells, combinedHeight };
+}
+
+/**
+ * Pack photos as 3 horizontal rows beside the hero.
+ * Each row fills the target width exactly.
+ */
+export function packBeside3Rows(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  gap: number,
+  offsetX: number,
+  offsetY: number
+): BesidePackResult {
+  if (photos.length === 0) return { cells: [], combinedHeight: 0 };
+  if (photos.length <= 2) return packBeside1Row(photos, targetWidth, gap, offsetX, offsetY);
+  if (photos.length <= 4) return packBeside2Rows(photos, targetWidth, gap, offsetX, offsetY);
+  
+  // Split photos into 3 rows (first rows get extras)
+  const basePerRow = Math.floor(photos.length / 3);
+  const remainder = photos.length % 3;
+  
+  const row1Count = basePerRow + (remainder >= 1 ? 1 : 0);
+  const row2Count = basePerRow + (remainder >= 2 ? 1 : 0);
+  
+  const row1Photos = photos.slice(0, row1Count);
+  const row2Photos = photos.slice(row1Count, row1Count + row2Count);
+  const row3Photos = photos.slice(row1Count + row2Count);
+  
+  // Calculate heights for each row
+  const row1Gaps = gap * (row1Photos.length - 1);
+  const row1AspectSum = sum(row1Photos.map(p => p.aspectRatio));
+  const row1Height = (targetWidth - row1Gaps) / row1AspectSum;
+  
+  const row2Gaps = gap * (row2Photos.length - 1);
+  const row2AspectSum = sum(row2Photos.map(p => p.aspectRatio));
+  const row2Height = (targetWidth - row2Gaps) / row2AspectSum;
+  
+  const row3Gaps = gap * (row3Photos.length - 1);
+  const row3AspectSum = sum(row3Photos.map(p => p.aspectRatio));
+  const row3Height = (targetWidth - row3Gaps) / row3AspectSum;
+  
+  const combinedHeight = row1Height + gap + row2Height + gap + row3Height;
+  
+  const cells: LayoutCell[] = [];
+  let currentY = offsetY;
+  
+  // Row 1
+  let x = offsetX;
+  for (const photo of row1Photos) {
+    const width = row1Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: currentY,
+      width,
+      height: row1Height,
+    });
+    x += width + gap;
+  }
+  currentY += row1Height + gap;
+  
+  // Row 2
+  x = offsetX;
+  for (const photo of row2Photos) {
+    const width = row2Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: currentY,
+      width,
+      height: row2Height,
+    });
+    x += width + gap;
+  }
+  currentY += row2Height + gap;
+  
+  // Row 3
+  x = offsetX;
+  for (const photo of row3Photos) {
+    const width = row3Height * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x,
+      y: currentY,
+      width,
+      height: row3Height,
+    });
+    x += width + gap;
+  }
+  
+  return { cells, combinedHeight };
+}

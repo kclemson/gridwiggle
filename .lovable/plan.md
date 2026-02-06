@@ -1,223 +1,133 @@
 
 
-# V2 Layout Algorithm: Fresh Start
+# Fix V2 Row Packing: Align Height Calculation
 
-## Summary
+## Root Cause
 
-Create a parallel v2 implementation of the collage layout algorithm that starts from first principles with a mathematical foundation. The v1 code remains untouched as the production path, while v2 provides a clean slate for experimentation.
+V2's `packRowsToFit` and `packRow` calculate row heights **independently**, causing a mismatch:
 
----
-
-## What We've Learned (Lessons from V1)
-
-### What Works Well
-1. **Basic row packing** - Given photos and a width, calculating row heights to fill exactly is straightforward algebra
-2. **Unified scoring** - `scoreConfiguration()` provides consistent evaluation across layout types
-3. **PhotoDimension abstraction** - Clean separation of layout math from PhotoItem state
-4. **Statistical helpers** - `coefficientOfVariation`, `mean`, `variance` are reusable utilities
-5. **Gap/spacing math** - Consistent handling of gaps between photos and rows
-
-### What Doesn't Work
-1. **Branching decision trees** - "if 1-row, else if 2-row, else 3-row" leads to special cases
-2. **Hero-first structure** - Starting with "hero beside rows + content rows below" constrains the shape too early
-3. **Row count as primary variable** - Forces awkward thresholds and clamping
-4. **Coverage checks as rejection** - Post-hoc validation rejects otherwise valid layouts
-5. **Fraction-based hero sizing** - `heroWidthFraction` leads to prominence issues
-
-### Core UX Goals
-- **No gaps/blank spaces** - Every pixel covered
-- **Uniform spacing** - Consistent gap between all photos
-- **Hero prominence** - Heroes should occupy ~15-25% of total canvas area (not just row width)
-- **Multiple heroes** - Support 0, 1, 2+ hero photos
-- **Organic variety** - Different layouts feel fresh, not templated
-- **Shape compliance** - Respect user's landscape/portrait/square preference
-
----
-
-## V2 Architectural Principles
-
-### 1. Math-First, Not Branch-First
-Instead of:
-```typescript
-if (rowMode === 1) { ... }
-else if (rowMode === 2) { ... }
-```
-
-Use unified formulas parameterized by variables the algorithm can optimize.
-
-### 2. Canvas-Level Thinking
-Start with the canvas (width × height), not individual rows. Work backward from target aspect ratio.
-
-### 3. Area Budgets, Not Width Fractions
-Heroes get an **area budget** (e.g., 20% of canvas area). The algorithm figures out the geometry that achieves that.
-
-### 4. Continuous Optimization Space
-Instead of discrete row counts (1, 2, 3), treat layout as a continuous optimization problem with soft constraints.
-
-### 5. Separation of Concerns
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  Layer 1: Pure Math (no layout concepts)                    │
-│    - Statistics, geometry, optimization utilities           │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 2: Layout Primitives (no hero/content concepts)      │
-│    - "Pack N photos into rectangle" → cells + achieved dims │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 3: Strategy (decides structure)                      │
-│    - Allocates canvas regions, assigns photos to regions    │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 4: Entry Point                                       │
-│    - generateCollageLayout() orchestrates the above         │
-└─────────────────────────────────────────────────────────────┘
+packRowsToFit (lines 143-152):          packRow (line 41):
+┌─────────────────────────────────┐     ┌─────────────────────────────────┐
+│ rowHeight = proportional weight │     │ rowHeight = availableWidth /    │
+│             distribution        │     │             sum(aspectRatios)   │
+│                                 │     │                                 │
+│ Uses this for Y positioning     │     │ Uses THIS for cell.height       │
+└─────────────────────────────────┘     └─────────────────────────────────┘
+                ↓                                       ↓
+         Different values → Overlap/Gaps!
 ```
+
+V1's `calculateLayoutWithOffset` calculates height once per row and uses it for BOTH cell heights and Y advancement - no mismatch possible.
+
+## Solution
+
+Follow V1's pattern: calculate each row's natural height in `packRowsToFit` and use that exact value for both:
+1. Passing to `packRow` (or calculating cells directly)
+2. Advancing the Y position
+
+The simplest fix: have `packRowsToFit` calculate cells directly like V1 does, rather than delegating to `packRow` with a region.
 
 ---
 
-## Implementation Plan
+## Technical Changes
 
-### Phase 1: Scaffold V2 Structure
+### File: `src/lib/v2/pack.ts`
 
-**Create folder structure:**
-```text
-src/lib/v2/
-├── index.ts              # Entry point: generateCollageLayoutV2()
-├── math.ts               # Pure math utilities (copy from layoutMath.ts)
-├── pack.ts               # Rectangle packing primitive
-├── strategy.ts           # Layout strategy selection
-├── score.ts              # Unified scoring
-└── types.ts              # V2-specific types
-```
+Rewrite `packRowsToFit` to calculate natural row heights and use them consistently:
 
-**Files to create:**
-| File | Purpose |
-|------|---------|
-| `src/lib/v2/types.ts` | PhotoDimension, RegionSpec, LayoutCandidate |
-| `src/lib/v2/math.ts` | Copy stats + geometry from layoutMath.ts |
-| `src/lib/v2/pack.ts` | `packRectangle()` - single recursive packer |
-| `src/lib/v2/score.ts` | `scoreLayout()` with area uniformity, shape penalty |
-| `src/lib/v2/strategy.ts` | Canvas partitioning strategies |
-| `src/lib/v2/index.ts` | `generateCollageLayoutV2()` orchestrator |
-
-### Phase 2: Add UI Toggle
-
-**Modify `DebugPanel.tsx`:**
-- Add toggle switch: "V1 / V2" algorithm selector
-- Pass selection up to Index.tsx via new callback
-
-**Modify `Index.tsx`:**
-- Add state: `algorithmVersion: 'v1' | 'v2'`
-- In `regenerateCollage()`, call either `generateCollageLayout()` or `generateCollageLayoutV2()` based on selection
-
-### Phase 3: Core V2 Algorithm (Initial Approach)
-
-The key insight: instead of building "hero unit + content rows", think of the canvas as a **weighted area allocation problem**.
-
-**Concept:**
-```text
-Given:
-  - N photos with weights (hero=2.0, standard=1.0)
-  - Target canvas aspect ratio (from shape setting)
-  - Gap size
-
-Find:
-  - Cell rectangles that fill canvas with no gaps
-  - Each cell's area ∝ its weight
-  - Minimize area coefficient of variation (uniformity)
-```
-
-**Initial Strategy (Treemap-inspired):**
-1. Calculate total weighted area budget
-2. Divide canvas into regions proportional to weights
-3. Use squarified treemap algorithm for balanced subdivision
-4. Score on area uniformity + shape compliance
-
----
-
-## Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/lib/v2/types.ts` | Create | V2 type definitions |
-| `src/lib/v2/math.ts` | Create | Copy pure math from layoutMath.ts |
-| `src/lib/v2/pack.ts` | Create | Rectangle packing primitive |
-| `src/lib/v2/score.ts` | Create | Layout scoring function |
-| `src/lib/v2/strategy.ts` | Create | Canvas partitioning strategies |
-| `src/lib/v2/index.ts` | Create | Entry point |
-| `src/components/DebugPanel.tsx` | Modify | Add V1/V2 toggle |
-| `src/pages/Index.tsx` | Modify | Wire up algorithm selection |
-
----
-
-## Technical Details
-
-### V2 Types (`src/lib/v2/types.ts`)
 ```typescript
-export interface PhotoDimension {
-  id: string;
-  aspectRatio: number;
-  weight: number;  // 1.0 = standard, 2.0 = hero
-}
-
-export interface RegionSpec {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface LayoutCandidate {
-  cells: Array<RegionSpec & { photoId: string }>;
-  canvasWidth: number;
-  canvasHeight: number;
-  score: number;
-}
-```
-
-### Entry Point (`src/lib/v2/index.ts`)
-```typescript
-export function generateCollageLayoutV2(
-  photos: PhotoItem[],
-  settings: CollageSettings,
-  options: { photoWeights?: Record<string, number>; randomize?: boolean }
-): CollageLayout | null {
-  // 1. Extract dimensions with weights
-  // 2. Calculate target aspect from shape
-  // 3. Try multiple strategies (treemap, row-based, hybrid)
-  // 4. Score each candidate
-  // 5. Return best (or random top-N if randomize)
-}
-```
-
-### Pack Primitive (`src/lib/v2/pack.ts`)
-```typescript
-/**
- * Pack photos into a rectangle, returning cell positions.
- * This is the single recursive building block.
- * 
- * @param photos - Photos to pack
- * @param region - Available rectangle
- * @param gap - Gap between photos
- * @param direction - 'horizontal' | 'vertical' | 'auto'
- */
-export function packRectangle(
+export function packRowsToFit(
   photos: PhotoDimension[],
   region: RegionSpec,
   gap: number,
-  direction?: 'horizontal' | 'vertical' | 'auto'
-): CollageCell[] {
-  // Recursive subdivision or row-based packing
+  targetPhotosPerRow: number = 3.5
+): LayoutCell[] {
+  if (photos.length === 0) return [];
+  
+  // Determine row distribution
+  const rowCount = Math.max(1, Math.round(photos.length / targetPhotosPerRow));
+  const photosPerRow = Math.ceil(photos.length / rowCount);
+  const rows: PhotoDimension[][] = [];
+  
+  for (let i = 0; i < photos.length; i += photosPerRow) {
+    rows.push(photos.slice(i, Math.min(i + photosPerRow, photos.length)));
+  }
+  
+  // Build cells row by row, letting each row take its natural height
+  const cells: LayoutCell[] = [];
+  let y = region.y;
+  
+  for (const row of rows) {
+    // Calculate THIS row's natural height (like V1 does)
+    const totalAR = sum(row.map(p => p.aspectRatio));
+    const availableWidth = region.width - gap * (row.length - 1);
+    const rowHeight = availableWidth / totalAR;
+    
+    // Position photos in this row
+    let x = region.x;
+    for (const photo of row) {
+      const width = rowHeight * photo.aspectRatio;
+      cells.push({
+        photoId: photo.id,
+        x,
+        y,
+        width,
+        height: rowHeight,  // Same height used for cells
+      });
+      x += width + gap;
+    }
+    
+    y += rowHeight + gap;  // Same height used for Y advancement
+  }
+  
+  return cells;
 }
 ```
 
+### File: `src/lib/v2/strategy.ts`
+
+Update strategies to derive `canvasHeight` from actual cell bounds rather than pre-estimating:
+
+```typescript
+export function strategySimpleRows(...): LayoutCandidate {
+  const region: RegionSpec = { x: 0, y: 0, width: canvasWidth, height: 0 };
+  const cells = packRowsToFit(photos, region, gap, targetPhotosPerRow);
+  
+  // Calculate actual canvas height from cells
+  const canvasHeight = cells.reduce(
+    (max, c) => Math.max(max, c.y + c.height), 
+    0
+  );
+  
+  return { cells, canvasWidth, canvasHeight, score: 0, metadata: { strategy: 'simpleRows' } };
+}
+```
+
+Apply similar fix to `strategyHeroTop` and `strategyHeroSide`.
+
 ---
 
-## Expected Outcome
+## Files to Modify
 
-After Phase 3:
-- V2 toggle visible in dev mode debug panel
-- Basic V2 layouts generating (may not be perfect initially)
-- Clear separation of concerns for iterating on the algorithm
-- V1 production code untouched
+| File | Change |
+|------|--------|
+| `src/lib/v2/pack.ts` | Rewrite `packRowsToFit` to calculate natural heights inline (like V1) |
+| `src/lib/v2/strategy.ts` | Derive `canvasHeight` from actual cell bounds |
 
-This sets the stage for rapid experimentation with mathematical approaches (treemaps, constraint solvers, gradient descent on area uniformity, etc.) without risk to the working v1 implementation.
+---
+
+## Why This Works
+
+V1's approach is mathematically self-consistent:
+
+```text
+For a row of photos with aspect ratios [AR1, AR2, AR3]:
+- Total AR sum = AR1 + AR2 + AR3
+- Row height = availableWidth / sum
+- Photo widths = [h * AR1, h * AR2, h * AR3]
+- Sum of widths = h * (AR1 + AR2 + AR3) = h * sum = availableWidth ✓
+```
+
+Every photo in the row has the same height, and widths sum to exactly the available width. This is the correct algebra - no proportional allocation needed.
 

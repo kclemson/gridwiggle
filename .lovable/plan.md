@@ -1,184 +1,126 @@
 
 
-# Fix: Expand Split Search to Include "No BESIDE" and Higher BESIDE Counts
+# Fix: Complete the Bottom-Up Approach (Derive Canvas Width from Geometry)
 
 ## Summary
 
-The split search only explores configurations with 1-6 photos BESIDE the hero, always leaving at least 1 for BELOW. This prevents the algorithm from finding valid configurations like "hero at top, full width, all content below" (portrait layouts) or "hero with many photos beside" (for very wide heroes with many photos).
+The split search is finding valid candidates, but `evaluateNormalizedProposal` still:
+1. Forces layouts into a fixed 480px canvas width
+2. Validates pixel cell sizes against 80px minimum
 
-The canvas AR constraint already works in normalized space to prevent "starving" one region—we just need to let the search explore more configurations.
-
----
-
-## Design Intent
-
-**What problem are we solving?**  
-The search space is artificially limited. With 6 photos, we can't generate "hero at top, 6 photos in 2 rows below" even though it's geometrically valid. With 30 photos, we can't try putting more than 6 beside the hero even if the geometry supports it.
-
-**What will users experience?**  
-- More valid hero layouts, especially for portrait/square canvases
-- The algorithm will find the best configuration across a wider range of options
-- Low photo counts can produce "hero at top" layouts naturally
+When normalized layouts are scaled to 480px, cells become too small and everything fails.
 
 ---
 
-## The Constraint System (All in Normalized Space)
+## What Was Missing
 
-Canvas AR is the constraint that prevents bad splits:
+The earlier plan to "derive canvas width from geometry" was discussed but never implemented. Currently:
 
-```text
-canvasAR = heroRowWidth / totalHeight
-         = (heroAR + gap + besideWidth) / (1 + gap + belowHeight)
-```
+- Canvas width = 480px (fixed input)
+- Scale = 480 / normalizedWidth
+- Cells scaled → often < 80px → rejected
 
-For a split to be valid:
-- `canvasAR >= canvas_minAR` (prevents too tall/portrait)
-- `canvasAR <= canvas_maxAR` (prevents too wide/landscape)
+What we need:
 
-### Example: 30 photos, heroAR = 1.5
-
-**Bad split: 29 beside, 1 below**
-- besideWidth ≈ 29 × 0.5 = 14.5 (if narrow photos in multiple rows)
-- heroRowWidth = 1.5 + 0.02 + 14.5 = 16.02
-- belowHeight ≈ 0.2 (single wide photo)
-- canvasAR = 16.02 / 1.22 ≈ 13.1 → **exceeds maxAR 2.0 → REJECTED**
-
-**Valid split: 5 beside, 24 below**
-- besideWidth ≈ 2.0
-- heroRowWidth = 3.52
-- belowHeight ≈ 2.8 (24 photos in ~4 rows)
-- canvasAR = 3.52 / 3.82 ≈ 0.92 → **within bounds → VALID**
-
-The math works! We just need to let the search try more options.
+- Pack in normalized space
+- Find smallest cell in normalized space
+- Calculate minimum scale needed for 80px cells
+- Derive canvas width = normalizedWidth × minScale
 
 ---
 
 ## File Changes
 
-### 1. `src/lib/v3/split-search.ts` — Expand search space
+### 1. `src/lib/v3/intersection.ts` — Derive canvas width, remove pixel validation
 
-**Change 1: Allow "no BESIDE" configuration (besideCount = 0)**
-
+**Remove fixed scale factor calculation (line 189):**
 ```typescript
-// Line 58-59: Change from
-const maxBesidePhotos = Math.min(photos.length - 1, 6);
-const minBesidePhotos = 1;
-
-// To:
-const minBesidePhotos = 0;  // Allow "hero at top, all below"
-const maxBesidePhotos = Math.min(photos.length, 8);  // Allow more beside, up to all photos
+// REMOVE: const scaleFactor = canvasWidth / normalizedWidth;
 ```
 
-**Change 2: Handle besideCount = 0 case**
-
-When `besideCount = 0`:
-- Skip the BESIDE packing (no BESIDE region)
-- heroRowWidth = heroAR (just the hero)
-- All photos go to BELOW
-
+**Add minimum scale calculation after packing:**
 ```typescript
-// After line 70 (taking photos for regions)
-if (besideCount === 0) {
-  // No BESIDE region - hero takes full width of row
-  const belowPhotos = photos;
-  const heroRowWidth = heroAR;
-  
-  // Calculate BELOW row count
-  const belowRowCount = calculateBelowRowCount(
-    belowPhotos, heroRowWidth, normalizedGap,
-    tuning.canvas_minAR, tuning.canvas_maxAR
-  );
-  
-  // Pack BELOW
-  const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount);
-  
-  // Validate canvas AR
-  const totalHeight = 1.0 + normalizedGap + belowResult.height;
-  const canvasAR = heroRowWidth / totalHeight;
-  
-  if (canvasAR >= tuning.canvas_minAR && canvasAR <= tuning.canvas_maxAR) {
-    const score = scoreSplit(heroAR, { cells: [], width: 0, height: 1 }, belowResult, normalizedGap, tuning);
-    if (!bestSplit || score > bestSplit.score) {
-      bestSplit = {
-        besidePhotos: [],
-        belowPhotos,
-        besideRowCount: 0,
-        belowRowCount,
-        score,
-      };
-    }
-  }
-  continue; // Move to next besideCount
+// Find minimum normalized cell dimensions (excluding hero)
+const allNormalizedCells = [
+  ...besideResult.cells,
+  ...belowResult.cells,
+];
+
+let minNormalizedWidth = Infinity;
+let minNormalizedHeight = Infinity;
+
+for (const cell of allNormalizedCells) {
+  minNormalizedWidth = Math.min(minNormalizedWidth, cell.width);
+  minNormalizedHeight = Math.min(minNormalizedHeight, cell.height);
 }
+
+// Calculate minimum scale factor for cell size constraints
+// pixelWidth = normalizedWidth × scale >= minCellWidth
+// → scale >= minCellWidth / normalizedWidth
+const scaleForWidth = tuning.region_minWidth / minNormalizedWidth;
+const scaleForHeight = tuning.region_minHeight / minNormalizedHeight;
+const minScale = Math.max(scaleForWidth, scaleForHeight);
+
+// Use the larger of: minimum required scale, or preferred scale for target width
+const preferredScale = canvasWidth / normalizedWidth;
+const scaleFactor = Math.max(minScale, preferredScale);
+
+// Derive actual canvas dimensions
+const actualCanvasWidth = normalizedWidth * scaleFactor;
+const actualCanvasHeight = normalizedHeight * scaleFactor;
 ```
 
-**Change 3: Remove artificial maxBesidePhotos cap of 6**
-
-The cap of 6 was from pixel-based thinking. In normalized space, the canvas AR constraint naturally limits how many can go beside—if there are too many, the canvas becomes too wide and is rejected.
-
+**Remove "cells too small" validation (lines 244-253):**
 ```typescript
-// Calculate based on what could possibly fit in AR bounds
-// If we have 30 photos and heroAR = 1.5, maxAR = 2.0:
-// Even with lots beside, the AR constraint will reject invalid configs
-const maxBesidePhotos = Math.min(photos.length, 12); // Reasonable upper bound to limit search time
+// REMOVE entire block:
+// const minCellSize = Math.min(tuning.region_minWidth, tuning.region_minHeight);
+// const hasSmallCells = pixelCells.some(c => ...);
+// if (hasSmallCells) { ... return null; }
 ```
 
-### 2. `src/lib/v3/intersection.ts` — Handle "no BESIDE" in evaluation
+Cell sizes are now guaranteed valid by construction because we derived the scale factor from them.
 
-Update `evaluateNormalizedProposal` to handle splits where `besidePhotos.length === 0`:
-
+**Update canvas AR validation to use derived dimensions:**
 ```typescript
-// After line 159 (Pack BESIDE section)
-if (splitResult.besidePhotos.length === 0) {
-  // No BESIDE region - hero takes full width
-  const heroRowWidth = heroAR;
-  
-  // Pack BELOW
-  const belowResult = packToFillWidth(
-    splitResult.belowPhotos,
-    heroRowWidth,
-    estimatedNormalizedGap,
-    splitResult.belowRowCount
-  );
-  
-  // Continue with the rest of the evaluation using heroRowWidth and belowResult
-  // ... (rest of the function uses these values)
-} else {
-  // Original flow with BESIDE packing
-  // ...
-}
+const canvasAR = actualCanvasWidth / actualCanvasHeight;
+// Keep the existing AR validation
 ```
 
-### 3. `src/lib/v3/split-search.ts` — Remove `maxPhotosPerRow` parameter
+**Update return value to include actual canvas width:**
+The `ScoredConfiguration` will use `actualCanvasWidth` instead of the input `canvasWidth`.
 
-Since we're deriving canvas width from geometry (bottom-up), the pixel-based `maxPhotosPerRow` constraint is no longer needed. Canvas AR is the real constraint.
+### 2. Same changes for `generateSimpleRowsLayout`
 
+Apply the same pattern:
+- Find minimum normalized cell dimensions
+- Calculate minimum scale factor
+- Derive canvas dimensions
+- Remove any pixel cell validation
+
+### 3. Add dev logging for derived dimensions
+
+Log the actual canvas dimensions so we can see what sizes are being generated:
 ```typescript
-export function findBestSplit(
-  photos: PhotoDimension[],
-  heroAR: number,
-  normalizedGap: number,
-  tuning: V3Tuning
-  // Remove: maxPhotosPerRow parameter
-): SplitResult | null {
+devLogger.log('v3', 'Derived canvas dimensions', {
+  normalizedWidth: normalizedWidth.toFixed(2),
+  normalizedHeight: normalizedHeight.toFixed(2),
+  minScale: minScale.toFixed(2),
+  actualWidth: Math.round(actualCanvasWidth),
+  actualHeight: Math.round(actualCanvasHeight),
+});
 ```
 
-And remove the density checks that use `maxPhotosPerRow` (lines 79-89, 108-118).
+---
 
-### 4. `src/lib/v3/intersection.ts` — Remove `maxPhotosPerRow` calculation
+## What This Achieves
 
-```typescript
-// Remove lines 126-127:
-// const maxPhotosPerRow = Math.floor(canvasWidth / tuning.region_minWidth);
+**Before:**
+- 42 photos → split search finds candidates → scale to 480px → cells 40px → "too small" → FAIL
 
-// Update findBestSplit call to remove the parameter
-const splitResult = findBestSplit(
-  contentPhotos,
-  heroAR,
-  estimatedNormalizedGap,
-  tuning
-);
-```
+**After:**
+- 42 photos → split search finds candidates → calculate minScale from smallest cell → canvas = 600px → cells 80px → SUCCESS
+
+The canvas width becomes an output, not an input. Valid layouts will always be generated (unless canvas AR is out of bounds).
 
 ---
 
@@ -186,44 +128,11 @@ const splitResult = findBestSplit(
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/split-search.ts` | Allow besideCount = 0, increase maxBesidePhotos, remove maxPhotosPerRow checks |
-| `src/lib/v3/intersection.ts` | Handle "no BESIDE" in evaluation, remove maxPhotosPerRow |
+| `src/lib/v3/intersection.ts` | Derive scale from cell sizes, remove pixel validation, use derived canvas dimensions |
 
 ---
 
-## How Canvas AR Prevents "Starvation"
+## Edge Case: Very Large Canvases
 
-The beauty of the normalized approach is that canvas AR is the single constraint that balances the distribution:
-
-**Too many BESIDE (wide canvas)**
-```text
-heroRowWidth grows → canvasAR increases → exceeds maxAR → REJECTED
-```
-
-**Too many BELOW (tall canvas)**
-```text
-belowHeight grows → canvasAR decreases → drops below minAR → REJECTED
-```
-
-**Balanced split (valid canvas)**
-```text
-heroRowWidth and totalHeight in proportion → canvasAR in [0.67, 2.0] → VALID
-```
-
-This means we don't need separate "max photos per row" or "min photos in region" rules. The geometry itself enforces balanced distributions through the AR bounds.
-
----
-
-## Result
-
-**Before**: Search only tries besideCount = 1 to 6, always fails for many configurations
-
-**After**: Search tries besideCount = 0 to 12 (or all photos), finds configurations that satisfy canvas AR bounds naturally
-
-Low photo count (6 photos):
-- besideCount = 0 → hero at top, 6 below in 2 rows → canvasAR ≈ 0.8 → **VALID**
-- besideCount = 5 → hero + 5 beside, 1 below → canvasAR ≈ 2.5 → **REJECTED** (too wide)
-- besideCount = 3 → hero + 3 beside, 3 below → canvasAR ≈ 1.2 → **VALID**
-
-The algorithm naturally finds the configurations that work!
+If many photos require a very wide canvas (e.g., 1200px for 50 photos), this is geometrically necessary. The collage container will need to handle scrolling or scaling to display. But the layout itself will be valid.
 

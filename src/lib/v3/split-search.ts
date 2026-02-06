@@ -45,6 +45,7 @@ export function findBestSplit(
       besidePhotos: [],
       belowPhotos: photos,
       besideRowCount: 0,
+      belowRowCount: 1,
       score: 0,
     };
   }
@@ -131,6 +132,7 @@ export function findBestSplit(
           besidePhotos,
           belowPhotos,
           besideRowCount,
+          belowRowCount,
           score,
         };
       }

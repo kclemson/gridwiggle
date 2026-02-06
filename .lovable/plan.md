@@ -1,158 +1,92 @@
 
 
-# Fixing V3 Layout Test Issues - Step 1
+# Add Edge Mode Visibility Logging
 
-We'll tackle these issues separately to avoid tangling. Let me start with two focused fixes:
+## Changes Overview
 
-## Fix 1: Hero Border Inside (Styling)
-
-**File**: `src/components/layout-rating/LayoutVisualization.tsx`
-
-Current styling uses `ring-2 ring-amber-400` which renders OUTSIDE the element.
-
-**Change line 96**:
-```tsx
-// Before
-isHero && "ring-2 ring-amber-400 z-10"
-
-// After  
-isHero && "border-2 border-amber-400 z-10"
-```
-
-Or use `ring-inset`:
-```tsx
-isHero && "ring-2 ring-inset ring-amber-400 z-10"
-```
+Add logging at two key points to make it clear which proposals are being generated and when edge/floating modes fall back to corner decomposition.
 
 ---
 
-## Fix 2: Cells Overflowing Canvas (Critical Bug)
+## File 1: `src/lib/v3/intersection.ts`
 
-Looking at screenshot 3, cells B and C extend beyond the canvas boundary. This is a bug in `scaleToFillHeight` in `row-pack.ts`.
+Add a summary log after generating proposals, before the evaluation loop.
 
-**Root Cause**: When scaling cells to fill height, the width scales proportionally. But the code doesn't re-pack the row horizontally - it just adjusts X based on the original positions. When scaled, cells can exceed the region width.
-
-**Current buggy code** (lines 192-201):
+**After line 62, add:**
 ```typescript
-// Center each row horizontally
-rows.forEach(row => {
-  row.sort((a, b) => a.x - b.x);
-  const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) + (row.length - 1) * 0; // gaps already scaled
-  const xOffset = (region.width - rowWidth) / 2;
-  
-  let currentX = region.x + xOffset;
-  row.forEach(cell => {
-    cell.x = currentX;
-    currentX += cell.width; // gap is implicit in spacing
-  });
+// Log all proposals that will be evaluated
+const proposalSummary = proposals.map(p => `${p.mode}:${p.position}`).join(', ');
+devLogger.log('v3', 'Proposals generated', {
+  count: proposals.length,
+  contentCount: contentStats.count,
+  proposals: proposalSummary,
+  edgeThreshold: tuning.decomp_edgeMinPhotos,
+  floatingThreshold: tuning.decomp_floatingMinPhotos,
 });
 ```
 
-**Problems**:
-1. Gap isn't being added between cells (`+ (row.length - 1) * 0` - the `* 0` is wrong)
-2. If `rowWidth > region.width`, `xOffset` becomes negative, pushing cells outside
-
-**Fix**: After scaling, re-pack cells to fit within region bounds. If scaled row is wider than region, we need to clamp or not apply fillHeight scaling.
-
-**File**: `src/lib/v3/row-pack.ts`
-
-```typescript
-function scaleToFillHeight(
-  result: PackingResult,
-  region: RegionSpec,
-  fillHeight: number
-): PackingResult {
-  const scaleFactor = fillHeight / result.actualHeight;
-  
-  // Scale all cells
-  const scaledCells = result.cells.map(cell => {
-    const newHeight = cell.height * scaleFactor;
-    const newWidth = cell.width * scaleFactor;
-    
-    // Scale Y offset from region top
-    const yOffset = (cell.y - region.y) * scaleFactor;
-    
-    return {
-      photoId: cell.photoId,
-      x: cell.x,
-      y: region.y + yOffset,
-      width: newWidth,
-      height: newHeight,
-    };
-  });
-  
-  // Group cells by row (same Y position within threshold)
-  const rows: typeof scaledCells[] = [];
-  scaledCells.forEach(cell => {
-    const existingRow = rows.find(row => 
-      row.length > 0 && Math.abs(row[0].y - cell.y) < 1
-    );
-    if (existingRow) {
-      existingRow.push(cell);
-    } else {
-      rows.push([cell]);
-    }
-  });
-  
-  // Calculate gap from original spacing
-  const originalGap = result.cells.length > 1 
-    ? result.cells[1].x - (result.cells[0].x + result.cells[0].width)
-    : 0;
-  const scaledGap = originalGap * scaleFactor;
-  
-  // Pack each row to fit region width
-  rows.forEach(row => {
-    row.sort((a, b) => a.x - b.x);
-    const rowWidth = row.reduce((sum, cell) => sum + cell.width, 0) 
-      + (row.length - 1) * scaledGap;
-    
-    // Clamp row to fit region - scale down cells if needed
-    if (rowWidth > region.width) {
-      const clampScale = region.width / rowWidth;
-      row.forEach(cell => {
-        cell.width *= clampScale;
-        cell.height *= clampScale;
-      });
-    }
-    
-    // Calculate actual row width after potential clamping
-    const finalRowWidth = row.reduce((sum, cell) => sum + cell.width, 0)
-      + (row.length - 1) * scaledGap * (rowWidth > region.width ? region.width / rowWidth : 1);
-    
-    // Center horizontally
-    const xOffset = (region.width - finalRowWidth) / 2;
-    
-    let currentX = region.x + xOffset;
-    row.forEach(cell => {
-      cell.x = currentX;
-      currentX += cell.width + scaledGap;
-    });
-  });
-  
-  // ... rest unchanged
+This will output something like:
+```
+[v3] Proposals generated {
+  count: 4,
+  contentCount: 16,
+  proposals: "corner:top-left, corner:top-right, edge:left, edge:right",
+  edgeThreshold: 8,
+  floatingThreshold: 15
 }
 ```
 
 ---
 
-## What About Issues 1 & 2 (Blank Space)?
+## File 2: `src/lib/v3/entities/canvas.ts`
 
-These require deeper architectural discussion. The current "corner" decomposition creates only **2 regions** (beside + below), not **3 regions** (left + right + below).
+Add logging when edge/floating modes fall back to corner decomposition.
 
-Your mockups show:
-- 3 "slices": left of hero, right of hero, below hero
+**In `decomposeCanvas` function, update the switch statement (around lines 43-50):**
 
-Current architecture:
-- 2 regions: one beside (left OR right), one below
+```typescript
+case 'edge':
+  devLogger.log('v3', 'Edge mode fallback', {
+    position,
+    reason: 'Edge decomposition not yet implemented, using corner',
+  });
+  return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
+case 'floating':
+  devLogger.log('v3', 'Floating mode fallback', {
+    position,
+    reason: 'Floating decomposition not yet implemented, using corner',
+  });
+  return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
+```
 
-To achieve what you're showing, we'd need to implement **"edge" mode** which would create 3 regions. This is a bigger change that we should discuss separately.
+This will make it explicit in the debug panel that edge proposals ARE being evaluated but are falling back to corner logic.
 
 ---
 
-## Files Changed
+## Expected Debug Output After Fix
+
+When you shuffle with 17 photos, you should see:
+
+```
+[v3] Proposals generated { count: 4, proposals: "corner:top-left, corner:top-right, edge:left, edge:right", ... }
+[v3] Evaluating proposal { mode: "corner", position: "top-left", ... }
+[v3] Proposal accepted { mode: "corner", position: "top-left", ... }
+[v3] Evaluating proposal { mode: "corner", position: "top-right", ... }
+[v3] Proposal accepted { mode: "corner", position: "top-right", ... }
+[v3] Evaluating proposal { mode: "edge", position: "left", ... }
+[v3] Edge mode fallback { position: "left", reason: "Edge decomposition not yet implemented..." }
+[v3] Proposal accepted { mode: "edge", position: "left", ... }
+[v3] Evaluating proposal { mode: "edge", position: "right", ... }
+[v3] Edge mode fallback { position: "right", reason: "Edge decomposition not yet implemented..." }
+[v3] Proposal accepted { mode: "edge", position: "right", ... }
+```
+
+---
+
+## Files to Change
 
 | File | Change |
 |------|--------|
-| `src/components/layout-rating/LayoutVisualization.tsx` | Hero border inside |
-| `src/lib/v3/row-pack.ts` | Fix cell overflow after height scaling |
+| `src/lib/v3/intersection.ts` | Add "Proposals generated" log after line 62 |
+| `src/lib/v3/entities/canvas.ts` | Add fallback logs in edge/floating switch cases + import devLogger |
 

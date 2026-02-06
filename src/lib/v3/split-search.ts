@@ -8,6 +8,7 @@
 import { PhotoDimension, SplitResult, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
+import { shuffleArray } from './utils';
 
 // ============================================================================
 // Split Search Algorithm
@@ -50,25 +51,26 @@ export function findBestSplit(
     };
   }
   
-  // Sort by AR (narrower/portrait first - they pack taller for BESIDE)
-  const sortedByAR = [...photos].sort((a, b) => a.aspectRatio - b.aspectRatio);
+  // Shuffle photos randomly (each call produces different assignments)
+  const shuffledPhotos = shuffleArray(photos);
   
   // Search parameters - canvas AR constraint naturally limits valid splits
   const minBesidePhotos = 0;  // Allow "hero at top, all below"
   const maxBesidePhotos = Math.min(photos.length, 12); // Reasonable upper bound for search
   
-  let bestSplit: SplitResult | null = null;
+  // Collect all valid splits instead of tracking best
+  const validSplits: SplitResult[] = [];
   
-  devLogger.log('v3-split', 'Starting normalized split search', {
+  devLogger.log('v3-split', 'Starting randomized split search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
     searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
   });
   
   for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
-    // Take narrowest photos for BESIDE (they pack taller)
-    const besidePhotos = sortedByAR.slice(0, besideCount);
-    const belowPhotos = sortedByAR.slice(besideCount);
+    // Slice from shuffled array (random assignment)
+    const besidePhotos = shuffledPhotos.slice(0, besideCount);
+    const belowPhotos = shuffledPhotos.slice(besideCount);
     
     // Handle "no BESIDE" case (hero at top, all content below)
     if (besideCount === 0) {
@@ -114,15 +116,13 @@ export function findBestSplit(
         score: score.toFixed(3),
       });
       
-      if (bestSplit === null || score > bestSplit.score) {
-        bestSplit = {
-          besidePhotos: [],
-          belowPhotos,
-          besideRowCount: 0,
-          belowRowCount,
-          score,
-        };
-      }
+      validSplits.push({
+        besidePhotos: [],
+        belowPhotos,
+        besideRowCount: 0,
+        belowRowCount,
+        score,
+      });
       continue;
     }
     
@@ -184,30 +184,30 @@ export function findBestSplit(
         score: score.toFixed(3),
       });
       
-      if (bestSplit === null || score > bestSplit.score) {
-        bestSplit = {
-          besidePhotos,
-          belowPhotos,
-          besideRowCount,
-          belowRowCount,
-          score,
-        };
-      }
+      validSplits.push({
+        besidePhotos,
+        belowPhotos,
+        besideRowCount,
+        belowRowCount,
+        score,
+      });
     }
   }
   
-  if (bestSplit) {
-    devLogger.log('v3-split', 'Best split found', {
-      besideCount: bestSplit.besidePhotos.length,
-      belowCount: bestSplit.belowPhotos.length,
-      besideRowCount: bestSplit.besideRowCount,
-      score: bestSplit.score.toFixed(3),
+  if (validSplits.length > 0) {
+    const selected = validSplits[Math.floor(Math.random() * validSplits.length)];
+    devLogger.log('v3-split', 'Split selected randomly', {
+      totalCandidates: validSplits.length,
+      besideCount: selected.besidePhotos.length,
+      belowCount: selected.belowPhotos.length,
+      besideRowCount: selected.besideRowCount,
+      score: selected.score.toFixed(3),
     });
-  } else {
-    devLogger.log('v3-split', 'No valid split found');
+    return selected;
   }
   
-  return bestSplit;
+  devLogger.log('v3-split', 'No valid split found');
+  return null;
 }
 
 // ============================================================================

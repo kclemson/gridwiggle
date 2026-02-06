@@ -197,6 +197,13 @@ export interface RegionPackOptions {
   
    /** Minimum photos per row for scoring (default: 2) */
    minPhotosPerRow?: number;
+  
+  /** 
+   * Height budget constraint (soft ceiling for total packed height).
+   * When provided, partitions exceeding this height incur a quadratic penalty.
+   * Used by hero layouts to ensure content rows respect the overall target shape.
+   */
+  maxHeight?: number;
 }
 
 export interface LayoutOptions {
@@ -484,8 +491,11 @@ function countPartitions(n: number, k: number): number {
 function findBestRowSplit(
   dims: PhotoDimension[],
   shape: CollageSettings['shape'],
-   randomize: boolean = false,
-   minPhotosPerRow: number = 2
+  randomize: boolean = false,
+  minPhotosPerRow: number = 2,
+  width: number = 1200,
+  gap: number = 4,
+  maxHeight?: number
 ): PhotoDimension[][] {
   // Shuffle photo order when randomizing for variety
   const workingDims = randomize ? shuffleArray(dims) : dims;
@@ -526,14 +536,35 @@ function findBestRowSplit(
     // For small partition counts, enumerate all
     if (partitionCount <= 500) {
       for (const partition of generatePartitions(workingDims, numRows)) {
-        const score = scorePartition(partition, shape, 1200, minPhotosPerRow);
+        const score = scorePartition(partition, shape, width, minPhotosPerRow);
+        
+        // Apply height budget penalty if maxHeight is specified
+        if (maxHeight !== undefined) {
+          const partitionHeight = calculatePackedHeight(partition, width, gap);
+          if (partitionHeight > maxHeight) {
+            const overage = (partitionHeight - maxHeight) / maxHeight;
+            // Quadratic penalty: increasingly bad as we exceed budget
+            score.totalScore += 5.0 * overage * overage;
+          }
+        }
+        
         insertIntoTopN(topScores, score, TOP_N);
       }
     } else {
       // For large sets, use sampling + heuristic approach
       const sampledPartitions = samplePartitions(workingDims, numRows, 100);
       for (const partition of sampledPartitions) {
-        const score = scorePartition(partition, shape, 1200, minPhotosPerRow);
+        const score = scorePartition(partition, shape, width, minPhotosPerRow);
+        
+        // Apply height budget penalty if maxHeight is specified
+        if (maxHeight !== undefined) {
+          const partitionHeight = calculatePackedHeight(partition, width, gap);
+          if (partitionHeight > maxHeight) {
+            const overage = (partitionHeight - maxHeight) / maxHeight;
+            score.totalScore += 5.0 * overage * overage;
+          }
+        }
+        
         insertIntoTopN(topScores, score, TOP_N);
       }
     }
@@ -699,7 +730,8 @@ export function packPhotosIntoRegion(
     offsetX = 0,
     offsetY = 0,
     shape,
-     minPhotosPerRow = 2
+    minPhotosPerRow = 2,
+    maxHeight
   } = options;
   
   // Handle empty case
@@ -730,7 +762,8 @@ export function packPhotosIntoRegion(
   
   // Use existing row-split logic (no randomization for region packing)
   // Pass shape directly to let it drive the scoring
-  const partition = findBestRowSplit(dims, shape ?? 'auto', false, minPhotosPerRow);
+  // Pass width, gap, maxHeight for height budget constraint
+  const partition = findBestRowSplit(dims, shape ?? 'auto', false, minPhotosPerRow, width, gap, maxHeight);
   
   // Calculate layout with offsets
   const cells = calculateLayoutWithOffset(partition, width, gap, offsetX, offsetY);

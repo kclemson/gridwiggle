@@ -76,16 +76,14 @@ function decomposeCorner(
   }
   
   // BELOW region: full width, below hero row
+  // Height is Infinity to indicate unbounded (grows as needed during packing)
   const belowY = heroRect.y + heroRect.height + gap;
-  // Note: Canvas height is not yet known - it will be determined by content packing
-  // For now, we use a placeholder height that will be replaced during intersection
-  const belowHeight = tuning.region_minHeight; // Minimum viable - will grow during packing
   
   regions.push({
     x: 0,
     y: belowY,
     width: canvasWidth,
-    height: belowHeight, // Placeholder - actual height determined by row packing
+    height: Infinity, // Unbounded - actual height determined by row packing
   });
   
   // Validate regions meet minimum viability

@@ -18,7 +18,7 @@ import { packPhotosIntoRegion } from './row-pack';
 import { calculateContentStats } from './utils';
 import { decomposeCanvas } from './entities/canvas';
 import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
-import { distributePhotos, packAllRegions } from './entities/content-pool';
+import { distributePhotosConstrained, packAllRegions } from './entities/content-pool';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -104,6 +104,18 @@ function evaluateProposal(
   gap: number,
   tuning: V3Tuning
 ): ScoredConfiguration | null {
+  // Calculate hero area and max allowed content area FIRST
+  const heroArea = proposal.rect.width * proposal.rect.height;
+  const maxContentArea = heroArea / tuning.hero_minProminence;
+  
+  devLogger.log('v3', 'Evaluating proposal', {
+    mode: proposal.mode,
+    position: proposal.position,
+    heroArea: Math.round(heroArea),
+    maxContentArea: Math.round(maxContentArea),
+    contentCount: contentPhotos.length,
+  });
+  
   // Decompose canvas around hero
   const decomposition = decomposeCanvas(
     canvasWidth,
@@ -118,30 +130,76 @@ function evaluateProposal(
     devLogger.log('v3', 'Proposal rejected: decomposition invalid', {
       mode: proposal.mode,
       position: proposal.position,
+      reason: decomposition.invalidReason,
     });
     return null;
   }
   
-  // Distribute content photos to regions
-  const distribution = distributePhotos(contentPhotos, decomposition.regions);
+  // Distribute content photos with constraint awareness
+  const distribution = distributePhotosConstrained(
+    contentPhotos,
+    decomposition.regions,
+    gap,
+    tuning,
+    maxContentArea
+  );
   
-  // Pack all regions
-  const { cells: contentCells, totalHeight, contentAreas } = packAllRegions(
+  // Log distribution decision
+  if (distribution.splitInfo) {
+    devLogger.log('v3', 'Distribution split', {
+      besideCount: distribution.splitInfo.besideCount,
+      belowCount: distribution.splitInfo.belowCount,
+      totalPhotos: contentPhotos.length,
+    });
+  }
+  
+  // Check if distribution failed
+  if (distribution.totalAssigned === 0 && contentPhotos.length > 0) {
+    devLogger.log('v3', 'Proposal rejected: distribution failed', {
+      mode: proposal.mode,
+      position: proposal.position,
+      reason: 'No valid photo split found that satisfies constraints',
+    });
+    return null;
+  }
+  
+  // Pack all regions with constraint awareness
+  const { cells: contentCells, totalHeight, contentAreas, diagnostics } = packAllRegions(
     contentPhotos,
     decomposition.regions,
     distribution,
     gap,
-    tuning
+    tuning,
+    maxContentArea
   );
   
-  // Calculate maximum allowed content cell area
-  const heroArea = proposal.rect.width * proposal.rect.height;
-  const maxContentArea = heroArea / tuning.hero_minProminence;
+  // Log per-region diagnostics
+  diagnostics.forEach((d, i) => {
+    if (d.constraintViolation) {
+      devLogger.log('v3', 'Region constraint violation', {
+        regionIndex: i,
+        violation: d.constraintViolation,
+        maxCellArea: Math.round(d.maxCellArea),
+        actualHeight: Math.round(d.actualHeight),
+        usedRowCount: d.usedRowCount,
+      });
+    }
+  });
   
-  // Check if any content cell exceeds the cap
+  // Check if any region had constraint violations
+  const hasViolation = diagnostics.some(d => d.constraintViolation);
+  if (hasViolation) {
+    devLogger.log('v3', 'Proposal rejected: region constraints violated', {
+      mode: proposal.mode,
+      position: proposal.position,
+    });
+    return null;
+  }
+  
+  // Final cap check (safety net - should rarely trigger now)
   const largestContentArea = contentAreas.length > 0 ? Math.max(...contentAreas) : 0;
   if (largestContentArea > maxContentArea) {
-    devLogger.log('v3', 'Proposal rejected: content cell exceeds cap', {
+    devLogger.log('v3', 'Proposal rejected: content cell exceeds cap (safety)', {
       mode: proposal.mode,
       position: proposal.position,
       heroArea: Math.round(heroArea),
@@ -163,16 +221,16 @@ function evaluateProposal(
   
   const allCells = [heroCell, ...contentCells];
   
-  // Validate hero prominence (heroArea already calculated above)
+  // Validate hero prominence
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
     devLogger.log('v3', 'Proposal rejected: prominence too low', {
       mode: proposal.mode,
       position: proposal.position,
-      heroArea,
-      runnerUpArea: contentAreas.length > 0 ? Math.max(...contentAreas) : 0,
-      ratio: prominence.ratio,
+      heroArea: Math.round(heroArea),
+      runnerUpArea: largestContentArea,
+      ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
     });
     return null;
@@ -185,9 +243,17 @@ function evaluateProposal(
   // Score the configuration
   const score = scoreConfiguration(prominence.ratio, allCells, tuning);
   
+  devLogger.log('v3', 'Proposal accepted', {
+    mode: proposal.mode,
+    position: proposal.position,
+    prominenceRatio: prominence.ratio.toFixed(2),
+    score: score.toFixed(3),
+    canvasHeight: Math.round(canvasHeight),
+  });
+  
   return {
     proposal,
-    distribution,
+    distribution: { assignments: distribution.assignments, totalAssigned: distribution.totalAssigned },
     cells: allCells,
     canvasHeight,
     prominenceRatio: prominence.ratio,
@@ -259,14 +325,14 @@ function generateSimpleRowsLayout(
   };
   
   // Pack all photos into rows
-  const { cells, actualHeight } = packPhotosIntoRegion(
+  const result = packPhotosIntoRegion(
     photos,
     region,
     gap,
     tuning
   );
   
-  if (cells.length === 0) {
+  if (result.cells.length === 0) {
     return null;
   }
   
@@ -278,14 +344,14 @@ function generateSimpleRowsLayout(
   };
   
   // Score based on area uniformity (no hero prominence to consider)
-  const areas = cells.map(c => c.width * c.height);
+  const areas = result.cells.map(c => c.width * c.height);
   const areaUniformity = 1 / (1 + coefficientOfVariation(areas));
   
   return {
     proposal: dummyProposal,
     distribution: { assignments: new Map([[0, photos.map(p => p.id)]]), totalAssigned: photos.length },
-    cells,
-    canvasHeight: actualHeight,
+    cells: result.cells,
+    canvasHeight: result.actualHeight,
     prominenceRatio: 1, // No hero, so ratio is neutral
     score: areaUniformity, // Simple scoring for hero-less layouts
   };

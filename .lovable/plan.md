@@ -1,89 +1,98 @@
 
 
-# Simplify Row Selection: Random-First Approach
+# Evolve Existing Fraction Logic to Ensure Hero Prominence
 
-## Current Problem
+## The Insight
 
-The algorithm tries to *predict* the optimal row count using a formula based on aspect ratios and photo counts. This creates bias (always picks 3 rows) and is overly complex.
+The `calculateOptimalHeroFraction` function already computes what fraction of canvas width the hero should occupy. It also returns `clamped: boolean` indicating whether the math wanted a fraction outside the allowed range.
 
-## New Approach
+**Key observation**: When 1-row mode produces `clamped: true`, it means the geometry doesn't naturally support the layout. Currently we accept these clamped configurations anyway. Instead, we should **reject clamped 1-row configurations** because they fundamentally can't produce a prominent hero.
 
-**Don't predict. Randomize, then validate.**
+## Current Flow
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│   1. Shuffle [1, 2, 3] randomly                             │
-│   2. For each row count in shuffled order:                  │
-│      - Try to pack photos beside hero                       │
-│      - Check if scale factor is within tolerance            │
-│      - If yes → use it, done                                │
-│      - If no → try next                                     │
-│   3. If none work → fallback                                │
-└─────────────────────────────────────────────────────────────┘
+calculateOptimalHeroFraction(heroAR, besidePhotos, ..., rowCount=1)
+  → { fraction: 0.42, clamped: true }  // wanted 0.25 but clamped to 0.30
+
+tryBuildHeroUnit(..., rowCount=1)
+  → uses clamped fraction anyway
+  → hero isn't prominent, but accepted
 ```
 
-## Code Changes
+## Proposed Flow
 
-### File: `src/lib/layoutBlocks.ts`
+```text
+calculateOptimalHeroFraction(heroAR, besidePhotos, ..., rowCount=1)
+  → { fraction: 0.42, clamped: true }
 
-**Before** (~line 168-180):
-```typescript
-// Complex: calculate "optimal" rows based on aspect ratio math
-const optimalRows = rowMode === 'auto'
-  ? calculateOptimalBesideRowCount(hero.aspectRatio, candidates)
-  : rowMode === '1-row' ? 1 : rowMode === '2-row' ? 2 : 3;
-
-const rowModesToTry: (1 | 2 | 3)[] = optimalRows === 1 
-  ? [1, 2, 3] 
-  : optimalRows === 3 
-  ? [3, 2, 1] 
-  : [2, 3, 1];
+tryBuildHeroUnit(..., rowCount=1)
+  → sees clamped=true for 1-row
+  → rejects with "fraction clamped for 1-row"
+  → tries next row mode (2 or 3)
 ```
 
-**After**:
-```typescript
-// Simple: random order, validate each
-const rowModesToTry: (1 | 2 | 3)[] = rowMode === 'auto'
-  ? shuffleArray([1, 2, 3] as (1 | 2 | 3)[])
-  : [rowMode === '1-row' ? 1 : rowMode === '2-row' ? 2 : 3];
-```
+## Why This Works
 
-### File: `src/lib/layoutMath.ts`
+The 1-row math produces a non-clamped fraction only when:
+- Hero AR is significantly larger than beside photos, OR
+- There are very few beside photos
 
-**Remove** the `calculateOptimalBesideRowCount` function (no longer needed).
+These are exactly the cases where 1-row produces a prominent hero!
 
-### Update logging
+When the hero and beside photos have similar ARs, the math wants a low hero fraction (e.g., 20%) but we clamp to 30%. This produces the "hero isn't prominent" problem.
+
+## Technical Change
+
+**File: `src/lib/layoutBlocks.ts`** (in `tryBuildHeroUnit`, ~line 253-260)
 
 ```typescript
-devLogger.log('layout', 'Row selection', {
-  heroAR: hero.aspectRatio,
-  candidateCount: candidates.length,
-  rowModesToTry,  // Now shows random order like [2, 1, 3]
-});
+// BEFORE:
+const { fraction: optimalFraction } = calculateOptimalHeroFraction(
+  hero.aspectRatio,
+  besidePhotos,
+  canvasWidth,
+  gap,
+  rowCount
+);
+
+// AFTER:
+const { fraction: optimalFraction, clamped } = calculateOptimalHeroFraction(
+  hero.aspectRatio,
+  besidePhotos,
+  canvasWidth,
+  gap,
+  rowCount
+);
+
+// For 1-row: reject if clamped (geometry doesn't support prominent hero)
+if (rowCount === 1 && clamped) {
+  devLogger.log('layout', 'Config rejected', {
+    rowCount,
+    besideCount,
+    reason: 'fraction clamped for 1-row (hero would lack prominence)',
+  });
+  continue;
+}
 ```
-
-## Why This Is Better
-
-| Aspect | Before | After |
-|--------|--------|-------|
-| Complexity | Formula with sqrt, aspect ratios, predictions | Shuffle + validate |
-| Variety | Biased toward 3 rows | Equal chance for 1, 2, or 3 |
-| Code size | ~20 lines of prediction logic | ~3 lines |
-| Debuggability | "Why did formula pick 3?" | "Random picked 2, it fit" |
 
 ## Expected Behavior
 
-Each shuffle gives roughly equal probability to each row mode. Over many shuffles:
-- ~33% start with 1-row
-- ~33% start with 2-row  
-- ~33% start with 3-row
+| Hero AR | Beside ARs | Optimal Fraction | Clamped? | 1-Row Result |
+|---------|-----------|-----------------|----------|--------------|
+| 2.5 (panorama) | 0.8, 0.9 (portraits) | 0.55 | No | Accepted ✓ |
+| 1.5 (landscape) | 1.2, 1.3 (landscape) | 0.28 | Yes (→0.30) | Rejected → try 2-row |
+| 0.7 (portrait) | 1.0, 1.1, 1.2 | 0.18 | Yes (→0.30) | Rejected → try 2-row |
 
-If first choice doesn't fit (scale out of tolerance), it tries the next. Natural variety emerges.
+## Why This Is Clean
+
+- **No new validation**: Evolves existing `clamped` return value
+- **Mathematically grounded**: Uses geometry, not arbitrary thresholds
+- **Minimal code**: ~6 lines added
+- **Preserves variety**: 1-row still works when geometry supports it
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/lib/layoutBlocks.ts` | Replace prediction logic with `shuffleArray([1, 2, 3])` |
-| `src/lib/layoutMath.ts` | Remove `calculateOptimalBesideRowCount` function |
+| `src/lib/layoutBlocks.ts` | Use existing `clamped` flag to reject 1-row when geometry is poor (~6 lines) |
 

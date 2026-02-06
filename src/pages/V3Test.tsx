@@ -132,7 +132,7 @@ export default function V3Test() {
         </div>
         
         {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[520px_1fr] gap-6">
           {/* Left: Debug Logs */}
           <div className="border rounded-lg bg-card overflow-hidden order-2 lg:order-1">
             <div className="p-3 border-b font-medium text-sm">

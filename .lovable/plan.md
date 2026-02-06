@@ -1,147 +1,72 @@
 
-# V3 Layout Test Page + Diagnostic Logging
 
-## Overview
+# Layout Reorganization: Debug Logs to the Left
 
-Create a dedicated dev-only test page (`/v3-test`) for rapid V3 algorithm iteration, plus add diagnostic logging to understand why BESIDE packing fails.
+## Current Layout
+The page is currently a single column with stats, canvas, then debug logs stacked vertically. The logs section has a fixed `max-h-64` which limits visibility.
 
----
+## Proposed Layout
+Convert to a **side-by-side layout** with debug logs on the left and the collage canvas on the right.
 
-## Part 1: V3 Layout Test Page
-
-### New File: `src/pages/V3Test.tsx`
-
-A minimal, focused test page with:
-
-**Features:**
-- **Random photo generation**: 10-50 photos with random aspect ratios
-- **80% hero layouts**: Most tests include a hero photo
-- **One-click shuffle**: Generate new random set instantly
-- **CSS visualization**: Colored rectangles (reuse `LayoutVisualization` component)
-- **Inline debug logs**: Show V3 devLogger output directly on page
-- **Static settings**: 480px canvas, 8px gap (match production defaults)
-
-**Layout:**
 ```text
-+----------------------------------+
-| V3 Layout Test    [Shuffle]      |
-+----------------------------------+
-| Photo set: 23 photos (hero: yes) |
-| Avg AR: 1.05                     |
-+----------------------------------+
-|                                  |
-|    [ CSS Layout Visualization ]  |
-|                                  |
-+----------------------------------+
-| Debug Logs                 [v]   |
-| -------------------------------- |
-| [v3] Starting V3 layout...       |
-| [v3] Evaluating proposal...      |
-| [v3] Distribution split: ...     |
-+----------------------------------+
++------------------------------------------------------------------+
+| V3 Layout Test                                     [Shuffle]     |
++------------------------------------------------------------------+
+| 38 photos  ★ Hero AR: 1.40  Avg AR: 0.86                         |
++---------------------------+--------------------------------------+
+|                           |                                      |
+| Debug Logs (46)           |   [ Collage Canvas ]                 |
+| ─────────────────         |                                      |
+| [v3] Starting V3...       |                                      |
+| [v3] Photo analysis...    |                                      |
+| [v3-split] BESIDE...      |                                      |
+| [v3-split] BESIDE...      |                                      |
+| ...                       |                                      |
+| (scrollable, tall)        |   Canvas: 480×955px                  |
+|                           |                                      |
++---------------------------+--------------------------------------+
 ```
 
-**Photo Generation Logic:**
-```typescript
-// Random count between 10-50
-const photoCount = Math.floor(Math.random() * 41) + 10;
+## Changes
 
-// Random orientation bias (-0.5 to +0.5)
-const orientationBias = (Math.random() - 0.5);
+### File: `src/pages/V3Test.tsx`
 
-// 80% chance of hero
-const hasHero = Math.random() < 0.8;
+1. **Widen container**: Change from `max-w-2xl` to `max-w-6xl` to accommodate side-by-side layout
 
-// Use existing generatePhotoSet from photoGenerator.ts
-const photos = generatePhotoSet(photoCount, orientationBias, hasHero);
-```
+2. **Create two-column grid**: Use CSS grid with the logs panel on the left (fixed width ~400px) and canvas on the right (flexible)
 
-**Key Components:**
-- Reuse `LayoutVisualization` from layout-rating (CSS rectangles)
-- Reuse `generatePhotoSet` from `src/test/layout/photoGenerator.ts`
-- Show `devLogger.getLogs()` in a collapsible section
-- Clear logs on shuffle via `devLogger.clear()`
+3. **Remove collapsible**: The logs will be always visible in the left panel with vertical scrolling
 
----
+4. **Logs panel styling**: 
+   - Remove `max-h-64` constraint
+   - Use `h-full` with `overflow-y-auto` to fill available height
+   - Sticky header with "Debug Logs (count)"
 
-### File: `src/App.tsx`
+5. **Responsive consideration**: On smaller screens, stack vertically (logs below canvas)
 
-Add dev-only route:
+### Layout Structure
 
-```typescript
-{import.meta.env.DEV && (
-  <>
-    <Route path="/layout-rating" element={<LayoutRating />} />
-    <Route path="/v3-test" element={<V3Test />} />
-  </>
-)}
-```
-
----
-
-## Part 2: Diagnostic Logging for BESIDE Bug
-
-### File: `src/lib/v3/entities/content-pool.ts`
-
-Add detailed logging inside `findOptimalSplit` to trace why each `besideCount` fails:
-
-```typescript
-// In the split loop:
-for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
-  // ... existing logic ...
+```tsx
+<div className="min-h-screen bg-background p-6">
+  {/* Header + Stats (full width) */}
   
-  // Log why BESIDE failed
-  if (besidePhotos.length > 0 && besideResult.actualHeight > besideRegion.height) {
-    devLogger.log('v3-split', 'BESIDE height constraint failed', {
-      besideCount,
-      besideWidth: besideRegion.width,
-      besideHeightLimit: besideRegion.height,
-      actualHeight: besideResult.actualHeight,
-      photosARs: besidePhotos.map(p => p.aspectRatio.toFixed(2)),
-    });
-    continue;
-  }
-  
-  if (besideResult.maxCellArea > maxCellArea) {
-    devLogger.log('v3-split', 'BESIDE area constraint failed', {
-      besideCount,
-      maxCellArea,
-      actualMaxCellArea: besideResult.maxCellArea,
-    });
-    continue;
-  }
-  
-  // ... similar for BELOW ...
-}
-
-// Log final result
-devLogger.log('v3-split', 'Split search complete', {
-  bestSplit: bestSplit ? { besideCount: bestSplit.besideCount, score: bestSplit.score } : null,
-  triedCounts: `1 to ${maxBesidePhotos}`,
-});
+  {/* Two-column layout */}
+  <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
+    {/* Left: Debug Logs */}
+    <div className="border rounded-lg bg-card overflow-hidden">
+      <div className="p-3 border-b font-medium">Debug Logs ({logs.length})</div>
+      <div className="h-[70vh] overflow-y-auto p-3 font-mono text-xs">
+        {/* Log entries */}
+      </div>
+    </div>
+    
+    {/* Right: Canvas */}
+    <div className="border rounded-lg p-4 bg-card">
+      <LayoutVisualization ... />
+    </div>
+  </div>
+</div>
 ```
 
-This logging will show us:
-- Exact height and area values for each attempted split
-- Which constraint (height vs area) is failing
-- The aspect ratios of photos being tested in BESIDE
+This gives the logs a tall scrollable area (~70vh) that's always visible alongside the canvas.
 
----
-
-## Implementation Summary
-
-| File | Change |
-|------|--------|
-| `src/pages/V3Test.tsx` | **NEW** - V3 test page with random photos + CSS visualization |
-| `src/App.tsx` | Add `/v3-test` dev-only route |
-| `src/lib/v3/entities/content-pool.ts` | Add diagnostic logging to `findOptimalSplit` |
-
----
-
-## Dependencies
-
-Uses existing code:
-- `generatePhotoSet` from `src/test/layout/photoGenerator.ts`
-- `LayoutVisualization` from `src/components/layout-rating/LayoutVisualization.tsx`
-- `devLogger` from `src/lib/devLogger.ts`
-- `generateCollageLayoutV3` from `src/lib/v3/index.ts`

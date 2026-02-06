@@ -35,38 +35,51 @@ export function decomposeCanvas(
   heroRect: RegionSpec,
   mode: DecompositionMode,
   gap: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right' | 'center' = 'top-left'
 ): DecompositionResult {
   switch (mode) {
     case 'corner':
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning);
+      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     case 'edge':
       // Phase 2: For now, fall back to corner
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning);
+      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     case 'floating':
       // Phase 3: For now, fall back to corner
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning);
+      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     default:
       return { regions: [], valid: false, invalidReason: `Unknown mode: ${mode}` };
   }
 }
 
 /**
- * Corner decomposition: Hero in top-left, content beside and below.
+ * Corner decomposition: Hero in corner, content beside and below.
+ * Position determines which side the BESIDE region is on.
  */
 function decomposeCorner(
   canvasWidth: number,
   heroRect: RegionSpec,
   gap: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right' | 'center'
 ): DecompositionResult {
   const regions: RegionSpec[] = [];
   
-  // BESIDE region: to the right of hero, same height
-  const besideX = heroRect.x + heroRect.width + gap;
-  const besideWidth = canvasWidth - besideX;
+  // BESIDE region: position depends on hero placement
+  let besideX: number;
+  let besideWidth: number;
   
-  if (besideWidth > 0) {
+  if (position === 'top-left' || position === 'bottom-left' || position === 'left') {
+    // Hero on left: BESIDE is to the RIGHT
+    besideX = heroRect.x + heroRect.width + gap;
+    besideWidth = canvasWidth - besideX;
+  } else {
+    // Hero on right: BESIDE is to the LEFT
+    besideX = 0;
+    besideWidth = heroRect.x - gap;
+  }
+  
+  if (besideWidth > tuning.region_minWidth) {
     regions.push({
       x: besideX,
       y: heroRect.y,

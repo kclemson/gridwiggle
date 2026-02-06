@@ -122,7 +122,8 @@ function evaluateProposal(
     proposal.rect,
     proposal.mode,
     gap,
-    tuning
+    tuning,
+    proposal.position
   );
   
   // Check region viability

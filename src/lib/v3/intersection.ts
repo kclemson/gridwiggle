@@ -123,14 +123,10 @@ function evaluateNormalizedProposal(
   // We'll refine this after we know the scale factor
   const estimatedNormalizedGap = 0.02; // ~2% of hero height
   
-  // Calculate max photos per row based on minimum cell size
-  const maxPhotosPerRow = Math.floor(canvasWidth / tuning.region_minWidth);
-  
   devLogger.log('v3', 'Evaluating normalized proposal', {
     mode: proposal.mode,
     position: proposal.position,
     heroAR: heroAR.toFixed(2),
-    maxPhotosPerRow,
   });
   
   // Edge and floating modes not yet implemented - use corner decomposition
@@ -144,8 +140,7 @@ function evaluateNormalizedProposal(
     contentPhotos,
     heroAR,
     estimatedNormalizedGap,
-    tuning,
-    maxPhotosPerRow
+    tuning
   );
   
   if (!splitResult) {
@@ -156,16 +151,24 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  // Pack BESIDE at height = 1
-  const besideResult = packToFillHeight(
-    splitResult.besidePhotos,
-    1.0,
-    estimatedNormalizedGap,
-    splitResult.besideRowCount
-  );
+  // Handle "no BESIDE" vs "with BESIDE" cases
+  let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };
+  let heroRowWidth: number;
   
-  // Calculate hero row width
-  const heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
+  if (splitResult.besidePhotos.length === 0) {
+    // No BESIDE region - hero takes full width
+    besideResult = { cells: [], width: 0, height: 1.0 };
+    heroRowWidth = heroAR;
+  } else {
+    // Pack BESIDE at height = 1
+    besideResult = packToFillHeight(
+      splitResult.besidePhotos,
+      1.0,
+      estimatedNormalizedGap,
+      splitResult.besideRowCount
+    );
+    heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
+  }
   
   // Use the belowRowCount that was validated during split search
   const belowRowCount = splitResult.belowRowCount;

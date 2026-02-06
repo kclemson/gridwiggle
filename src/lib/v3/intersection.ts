@@ -241,6 +241,7 @@ function evaluateNormalizedProposal(
     heroAR,
     besideResult.cells,
     belowResult.cells,
+    belowResult.height,
     scaleFactor,
     pixelGap,
     normalizedWidth
@@ -330,6 +331,7 @@ function convertToPixels(
   heroAR: number,
   besideCells: { photoId: string; x: number; y: number; width: number; height: number }[],
   belowCells: { photoId: string; x: number; y: number; width: number; height: number }[],
+  belowHeight: number,
   scaleFactor: number,
   gap: number,
   normalizedWidth: number
@@ -339,48 +341,57 @@ function convertToPixels(
   // Hero cell
   const heroNormalizedWidth = heroAR;
   const heroNormalizedHeight = 1.0;
+  const normalizedGap = gap / scaleFactor;
   
-  let heroX: number;
-  if (position === 'top-right' || position === 'right') {
-    // Hero on right side
-    heroX = (normalizedWidth - heroNormalizedWidth) * scaleFactor;
-  } else {
-    // Hero on left side (default)
-    heroX = 0;
-  }
+  // Determine position type
+  const isBottom = position === 'bottom-left' || position === 'bottom-right';
+  const isRight = position === 'top-right' || position === 'bottom-right' || position === 'right';
+  
+  // Hero X position
+  const heroX = isRight 
+    ? (normalizedWidth - heroNormalizedWidth) * scaleFactor 
+    : 0;
+  
+  // Hero Y position (flip for bottom corners)
+  const heroY = isBottom 
+    ? (belowHeight + normalizedGap) * scaleFactor 
+    : 0;
   
   cells.push({
     photoId: heroPhoto.id,
     x: heroX,
-    y: 0,
+    y: heroY,
     width: heroNormalizedWidth * scaleFactor,
     height: heroNormalizedHeight * scaleFactor,
   });
   
   // BESIDE cells - offset based on hero position
-  const besideNormalizedGap = gap / scaleFactor;
   let besideOffsetX: number;
-  
-  if (position === 'top-right' || position === 'right') {
+  if (isRight) {
     // BESIDE is to the LEFT of hero
     besideOffsetX = 0;
   } else {
     // BESIDE is to the RIGHT of hero
-    besideOffsetX = heroNormalizedWidth + besideNormalizedGap;
+    besideOffsetX = heroNormalizedWidth + normalizedGap;
   }
+  
+  // BESIDE Y offset (same row as hero)
+  const besideOffsetY = isBottom ? (belowHeight + normalizedGap) : 0;
   
   for (const cell of besideCells) {
     cells.push({
       photoId: cell.photoId,
       x: (besideOffsetX + cell.x) * scaleFactor,
-      y: cell.y * scaleFactor,
+      y: (besideOffsetY + cell.y) * scaleFactor,
       width: cell.width * scaleFactor,
       height: cell.height * scaleFactor,
     });
   }
   
-  // BELOW cells - full width, offset below hero row
-  const belowOffsetY = 1.0 + besideNormalizedGap;
+  // BELOW cells - full width, position depends on top/bottom
+  const belowOffsetY = isBottom 
+    ? 0  // BELOW goes at top for bottom corners
+    : 1.0 + normalizedGap;  // BELOW goes below hero row for top corners
   
   for (const cell of belowCells) {
     cells.push({

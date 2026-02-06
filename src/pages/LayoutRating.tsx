@@ -200,15 +200,36 @@ export default function LayoutRating() {
         </div>
         
         {/* Shape indicator banner */}
-        <div className={cn(
-          "text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider",
-          currentResult.testCase.shape === 'landscape' && "bg-blue-500/20 text-blue-400",
-          currentResult.testCase.shape === 'portrait' && "bg-purple-500/20 text-purple-400",
-          currentResult.testCase.shape === 'square' && "bg-green-500/20 text-green-400",
-          currentResult.testCase.shape === 'auto' && "bg-muted text-muted-foreground",
-        )}>
-          {(currentResult.testCase.shape === 'square' ? 'SQUARE-ISH' : currentResult.testCase.shape.toUpperCase())} ({currentResult.testCase.photos.length})
-        </div>
+        {(() => {
+          const { hasHero, shape, photos } = currentResult.testCase;
+          const photoCount = photos.length;
+          
+          // For hero layouts, show input (auto) and resulting aspect
+          if (hasHero) {
+            const resultAspect = currentResult.canvasAspect > 1.2 ? 'landscape'
+              : currentResult.canvasAspect < 0.85 ? 'portrait'
+              : 'square-ish';
+            
+            return (
+              <div className="text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider bg-amber-500/20 text-amber-400">
+                AUTO + HERO ({photoCount}) → {resultAspect}
+              </div>
+            );
+          }
+          
+          // For non-hero layouts, show the explicit shape being tested
+          return (
+            <div className={cn(
+              "text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider",
+              shape === 'landscape' && "bg-blue-500/20 text-blue-400",
+              shape === 'portrait' && "bg-purple-500/20 text-purple-400",
+              shape === 'square' && "bg-green-500/20 text-green-400",
+              shape === 'auto' && "bg-muted text-muted-foreground",
+            )}>
+              {(shape === 'square' ? 'SQUARE-ISH' : shape.toUpperCase())} ({photoCount})
+            </div>
+          );
+        })()}
         
         {/* Layout visualization */}
         <div className="bg-card rounded-lg p-4 border">

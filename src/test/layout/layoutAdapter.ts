@@ -180,29 +180,40 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
 
 /**
  * Generate a batch of diverse test cases for rating.
+ * Hero layouts always use 'auto' shape (matches app UX constraint).
+ * Non-hero layouts test all available shapes for regression coverage.
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
   
-  // Generate cases covering all combinations
   for (const photoCount of TEST_PHOTO_COUNTS) {
-    // Build list of available shapes for this photo count
-    const shapes: CollageSettings['shape'][] = ['auto'];
-    if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
-    if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
-    if (isShapeAvailable('square', photoCount)) shapes.push('square');
+    // 80% hero, 20% no-hero for regression coverage
+    const hasHero = Math.random() < 0.8;
+    const distribution = weightedRandomDistribution();
     
-    for (const shape of shapes) {
-      // Weight toward hero layouts since no-hero consistently works well
-      // 80% hero, 20% no-hero for regression coverage
-      const hasHero = Math.random() < 0.8;
-      const distribution = weightedRandomDistribution();
+    if (hasHero) {
+      // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
       cases.push({
-        photos: generatePhotoSet(photoCount, distribution, hasHero),
-        shape,
-        hasHero,
+        photos: generatePhotoSet(photoCount, distribution, true),
+        shape: 'auto',
+        hasHero: true,
         distribution,
       });
+    } else {
+      // No-hero layouts can test all available shapes
+      const shapes: CollageSettings['shape'][] = ['auto'];
+      if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
+      if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
+      if (isShapeAvailable('square', photoCount)) shapes.push('square');
+      
+      for (const shape of shapes) {
+        cases.push({
+          photos: generatePhotoSet(photoCount, distribution, false),
+          shape,
+          hasHero: false,
+          distribution,
+        });
+      }
     }
   }
   

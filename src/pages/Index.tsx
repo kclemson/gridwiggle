@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { generateCollageLayoutV2 } from '@/lib/v2';
+import { generateCollageLayoutV3 } from '@/lib/v3';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
@@ -107,17 +108,21 @@ export default function Index() {
     try {
       devLogger.clear();
       
-      // Use v1 or v2 algorithm based on selection
-      const layout = algorithmVersion === 'v2'
-        ? generateCollageLayoutV2(photosToUse, settings, { 
+      // Use v1, v2, or v3 algorithm based on selection
+      const layout = algorithmVersion === 'v3'
+        ? generateCollageLayoutV3(photosToUse, settings, { 
             photoWeights,
-            randomize,
           })
-        : generateCollageLayout(photosToUse, settings, { 
-            photoWeights,
-            randomize,
-            tuning,
-          });
+        : algorithmVersion === 'v2'
+          ? generateCollageLayoutV2(photosToUse, settings, { 
+              photoWeights,
+              randomize,
+            })
+          : generateCollageLayout(photosToUse, settings, { 
+              photoWeights,
+              randomize,
+              tuning,
+            });
       
       setDebugLogs(devLogger.getLogs());
       setLayout(layout);

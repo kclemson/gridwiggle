@@ -26,7 +26,7 @@ export function applySmartCropVariation(baseAspect: number): number {
  */
 export function sampleAspectRatio(orientationBias: number): number {
   // Center shifts from 0.75 (portrait-ish) to 1.25 (landscape-ish)
-  const center = 1.0 + orientationBias * 0.25;
+  const center = 1.0 + orientationBias * 0.5;
   const spread = 0.5;
   
   // Triangular distribution: sum of two uniforms shifted and scaled

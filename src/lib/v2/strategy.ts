@@ -31,12 +31,15 @@ export function strategySimpleRows(
   gap: number,
   targetPhotosPerRow: number
 ): LayoutCandidate {
-  // Calculate natural height based on aspect ratios
-  const naturalAR = calculateNaturalAspectRatio(photos, gap, targetPhotosPerRow);
-  const canvasHeight = canvasWidth / naturalAR;
-  
-  const region: RegionSpec = { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
+  // Build cells first, then derive canvas height from actual bounds
+  const region: RegionSpec = { x: 0, y: 0, width: canvasWidth, height: 0 };
   const cells = packRowsToFit(photos, region, gap, targetPhotosPerRow);
+  
+  // Calculate actual canvas height from cells (not pre-estimated)
+  const canvasHeight = cells.reduce(
+    (max, c) => Math.max(max, c.y + c.height), 
+    0
+  );
   
   return {
     cells,
@@ -70,26 +73,26 @@ export function strategyHeroTop(
   // Hero takes full width
   const heroHeight = canvasWidth / hero.aspectRatio;
   
-  // Content fills below
+  // Content fills below - derive height from actual cells
   const contentRegion: RegionSpec = {
     x: 0,
     y: heroHeight + gap,
     width: canvasWidth,
-    height: 0, // Will calculate
+    height: 0,
   };
   
-  // Calculate content natural height
-  const contentNaturalAR = calculateNaturalAspectRatio(
-    content, gap, tuning.targetPhotosPerRow
-  );
-  const contentHeight = canvasWidth / contentNaturalAR;
-  contentRegion.height = contentHeight;
+  const contentCells = packRowsToFit(content, contentRegion, gap, tuning.targetPhotosPerRow);
   
-  const canvasHeight = heroHeight + gap + contentHeight;
+  // Calculate actual canvas height from cells
+  const contentBottom = contentCells.reduce(
+    (max, c) => Math.max(max, c.y + c.height),
+    heroHeight + gap
+  );
+  const canvasHeight = contentBottom;
   
   const cells: LayoutCell[] = [
     { photoId: hero.id, x: 0, y: 0, width: canvasWidth, height: heroHeight },
-    ...packRowsToFit(content, contentRegion, gap, tuning.targetPhotosPerRow),
+    ...contentCells,
   ];
   
   return {
@@ -180,17 +183,17 @@ export function strategyHeroSide(
     height: 0,
   };
   
-  let contentCells: LayoutCell[] = [];
+  let belowCells: LayoutCell[] = [];
   let canvasHeight = topZoneHeight;
   
   if (belowPhotos.length > 0) {
-    const contentNaturalAR = calculateNaturalAspectRatio(
-      belowPhotos, gap, tuning.targetPhotosPerRow
+    belowCells = packRowsToFit(belowPhotos, contentRegion, gap, tuning.targetPhotosPerRow);
+    // Derive canvas height from actual cell bounds
+    const belowBottom = belowCells.reduce(
+      (max, c) => Math.max(max, c.y + c.height),
+      topZoneHeight + gap
     );
-    const contentHeight = canvasWidth / contentNaturalAR;
-    contentRegion.height = contentHeight;
-    contentCells = packRowsToFit(belowPhotos, contentRegion, gap, tuning.targetPhotosPerRow);
-    canvasHeight = topZoneHeight + gap + contentHeight;
+    canvasHeight = belowBottom;
   }
   
   const heroCell: LayoutCell = {
@@ -219,7 +222,7 @@ export function strategyHeroSide(
   }
   
   return {
-    cells: [heroCell, ...correctedBesideCells, ...contentCells],
+    cells: [heroCell, ...correctedBesideCells, ...belowCells],
     canvasWidth,
     canvasHeight,
     score: 0,

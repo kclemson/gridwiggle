@@ -195,7 +195,7 @@ function randomMinPhotosPerRow(): number {
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
-  const VARIATIONS_PER_COMBO = 2;
+  const VARIATIONS_PER_COMBO = 5;
   
   for (const photoCount of TEST_PHOTO_COUNTS) {
     for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {

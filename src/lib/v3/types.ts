@@ -35,6 +35,12 @@ export interface V3Tuning {
   // === Final Equalization ===
   /** Smartcrop slack for row height equalization (0.10 = 10%) */
   row_flexPercent: number;
+  
+  // === Canvas Proportion Limits ===
+  /** Minimum canvas aspect ratio (most portrait allowed), e.g. 0.5 = 1:2 */
+  canvas_minAR: number;
+  /** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.0 = 2:1 */
+  canvas_maxAR: number;
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
@@ -45,6 +51,8 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   decomp_edgeMinPhotos: 8,
   decomp_floatingMinPhotos: 15,
   row_flexPercent: 0.10,
+  canvas_minAR: 0.5,
+  canvas_maxAR: 2.0,
 };
 
 // ============================================================================

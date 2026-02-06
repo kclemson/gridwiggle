@@ -1,167 +1,280 @@
 
 
-# Remove and Consolidate Hardcoded Values in V2
+# V3 Layout Engine: First-Principles Architecture
 
-## Problem
+## Overview
 
-V2 is riddled with magic numbers that:
-1. **Prevent mathematical flexibility** - e.g., fixed canvas width of 480px
-2. **Are duplicated** - 0.30, 0.60 appear multiple times
-3. **Encode assumptions** - 3.5 photos per row, 1.2 landscape threshold
-4. **Are completely unnecessary** - canvas width should come from caller
-
-## Complete Inventory
-
-| File | Line | Value | Purpose | Action |
-|------|------|-------|---------|--------|
-| `index.ts` | 85 | `480` | Canvas width | **DELETE** - pass from caller |
-| `math.ts` | 261 | `0.30` | Min hero fraction | Use from tuning |
-| `math.ts` | 261 | `0.60` | Max hero fraction | Use from tuning |
-| `math.ts` | 276 | `0.45` | Fallback hero fraction | Compute as midpoint |
-| `math.ts` | 295 | `0.45` | Fallback hero fraction | Compute as midpoint |
-| `pack.ts` | 121 | `3.5` | Target photos per row | Already passed as param (good) |
-| `pack.ts` | 174 | `3.5` | Target photos per row | Already passed as param (good) |
-| `score.ts` | 48 | `1.2` | Landscape AR threshold | Add to tuning |
-| `score.ts` | 54 | `0.83` | Portrait AR threshold | Add to tuning |
-| `score.ts` | 61 | `0.1` | Square tolerance | Add to tuning |
-| `score.ts` | 144 | `1.5` | Hero prominence weight | Add to tuning |
-| `strategy.ts` | 129 | `4` | Max beside count | Add to tuning |
-| `strategy.ts` | 129 | `3` | Beside count divisor | Add to tuning |
-| `strategy.ts` | 135-137 | `3, 6` | Row count thresholds | Add to tuning |
-| `types.ts` | 103-108 | defaults | V2Tuning defaults | Keep but document |
+V3 replaces row-first thinking with **constraint intersection** and **sub-rectangle decomposition**. A hero photo "carves" the canvas into 2-4 sub-rectangles, each solved independently. Row counts and photo distribution are **derived from geometry**, not specified as tuning parameters.
 
 ---
 
-## Changes by File
-
-### 1. `src/lib/v2/types.ts` - Expand V2Tuning
-
-Add missing tuning parameters:
+## Minimal V3Tuning (8 Parameters)
 
 ```typescript
-export interface V2Tuning {
-  // Existing...
-  heroAreaMultiplier: number;
-  minHeroCanvasPercent: number;
-  maxHeroCanvasPercent: number;
-  areaUniformityWeight: number;
-  shapeComplianceWeight: number;
-  targetPhotosPerRow: number;
+interface V3Tuning {
+  // === Hero Prominence ===
+  hero_minProminence: number;       // Floor: reject if below (1.3)
+  hero_targetProminence: number;    // Target for sizing math (1.5)
   
-  // NEW: Hero side layout
-  heroMinFraction: number;      // Min hero width as fraction (0.30)
-  heroMaxFraction: number;      // Max hero width as fraction (0.60)
-  maxBesidePhotos: number;      // Max photos beside hero (4)
+  // === Region Viability ===
+  region_minHeight: number;         // Minimum height in pixels (80)
+  region_minWidth: number;          // Minimum width in pixels (80)
   
-  // NEW: Shape thresholds
-  landscapeMinAR: number;       // AR >= this is landscape (1.2)
-  portraitMaxAR: number;        // AR <= this is portrait (0.83)
-  squareTolerance: number;      // ±this from 1.0 is square (0.1)
+  // === Decomposition Thresholds ===
+  decomp_edgeMinPhotos: number;     // Min photos for edge placement (8)
+  decomp_floatingMinPhotos: number; // Min photos for floating (15)
   
-  // NEW: Scoring weights
-  heroProminenceWeight: number; // Weight for hero scoring (1.5)
+  // === Final Equalization ===
+  row_flexPercent: number;          // Smartcrop slack for row heights (0.10)
 }
+
+const DEFAULT_V3_TUNING: V3Tuning = {
+  hero_minProminence: 1.3,
+  hero_targetProminence: 1.5,
+  region_minHeight: 80,
+  region_minWidth: 80,
+  decomp_edgeMinPhotos: 8,
+  decomp_floatingMinPhotos: 15,
+  row_flexPercent: 0.10,
+};
 ```
 
-### 2. `src/lib/v2/index.ts` - Remove Canvas Width
-
-**DELETE line 85** and require canvas width from the caller or derive from container.
-
-The caller already has `settings` which should include container width, or we compute based on the preview container.
-
-```typescript
-// BEFORE:
-const canvasWidth = 480;
-
-// AFTER:
-// Canvas width comes from settings or is computed from target aspect ratio
-// For now, use settings or derive from photo set
-```
-
-Actually, looking at this more carefully - the canvas width is fundamentally arbitrary. What matters is the **aspect ratio** of the canvas and the **relative sizes** of cells. The caller can scale the result.
-
-**New approach**: Pass `canvasWidth` as a parameter to `generateCollageLayoutV2`:
-
-```typescript
-export interface GenerateLayoutV2Options {
-  photoWeights?: Record<string, number>;
-  randomize?: boolean;
-  tuning?: Partial<V2Tuning>;
-  canvasWidth?: number;  // NEW - optional, defaults to something reasonable
-}
-```
-
-Or even better - compute from `settings.shape` and photo aspect ratios.
-
-### 3. `src/lib/v2/math.ts` - Use Tuning for Fractions
-
-**Lines 261, 276, 295**: Replace hardcoded fractions with tuning values.
-
-The function signature already accepts `minFraction` and `maxFraction` as params, but the **defaults** are hardcoded. Change the call sites to pass tuning values.
-
-### 4. `src/lib/v2/score.ts` - Use Tuning for Thresholds
-
-**Lines 48, 54, 61, 144**: Read from tuning instead of magic numbers.
-
-```typescript
-// BEFORE:
-if (ar >= 1.2) return 1;
-
-// AFTER:
-if (ar >= tuning.landscapeMinAR) return 1;
-```
-
-### 5. `src/lib/v2/strategy.ts` - Use Tuning for Counts
-
-**Line 129**: Use tuning for beside count calculation
-**Lines 135-137**: Use tuning for row count thresholds
+**What we removed**: `maxPhotosPerRow`, `minPhotosPerRow`, `targetPhotosPerRow`, `row_maxCount`, all `score_*` weights, `hero_strongProminence`. These are either derivable from geometry or premature optimization.
 
 ---
 
-## Why Remove `canvasWidth = 480`?
+## Module I/O Specification
 
-This is the most important change. The algorithm currently:
-1. Forces a 480px canvas width
-2. Lets height vary based on content
-3. Always produces portrait layouts when content is tall
+### Canvas Entity
 
-**What should happen instead**:
-- The target **shape** (`landscape`, `portrait`, `square`, `auto`) should drive the canvas dimensions
-- The algorithm should compute both width AND height to achieve the target shape
-- Cell sizes are relative, not absolute - the caller can scale
+**NEEDS (Required Inputs)**
+| Input | Type | Source |
+|-------|------|--------|
+| canvasWidth | number | Caller (container width) |
+| gap | number | CollageSettings |
+| heroRect | RegionSpec | From Hero Entity |
+| mode | 'corner' \| 'edge' \| 'floating' | From Hero Entity |
 
-For now, we'll make `canvasWidth` a parameter (not hardcoded). Later, we can derive it from the target shape and photo geometry.
+**SENDS (Outputs)**
+| Output | Type | Description |
+|--------|------|-------------|
+| regions | RegionSpec[] | 2-4 content regions after hero carves space |
+| valid | boolean | Whether all regions meet minimum viability |
+
+**MIGHT WANT (Tuning)**
+| Param | Used For |
+|-------|----------|
+| region_minHeight | Reject regions too short for any photo |
+| region_minWidth | Reject regions too narrow |
 
 ---
 
-## Implementation Order
+### Hero Entity
 
-1. **Expand `V2Tuning`** in types.ts with all new parameters
-2. **Update `DEFAULT_V2_TUNING`** with current hardcoded values
-3. **Update `score.ts`** to use tuning values
-4. **Update `strategy.ts`** to use tuning values  
-5. **Update `math.ts`** to use tuning values passed through
-6. **Update `index.ts`** to remove hardcoded 480 and accept it as option
+**NEEDS (Required Inputs)**
+| Input | Type | Source |
+|-------|------|--------|
+| heroAR | number | Hero photo's aspect ratio |
+| canvasWidth | number | From caller |
+| contentStats | ContentStats | From ContentPool (mean AR, count) |
+
+**SENDS (Outputs)**
+| Output | Type | Description |
+|--------|------|-------------|
+| heroRect | RegionSpec | Derived dimensions and position |
+| proposals | HeroProposal[] | Viable positions with decomposition modes |
+
+**MIGHT WANT (Tuning)**
+| Param | Used For |
+|-------|----------|
+| hero_minProminence | Validate final layout meets floor |
+| hero_targetProminence | Derive hero area from content estimate |
+| decomp_edgeMinPhotos | Gate edge placement proposals |
+| decomp_floatingMinPhotos | Gate floating placement proposals |
+
+**Hero Sizing Math** (no width fractions needed):
+```
+estContentArea = derived from content AR geometry
+targetHeroArea = estContentArea * hero_targetProminence
+heroHeight = sqrt(targetHeroArea / heroAR)
+heroWidth = heroHeight * heroAR
+```
 
 ---
 
-## Files to Modify
+### ContentPool Entity
 
-| File | Changes |
+**NEEDS (Required Inputs)**
+| Input | Type | Source |
+|-------|------|--------|
+| photos | PhotoDimension[] | Non-hero photos |
+| regions | RegionSpec[] | From Canvas decomposition |
+
+**SENDS (Outputs)**
+| Output | Type | Description |
+|--------|------|-------------|
+| stats | ContentStats | { count, meanAR, arVariance } |
+| distribution | PhotoDistribution | Photos assigned to regions |
+| cells | LayoutCell[] | Final positioned cells |
+
+**MIGHT WANT (Tuning)**
+| Param | Used For |
+|-------|----------|
+| region_minHeight | Viability check for regions |
+| row_flexPercent | Final row height equalization |
+
+**Row Count Derivation** (no explicit row params needed):
+- Region height and photo ARs determine natural row count
+- `region_minWidth` implicitly caps photos-per-row (can't fit more if cells get too narrow)
+- Row packing optimizes for equal-height rows within each region
+
+---
+
+### Intersection Engine
+
+**NEEDS (Required Inputs)**
+| Input | Type | Source |
+|-------|------|--------|
+| canvas | CanvasEntity | Constructed with width/gap |
+| hero | HeroEntity | Constructed with hero photo |
+| contentPool | ContentPoolEntity | Constructed with content photos |
+| tuning | V3Tuning | From caller |
+
+**SENDS (Outputs)**
+| Output | Type | Description |
+|--------|------|-------------|
+| layout | CollageLayout \| null | Best valid configuration, or null if none found |
+
+**Algorithm**:
+1. Hero proposes positions based on content count thresholds
+2. For each proposal: decompose canvas, check region viability, distribute content
+3. Validate prominence: heroArea / runnerUpArea >= hero_minProminence
+4. Return best valid config (or null - no silent fallbacks)
+
+---
+
+## Sub-Rectangle Decomposition
+
+### Corner Placement (2 regions)
+Default for any photo count. Hero in corner, content beside and below.
+
+```text
++------------------+--------+
+|                  |        |
+|      HERO        | BESIDE |
+|                  |        |
++------------------+--------+
+|                           |
+|          BELOW            |
+|                           |
++---------------------------+
+```
+
+### Edge Placement (3 regions)
+Requires decomp_edgeMinPhotos (8+). Hero on edge with content above, beside, below.
+
+```text
++---------------------------+
+|           TOP             |
++--------+------------------+
+|        |                  |
+| BESIDE |      HERO        |
+|        |                  |
++--------+------------------+
+|          BELOW            |
++---------------------------+
+```
+
+### Floating Placement (4 regions)
+Requires decomp_floatingMinPhotos (15+). Hero centered with content on all sides.
+
+```text
++---------------------------+
+|           TOP             |
++--------+----------+-------+
+|  LEFT  |   HERO   | RIGHT |
++--------+----------+-------+
+|         BOTTOM            |
++---------------------------+
+```
+
+---
+
+## File Structure
+
+```text
+src/lib/v3/
+  index.ts              # Entry: generateCollageLayoutV3()
+  types.ts              # V3Tuning, RegionSpec, HeroProposal, ContentStats
+  entities/
+    canvas.ts           # Canvas decomposition
+    hero.ts             # Prominence sizing + position proposals
+    content-pool.ts     # Stats, viability, distribution
+  intersection.ts       # Constraint intersection engine
+  row-pack.ts           # Row packing within regions
+  utils.ts              # Shared math (reuse from v2 where applicable)
+```
+
+---
+
+## Implementation Phases
+
+### Phase 1: Foundation
+- Create src/lib/v3/ directory structure
+- Implement V3Tuning interface and DEFAULT_V3_TUNING
+- Implement core types (RegionSpec, HeroProposal, ContentStats, PhotoDistribution)
+- Implement Canvas entity with corner decomposition only
+- Implement Hero entity with prominence-derived sizing
+- Implement ContentPool with basic stats and single-region row-packing
+- Wire up entry point returning corner-placement layouts
+
+### Phase 2: Edge Placement
+- Extend Canvas.decompose() for 3-region splits
+- Add edge position proposals to Hero entity
+- Implement multi-region distribution in ContentPool
+- Update intersection engine for edge proposals
+
+### Phase 3: Floating Placement
+- Extend Canvas.decompose() for 4-region splits
+- Add floating position proposals to Hero entity
+- Derive hero Y position from surrounding region needs
+- Full constraint intersection with all decomposition modes
+
+### Phase 4: Equalization and Polish
+- Apply row_flexPercent for final row height equalization
+- Add AR diversity optimization to distribution
+- Integration testing with real photo sets
+
+### Phase 5: Integration
+- Add V3 toggle to debug panel
+- Comparison tool (V2 vs V3 side-by-side)
+- Tune defaults based on rating feedback
+- Documentation
+
+---
+
+## Design Principles
+
+| Principle | Implementation |
+|-----------|----------------|
+| Derive, don't specify | Row counts come from geometry, not tuning params |
+| Minimal tuning | 8 params that each serve a clear purpose |
+| No silent fallbacks | Return null if no valid config; let failures surface |
+| First-principles I/O | Each module declares exactly what it needs/sends |
+| Add params when needed | Start minimal, add only when we discover genuine need |
+
+---
+
+## Files to Create
+
+| File | Purpose |
 |------|---------|
-| `src/lib/v2/types.ts` | Add 8 new properties to V2Tuning interface and defaults |
-| `src/lib/v2/score.ts` | Replace 4 magic numbers with tuning reads |
-| `src/lib/v2/strategy.ts` | Replace beside/row thresholds with tuning reads |
-| `src/lib/v2/math.ts` | Pass tuning through to fraction calculation |
-| `src/lib/v2/index.ts` | Remove hardcoded 480, add canvasWidth to options |
-
----
-
-## Result
-
-After this cleanup:
-- **Zero magic numbers** embedded in algorithm logic
-- All tunables visible in one place (`V2Tuning`)
-- Canvas width controlled by caller, not hardcoded
-- Foundation laid for true area-based optimization (since we can now vary canvas dimensions)
+| src/lib/v3/types.ts | V3Tuning, RegionSpec, HeroProposal, ContentStats, PhotoDistribution |
+| src/lib/v3/entities/canvas.ts | Canvas decomposition logic |
+| src/lib/v3/entities/hero.ts | Hero sizing and position proposals |
+| src/lib/v3/entities/content-pool.ts | Content stats and distribution |
+| src/lib/v3/intersection.ts | Constraint intersection algorithm |
+| src/lib/v3/row-pack.ts | Row packing within regions |
+| src/lib/v3/utils.ts | Shared math utilities |
+| src/lib/v3/index.ts | Entry point: generateCollageLayoutV3() |
 

@@ -126,13 +126,37 @@ function calculateOptimalHeroFraction(
   besidePhotos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  rowCount: 2 | 3,
+  rowCount: 1 | 2 | 3,
   minFraction: number = 0.30,
   maxFraction: number = 0.60
 ): { fraction: number; clamped: boolean } {
   const MIN_FRACTION = minFraction;
   const MAX_FRACTION = maxFraction;
   
+  // For 1-row: simpler geometry - photos in single row beside hero
+  if (rowCount === 1) {
+    // Single row: h = B / sum(AR), hero fills same height
+    // heroWidth = h * heroAR = B * heroAR / sum(AR)
+    // W = heroWidth + g + B = B * heroAR / sum(AR) + g + B
+    // W = B * (1 + heroAR / sum(AR)) + g
+    // B = (W - g) / (1 + heroAR / sum(AR))
+    // f = 1 - (B + g) / W
+    const aspectSum = besidePhotos.reduce((sum, p) => sum + p.aspectRatio, 0);
+    if (aspectSum <= 0) {
+      return { fraction: 0.45, clamped: true };
+    }
+    
+    const k = 1 + heroAspect / aspectSum;
+    const optimalBesideWidth = (canvasWidth - gap) / k;
+    const optimalFraction = 1 - (optimalBesideWidth + gap) / canvasWidth;
+    
+    const clamped = optimalFraction < MIN_FRACTION || optimalFraction > MAX_FRACTION;
+    const clampedFraction = Math.max(MIN_FRACTION, Math.min(MAX_FRACTION, optimalFraction));
+    
+    return { fraction: clampedFraction, clamped };
+  }
+  
+  // For 2-row and 3-row: use existing algebraic derivation
   const { aspectSums, photoCounts } = getRowAspectInfo(besidePhotos, rowCount);
   
   // Validate we have valid rows
@@ -381,10 +405,77 @@ function packBesideAs3Rows(
 }
 
 /**
- * Fallback: Pack photos as a single row (for few photos or when 2-row doesn't fit).
- * Uses tolerance-based scaling to fill available width.
+ * Result type for 1-row packing (unified with 2/3-row interface).
+ */
+interface PackResult1Row extends PackResult {
+  rowHeight: number;
+}
+
+/**
+ * Pack photos as a single row with width-first interface (matches 2/3-row pattern).
+ * Given a target width, calculates the row height that makes photos fill exactly.
  */
 function packBesideAs1Row(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  gap: number,
+  offsetX: number
+): PackResult1Row {
+  if (photos.length === 0 || targetWidth < MIN_DIMENSION) {
+    return { 
+      cells: [], 
+      combinedHeight: 0, 
+      naturalTotalWidth: 0, 
+      usedIds: new Set(),
+      rowHeight: 0 
+    };
+  }
+
+  // Calculate row height to fill targetWidth exactly
+  const aspectSum = photos.reduce((sum, p) => sum + p.aspectRatio, 0);
+  const gapsTotal = gap * Math.max(0, photos.length - 1);
+  const rowHeight = (targetWidth - gapsTotal) / aspectSum;
+
+  if (rowHeight < MIN_DIMENSION) {
+    return { 
+      cells: [], 
+      combinedHeight: 0, 
+      naturalTotalWidth: 0, 
+      usedIds: new Set(),
+      rowHeight: 0 
+    };
+  }
+
+  // Build cells - each photo scaled to rowHeight
+  const cells: CollageCell[] = [];
+  let x = offsetX;
+
+  for (const photo of photos) {
+    const photoWidth = rowHeight * photo.aspectRatio;
+    cells.push({
+      photoId: photo.id,
+      x: Math.round(x),
+      y: 0,
+      width: Math.round(photoWidth),
+      height: Math.round(rowHeight),
+    });
+    x += photoWidth + gap;
+  }
+
+  return {
+    cells,
+    combinedHeight: rowHeight,      // 1 row = height is the row height
+    naturalTotalWidth: targetWidth, // Fills exactly
+    usedIds: new Set(photos.map(p => p.id)),
+    rowHeight,
+  };
+}
+
+/**
+ * Pack photos as a single row with height-first interface (for edge-anchored paths).
+ * Given a target height, calculates which photos fit within the available width.
+ */
+function packBesideAs1RowWithHeight(
   photos: PhotoDimension[],
   targetHeight: number,
   availableWidth: number,
@@ -404,10 +495,9 @@ function packBesideAs1Row(
   const scaleFactor = availableWidth / naturalTotalWidth;
   
   if (scaleFactor < (1 - SCALE_TOLERANCE) || scaleFactor > (1 + SCALE_TOLERANCE)) {
-    // Outside tolerance - can't pack all photos
-    // Try with fewer photos
+    // Outside tolerance - try with fewer photos
     if (photos.length > 1) {
-      return packBesideAs1Row(photos.slice(0, -1), targetHeight, availableWidth, gap, offsetX);
+      return packBesideAs1RowWithHeight(photos.slice(0, -1), targetHeight, availableWidth, gap, offsetX);
     }
     return { cells: [], usedIds: new Set() };
   }
@@ -983,7 +1073,7 @@ function generateEdgeAnchoredHeroLayout1Row(
   const availableBesideWidth = canvasWidth - heroWidth - gap;
   const besideStartX = anchorRight ? 0 : heroWidth + gap;
   
-  const { cells: besideCells, usedIds } = packBesideAs1Row(
+  const { cells: besideCells, usedIds } = packBesideAs1RowWithHeight(
     standards,
     heroHeight,
     availableBesideWidth,
@@ -1301,7 +1391,7 @@ function generateBlockBasedHeroLayout(
     besidePhotos: PhotoDimension[],
     cw: number,
     g: number,
-    rowCount: 2 | 3
+    rowCount: 1 | 2 | 3
   ) => calculateOptimalHeroFraction(
     heroAspect, besidePhotos, cw, g, rowCount,
     tuning.heroMinFraction, tuning.heroMaxFraction
@@ -1313,6 +1403,7 @@ function generateBlockBasedHeroLayout(
     candidates as PhotoDimension[],
     canvasWidth,
     gap,
+    packBesideAs1Row,
     packBesideAs2Rows,
     packBesideAs3Rows,
     calculateOptimalHeroFractionWithTuning,
@@ -1320,9 +1411,9 @@ function generateBlockBasedHeroLayout(
     fixRowAlignment3Row,
     { 
       anchorSide: randomize ? 'random' : 'left',
-      maxBeside3Row: tuning.maxBeside3Row,
+      maxBeside1Row: tuning.maxBeside1Row,
       maxBeside2Row: tuning.maxBeside2Row,
-      threeRowThreshold: tuning.threeRowThreshold,
+      maxBeside3Row: tuning.maxBeside3Row,
       scaleToleranceLow: tuning.scaleToleranceLow,
       scaleToleranceHigh: tuning.scaleToleranceHigh,
       maxBesideFraction: tuning.maxBesideFraction,
@@ -1548,7 +1639,7 @@ function generateMultiHeroLayout(
     const availableBesideWidth = canvasWidth - heroWidth - gap;
     const besideStartX = anchorRight ? 0 : heroWidth + gap;
     
-    const { cells: besideCells, usedIds } = packBesideAs1Row(
+    const { cells: besideCells, usedIds } = packBesideAs1RowWithHeight(
       heroStandards,
       heroHeight,
       availableBesideWidth,

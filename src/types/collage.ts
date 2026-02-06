@@ -87,10 +87,9 @@ export interface PersistedCollageState {
  */
 export interface LayoutTuning {
   // Hero beside packing
-  maxBeside3Row: number;      // Max photos beside hero in 3-row mode (default 12)
+  maxBeside1Row: number;      // Max photos beside hero in 1-row mode (default 4)
   maxBeside2Row: number;      // Max photos beside hero in 2-row mode (default 6)
-  threeRowThreshold: number;  // Candidates count that triggers 3-row mode (default 6)
-  
+  maxBeside3Row: number;      // Max photos beside hero in 3-row mode (default 12)
   // Content blocks
   contentPhotosPerBlock: number;  // Photos per full-width content row block (default 4)
   
@@ -116,9 +115,9 @@ export interface LayoutTuning {
 }
 
 export const DEFAULT_TUNING: LayoutTuning = {
-  maxBeside3Row: 12,
+  maxBeside1Row: 4,
   maxBeside2Row: 6,
-  threeRowThreshold: 6,
+  maxBeside3Row: 12,
   contentPhotosPerBlock: 4,
   heroMinFraction: 0.30,
   heroMaxFraction: 0.60,

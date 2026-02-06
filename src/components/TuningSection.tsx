@@ -83,12 +83,12 @@ export function TuningSection({ tuning, onTuningChange, heroPct }: TuningSection
               max={10}
             />
             <TuningInput
-              label="3-Row At"
-              tooltip="Use 3-row mode when this many photos are beside hero"
-              value={tuning.threeRowThreshold}
-              onChange={(v) => onTuningChange('threeRowThreshold', v)}
-              min={2}
-              max={20}
+              label="1-Row Max"
+              tooltip="Maximum photos beside hero in single-row mode"
+              value={tuning.maxBeside1Row}
+              onChange={(v) => onTuningChange('maxBeside1Row', v)}
+              min={1}
+              max={6}
             />
             <TuningInput
               label="Per Block"

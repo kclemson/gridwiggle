@@ -13,7 +13,7 @@
  */
 
 import { CollageLayout, CollageCell } from '@/types/collage';
-import { PhotoDimension, shuffleArray } from '@/lib/layoutMath';
+import { PhotoDimension, shuffleArray, calculateOptimalBesideRowCount } from '@/lib/layoutMath';
 
 // Re-export for consumers that imported from here
 export type { PhotoDimension };
@@ -60,14 +60,14 @@ export interface HeroUnitOptions {
   preferredBesideCount?: number;
   /** Which side to anchor the hero */
   anchorSide?: 'left' | 'right' | 'random';
-  /** Whether to use 2-row or 3-row packing */
-  rowMode?: '2-row' | '3-row' | 'auto';
-  /** Max photos beside hero in 3-row mode (default 12) */
-  maxBeside3Row?: number;
+  /** Whether to use 1-row, 2-row or 3-row packing */
+  rowMode?: '1-row' | '2-row' | '3-row' | 'auto';
+  /** Max photos beside hero in 1-row mode (default 4) */
+  maxBeside1Row?: number;
   /** Max photos beside hero in 2-row mode (default 6) */
   maxBeside2Row?: number;
-  /** Photo count threshold to trigger 3-row mode (default 6) */
-  threeRowThreshold?: number;
+  /** Max photos beside hero in 3-row mode (default 12) */
+  maxBeside3Row?: number;
   /** Minimum scale tolerance (default 0.75) */
   scaleToleranceLow?: number;
   /** Maximum scale tolerance (default 1.25) */
@@ -104,6 +104,10 @@ interface PackResult3Row extends PackResult {
   row3Height: number;
 }
 
+interface PackResult1Row extends PackResult {
+  rowHeight: number;
+}
+
 // ============================================================================
 // Block Builders (Layer 3)
 // ============================================================================
@@ -134,9 +138,10 @@ export function buildHeroUnitBlock(
   candidates: PhotoDimension[],
   canvasWidth: number,
   gap: number,
+  packBesideAs1Row: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult1Row,
   packBesideAs2Rows: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult2Row,
   packBesideAs3Rows: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult3Row,
-  calculateOptimalHeroFraction: (heroAspect: number, besidePhotos: PhotoDimension[], canvasWidth: number, gap: number, rowCount: 2 | 3) => { fraction: number; clamped: boolean },
+  calculateOptimalHeroFraction: (heroAspect: number, besidePhotos: PhotoDimension[], canvasWidth: number, gap: number, rowCount: 1 | 2 | 3) => { fraction: number; clamped: boolean },
   fixRowAlignment2Row: (cells: CollageCell[], row1Height: number, row2Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
   fixRowAlignment3Row: (cells: CollageCell[], row1Height: number, row2Height: number, row3Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
   options: HeroUnitOptions = {}
@@ -144,9 +149,9 @@ export function buildHeroUnitBlock(
   const { 
     anchorSide = 'random', 
     rowMode = 'auto',
-    maxBeside3Row = 12,
+    maxBeside1Row = 4,
     maxBeside2Row = 6,
-    threeRowThreshold = 6,
+    maxBeside3Row = 12,
     scaleToleranceLow = 0.75,
     scaleToleranceHigh = 1.25,
     maxBesideFraction = 0.6,
@@ -161,59 +166,55 @@ export function buildHeroUnitBlock(
   const fractionMax = Math.floor(totalPhotoCount * maxBesideFraction);
   const reservedMax = totalPhotoCount - minContentPhotos - 1; // -1 for hero itself
   
-  // Determine row mode based on photo count and tuning threshold
-  const useRowMode = rowMode === 'auto'
-    ? (candidates.length >= threeRowThreshold ? '3-row' : '2-row')
-    : rowMode;
+  // Determine optimal row mode using aspect-ratio math
+  const optimalRows = rowMode === 'auto'
+    ? calculateOptimalBesideRowCount(hero.aspectRatio, candidates)
+    : rowMode === '1-row' ? 1 : rowMode === '2-row' ? 2 : 3;
   
   // Calculate effective max for each row mode (respects fraction and reservation)
-  const minPhotos3Row = 3;
+  const minPhotos1Row = 1;
   const minPhotos2Row = 2;
-  const effectiveMax3Row = Math.min(maxBeside3Row, fractionMax, Math.max(minPhotos3Row, reservedMax));
+  const minPhotos3Row = 3;
+  const effectiveMax1Row = Math.min(maxBeside1Row, fractionMax, Math.max(minPhotos1Row, reservedMax));
   const effectiveMax2Row = Math.min(maxBeside2Row, fractionMax, Math.max(minPhotos2Row, reservedMax));
+  const effectiveMax3Row = Math.min(maxBeside3Row, fractionMax, Math.max(minPhotos3Row, reservedMax));
   
-  // Try to build with the selected row mode
-  const result = tryBuildHeroUnit(
-    hero,
-    candidates,
-    canvasWidth,
-    gap,
-    useRowMode === '3-row' ? 3 : 2,
-    anchorRight,
-    packBesideAs2Rows,
-    packBesideAs3Rows,
-    calculateOptimalHeroFraction,
-    fixRowAlignment2Row,
-    fixRowAlignment3Row,
-    useRowMode === '3-row' ? effectiveMax3Row : effectiveMax3Row, // Pass effective max
-    useRowMode === '3-row' ? effectiveMax2Row : effectiveMax2Row, // Pass effective max
-    scaleToleranceLow,
-    scaleToleranceHigh
-  );
+  // Build ordered list of row modes to try, starting with optimal
+  const rowModesToTry: (1 | 2 | 3)[] = optimalRows === 1 
+    ? [1, 2, 3] 
+    : optimalRows === 3 
+    ? [3, 2, 1] 
+    : [2, 3, 1];
   
-  if (result) {
-    return result;
-  }
-  
-  // If 3-row failed, try 2-row as fallback
-  if (useRowMode === '3-row') {
-    return tryBuildHeroUnit(
+  // Try each row mode in order of preference
+  for (const rowCount of rowModesToTry) {
+    const effectiveMax = rowCount === 1 ? effectiveMax1Row 
+      : rowCount === 2 ? effectiveMax2Row 
+      : effectiveMax3Row;
+    
+    const result = tryBuildHeroUnit(
       hero,
       candidates,
       canvasWidth,
       gap,
-      2,
+      rowCount,
       anchorRight,
+      packBesideAs1Row,
       packBesideAs2Rows,
       packBesideAs3Rows,
       calculateOptimalHeroFraction,
       fixRowAlignment2Row,
       fixRowAlignment3Row,
-      effectiveMax3Row,
+      effectiveMax1Row,
       effectiveMax2Row,
+      effectiveMax3Row,
       scaleToleranceLow,
       scaleToleranceHigh
     );
+    
+    if (result) {
+      return result;
+    }
   }
   
   return null;
@@ -227,20 +228,22 @@ function tryBuildHeroUnit(
   candidates: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  rowCount: 2 | 3,
+  rowCount: 1 | 2 | 3,
   anchorRight: boolean,
+  packBesideAs1Row: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult1Row,
   packBesideAs2Rows: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult2Row,
   packBesideAs3Rows: (photos: PhotoDimension[], targetWidth: number, gap: number, offsetX: number) => PackResult3Row,
-  calculateOptimalHeroFraction: (heroAspect: number, besidePhotos: PhotoDimension[], canvasWidth: number, gap: number, rowCount: 2 | 3) => { fraction: number; clamped: boolean },
+  calculateOptimalHeroFraction: (heroAspect: number, besidePhotos: PhotoDimension[], canvasWidth: number, gap: number, rowCount: 1 | 2 | 3) => { fraction: number; clamped: boolean },
   fixRowAlignment2Row: (cells: CollageCell[], row1Height: number, row2Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
   fixRowAlignment3Row: (cells: CollageCell[], row1Height: number, row2Height: number, row3Height: number, scaledHeroHeight: number, scaleFactor: number, gap: number) => CollageCell[],
-  maxBeside3Row: number,
+  maxBeside1Row: number,
   maxBeside2Row: number,
+  maxBeside3Row: number,
   scaleToleranceLow: number,
   scaleToleranceHigh: number
 ): HeroUnitBlock | null {
-  const minPhotos = rowCount === 3 ? 3 : 2;
-  const maxPhotos = rowCount === 3 ? maxBeside3Row : maxBeside2Row;
+  const minPhotos = rowCount === 3 ? 3 : rowCount === 2 ? 2 : 1;
+  const maxPhotos = rowCount === 3 ? maxBeside3Row : rowCount === 2 ? maxBeside2Row : maxBeside1Row;
   
   // Try different beside counts
   for (let besideCount = Math.min(maxPhotos, candidates.length); besideCount >= minPhotos; besideCount--) {
@@ -257,10 +260,12 @@ function tryBuildHeroUnit(
     
     const targetBesideWidth = Math.round(canvasWidth * (1 - optimalFraction)) - gap;
     
-    // Pack beside photos
+    // Pack beside photos based on row count
     const packResult = rowCount === 3
       ? packBesideAs3Rows(besidePhotos, targetBesideWidth, gap, 0)
-      : packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0);
+      : rowCount === 2
+      ? packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0)
+      : packBesideAs1Row(besidePhotos, targetBesideWidth, gap, 0);
     
     if (packResult.combinedHeight === 0) continue;
     
@@ -301,7 +306,7 @@ function tryBuildHeroUnit(
       height: Math.round(cell.height * scaleFactor),
     }));
     
-    // Apply row alignment fix
+    // Apply row alignment fix (1-row doesn't need alignment fix)
     if (rowCount === 3 && 'row3Height' in packResult) {
       besideCells = fixRowAlignment3Row(
         besideCells,
@@ -312,7 +317,7 @@ function tryBuildHeroUnit(
         scaleFactor,
         gap
       );
-    } else if ('row2Height' in packResult) {
+    } else if (rowCount === 2 && 'row2Height' in packResult) {
       besideCells = fixRowAlignment2Row(
         besideCells,
         (packResult as PackResult2Row).row1Height,

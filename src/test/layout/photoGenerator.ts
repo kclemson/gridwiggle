@@ -24,7 +24,7 @@ export const TEST_PHOTO_COUNTS = [8, 9, 10, 12, 14, 17, 23, 35, 50] as const;
  * This simulates how smart crop tends to crop edges, making photos more square.
  */
 export function applySmartCropVariation(baseAspect: number): number {
-  const variation = 0.1 + Math.random() * 0.2; // 10-30%
+  const variation = 0.15 + Math.random() * 0.35; // 15-50%
   return baseAspect + (1.0 - baseAspect) * variation;
 }
 
@@ -98,7 +98,7 @@ export function generatePhotoSet(
   count: number,
   distribution: AspectDistribution,
   hasHero: boolean,
-  smartCropRatio: number = 0.7
+  smartCropRatio: number = 0.5
 ): SyntheticPhoto[] {
   const photos: SyntheticPhoto[] = [];
   

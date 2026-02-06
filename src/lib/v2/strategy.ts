@@ -13,7 +13,7 @@ import {
   V2Tuning,
   ShapeTarget,
 } from './types';
-import { packRow, packRowsToFit, calculateNaturalAspectRatio } from './pack';
+import { packRow, packRowsToFit, calculateNaturalAspectRatio, packBeside1Row, packBeside2Rows, packBeside3Rows, BesidePackResult } from './pack';
 import { scoreLayout } from './score';
 import { sum, partition, shuffleArray, calculateOptimalHeroFraction } from './math';
 
@@ -130,41 +130,37 @@ export function strategyHeroSide(
   const besidePhotos = others.slice(0, besideCount);
   const belowPhotos = others.slice(besideCount);
   
-  // Calculate optimal hero width fraction algebraically (no magic numbers!)
+  // Determine row count based on beside photo count
+  // 1-3 photos: 1 row, 4-6 photos: 2 rows, 7+: 3 rows
+  const rowCount: 1 | 2 | 3 = besidePhotos.length <= 3 ? 1 
+                            : besidePhotos.length <= 6 ? 2 
+                            : 3;
+  
+  // Calculate optimal hero width fraction algebraically for this row count
   const { fraction } = calculateOptimalHeroFraction(
     hero.aspectRatio,
     besidePhotos,
     canvasWidth,
     gap,
-    1  // Single column of beside photos
+    rowCount
   );
   
   const heroWidth = (canvasWidth - gap) * fraction;
   const besideWidth = canvasWidth - heroWidth - gap;
+  const besideX = heroOnLeft ? heroWidth + gap : 0;
   
-  // Hero height from its aspect ratio - NEVER overwrite this
-  const heroHeight = heroWidth / hero.aspectRatio;
+  // Pack beside photos as rows (not a single column!)
+  let packResult: BesidePackResult;
+  if (rowCount === 3) {
+    packResult = packBeside3Rows(besidePhotos, besideWidth, gap, besideX, 0);
+  } else if (rowCount === 2) {
+    packResult = packBeside2Rows(besidePhotos, besideWidth, gap, besideX, 0);
+  } else {
+    packResult = packBeside1Row(besidePhotos, besideWidth, gap, besideX, 0);
+  }
   
-  // Pack beside photos as a column to match hero height
-  // Each photo's height is proportional to its inverse aspect ratio
-  const totalBesideGaps = gap * (besidePhotos.length - 1);
-  const availableBesideHeight = heroHeight - totalBesideGaps;
-  const totalInverseAR = sum(besidePhotos.map(p => 1 / p.aspectRatio));
-  
-  let besideY = 0;
-  const besideCells: LayoutCell[] = besidePhotos.map(photo => {
-    // Height proportional to inverse AR (fills besideWidth correctly)
-    const itemHeight = availableBesideHeight * (1 / photo.aspectRatio) / totalInverseAR;
-    const cell: LayoutCell = {
-      photoId: photo.id,
-      x: heroOnLeft ? heroWidth + gap : 0,
-      y: besideY,
-      width: besideWidth,
-      height: itemHeight,
-    };
-    besideY += itemHeight + gap;
-    return cell;
-  });
+  // Hero height matches the beside column height (they align perfectly)
+  const heroHeight = packResult.combinedHeight;
   
   // Content rows below
   const contentRegion: RegionSpec = {
@@ -196,7 +192,7 @@ export function strategyHeroSide(
   };
   
   return {
-    cells: [heroCell, ...besideCells, ...belowCells],
+    cells: [heroCell, ...packResult.cells, ...belowCells],
     canvasWidth,
     canvasHeight,
     score: 0,

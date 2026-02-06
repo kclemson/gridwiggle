@@ -15,7 +15,7 @@ import {
 } from './types';
 import { packRow, packRowsToFit, calculateNaturalAspectRatio } from './pack';
 import { scoreLayout } from './score';
-import { sum, partition, shuffleArray } from './math';
+import { sum, partition, shuffleArray, calculateOptimalHeroFraction } from './math';
 
 // ============================================================================
 // Strategy: Simple Rows
@@ -130,38 +130,34 @@ export function strategyHeroSide(
   const besidePhotos = others.slice(0, besideCount);
   const belowPhotos = others.slice(besideCount);
   
-  // Calculate hero width to achieve target prominence
-  // Start with 50% width and adjust
-  const heroWidthFraction = 0.55;
-  const heroWidth = (canvasWidth - gap) * heroWidthFraction;
+  // Calculate optimal hero width fraction algebraically (no magic numbers!)
+  const { fraction } = calculateOptimalHeroFraction(
+    hero.aspectRatio,
+    besidePhotos,
+    canvasWidth,
+    gap,
+    1  // Single column of beside photos
+  );
+  
+  const heroWidth = (canvasWidth - gap) * fraction;
   const besideWidth = canvasWidth - heroWidth - gap;
   
-  // Hero height from its aspect ratio at target width
+  // Hero height from its aspect ratio - NEVER overwrite this
   const heroHeight = heroWidth / hero.aspectRatio;
   
-  // Beside photos stack in a column matching hero height
-  const besideRegion: RegionSpec = {
-    x: heroOnLeft ? heroWidth + gap : 0,
-    y: 0,
-    width: besideWidth,
-    height: heroHeight,
-  };
-  
   // Pack beside photos as a column to match hero height
+  // Each photo's height is proportional to its inverse aspect ratio
   const totalBesideGaps = gap * (besidePhotos.length - 1);
   const availableBesideHeight = heroHeight - totalBesideGaps;
   const totalInverseAR = sum(besidePhotos.map(p => 1 / p.aspectRatio));
-  const besideItemWidth = availableBesideHeight / totalInverseAR;
-  
-  // Scale beside width to match our region
-  const besideScale = besideWidth / besideItemWidth;
   
   let besideY = 0;
   const besideCells: LayoutCell[] = besidePhotos.map(photo => {
-    const itemHeight = (besideWidth / photo.aspectRatio);
+    // Height proportional to inverse AR (fills besideWidth correctly)
+    const itemHeight = availableBesideHeight * (1 / photo.aspectRatio) / totalInverseAR;
     const cell: LayoutCell = {
       photoId: photo.id,
-      x: besideRegion.x,
+      x: heroOnLeft ? heroWidth + gap : 0,
       y: besideY,
       width: besideWidth,
       height: itemHeight,
@@ -170,28 +166,23 @@ export function strategyHeroSide(
     return cell;
   });
   
-  // Adjust hero height to match actual beside height
-  const actualBesideHeight = besideY - gap;
-  const finalHeroHeight = actualBesideHeight;
-  
   // Content rows below
-  const topZoneHeight = finalHeroHeight;
   const contentRegion: RegionSpec = {
     x: 0,
-    y: topZoneHeight + gap,
+    y: heroHeight + gap,
     width: canvasWidth,
     height: 0,
   };
   
   let belowCells: LayoutCell[] = [];
-  let canvasHeight = topZoneHeight;
+  let canvasHeight = heroHeight;
   
   if (belowPhotos.length > 0) {
     belowCells = packRowsToFit(belowPhotos, contentRegion, gap, tuning.targetPhotosPerRow);
     // Derive canvas height from actual cell bounds
     const belowBottom = belowCells.reduce(
       (max, c) => Math.max(max, c.y + c.height),
-      topZoneHeight + gap
+      heroHeight + gap
     );
     canvasHeight = belowBottom;
   }
@@ -201,28 +192,11 @@ export function strategyHeroSide(
     x: heroOnLeft ? 0 : besideWidth + gap,
     y: 0,
     width: heroWidth,
-    height: finalHeroHeight,
+    height: heroHeight,
   };
   
-  // Recalculate beside cells with corrected Y positions
-  const correctedBesideCells: LayoutCell[] = [];
-  let y = 0;
-  const adjustedBesideHeight = (finalHeroHeight - totalBesideGaps) / besidePhotos.length;
-  
-  for (const photo of besidePhotos) {
-    // Use equal height distribution for cleaner look
-    correctedBesideCells.push({
-      photoId: photo.id,
-      x: besideRegion.x,
-      y,
-      width: besideWidth,
-      height: adjustedBesideHeight,
-    });
-    y += adjustedBesideHeight + gap;
-  }
-  
   return {
-    cells: [heroCell, ...correctedBesideCells, ...belowCells],
+    cells: [heroCell, ...besideCells, ...belowCells],
     canvasWidth,
     canvasHeight,
     score: 0,

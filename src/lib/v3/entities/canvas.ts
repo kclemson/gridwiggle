@@ -12,6 +12,7 @@ import {
   V3Tuning 
 } from '../types';
 import { isRegionViable } from '../utils';
+import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
 // Canvas Decomposition
@@ -42,10 +43,16 @@ export function decomposeCanvas(
     case 'corner':
       return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     case 'edge':
-      // Phase 2: For now, fall back to corner
+      devLogger.log('v3', 'Edge mode fallback', {
+        position,
+        reason: 'Edge decomposition not yet implemented, using corner',
+      });
       return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     case 'floating':
-      // Phase 3: For now, fall back to corner
+      devLogger.log('v3', 'Floating mode fallback', {
+        position,
+        reason: 'Floating decomposition not yet implemented, using corner',
+      });
       return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
     default:
       return { regions: [], valid: false, invalidReason: `Unknown mode: ${mode}` };

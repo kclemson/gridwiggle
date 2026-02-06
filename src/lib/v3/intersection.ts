@@ -61,6 +61,16 @@ export function findValidConfiguration(
     tuning
   );
   
+  // Log all proposals that will be evaluated
+  const proposalSummary = proposals.map(p => `${p.mode}:${p.position}`).join(', ');
+  devLogger.log('v3', 'Proposals generated', {
+    count: proposals.length,
+    contentCount: contentStats.count,
+    proposals: proposalSummary,
+    edgeThreshold: tuning.decomp_edgeMinPhotos,
+    floatingThreshold: tuning.decomp_floatingMinPhotos,
+  });
+  
   // Evaluate each proposal
   const validConfigs: ScoredConfiguration[] = [];
   

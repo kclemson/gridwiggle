@@ -1,128 +1,74 @@
 /**
  * Hero Entity
  * 
- * Derives hero size from prominence target and proposes positions.
- * Hero sizing is algebraically derived - NO width fraction constraints.
+ * Proposes hero positions in normalized space.
+ * Hero sizing is derived from its AR - NO pixel width constraints.
+ * 
+ * In normalized space: hero height = 1, hero width = heroAR
  */
 
 import { 
   PhotoDimension,
   ContentStats, 
-  HeroProposal, 
-  RegionSpec,
+  NormalizedHeroProposal, 
+  NormalizedRegion,
   V3Tuning,
   DecompositionMode
 } from '../types';
-import { estimateContentPhotoArea } from '../utils';
 
 // ============================================================================
-// Hero Sizing
-// ============================================================================
-
-/**
- * Compute hero dimensions from prominence target.
- * 
- * Math:
- *   estContentArea = derived from content AR geometry
- *   targetHeroArea = estContentArea * hero_targetProminence
- *   heroHeight = sqrt(targetHeroArea / heroAR)
- *   heroWidth = heroHeight * heroAR
- */
-export function computeHeroSize(
-  heroAR: number,
-  canvasWidth: number,
-  gap: number,
-  contentStats: ContentStats,
-  tuning: V3Tuning
-): { width: number; height: number } {
-  // Estimate what a typical content photo area will be
-  const estContentArea = estimateContentPhotoArea(canvasWidth, gap, contentStats);
-  
-  // Hero must be targetProminence times larger
-  const targetHeroArea = estContentArea * tuning.hero_targetProminence;
-  
-  // Derive dimensions from target area and hero's aspect ratio
-  // heroArea = width * height = height² * heroAR
-  const heroHeight = Math.sqrt(targetHeroArea / heroAR);
-  const heroWidth = heroHeight * heroAR;
-  
-  // Clamp to reasonable bounds
-  // Minimum: 55% of canvas ensures BESIDE region stays narrow enough for prominence
-  // Maximum: 80% of canvas to leave room for content
-  const minHeroWidth = canvasWidth * 0.55;
-  const clampedWidth = Math.max(minHeroWidth, Math.min(heroWidth, canvasWidth * 0.8));
-  const clampedHeight = clampedWidth / heroAR;
-  
-  return { 
-    width: clampedWidth, 
-    height: clampedHeight 
-  };
-}
-
-// ============================================================================
-// Position Proposals
+// Position Proposals (Normalized Space)
 // ============================================================================
 
 /**
- * Generate viable hero position proposals based on photo count.
+ * Generate hero position proposals in normalized space.
  * 
+ * In normalized space:
+ * - Hero height = 1.0
+ * - Hero width = heroAR
+ * - All other dimensions are relative to hero height
+ * 
+ * Position proposals are based on decomposition mode thresholds:
  * - Corner: Always available (2 regions)
  * - Edge: Requires decomp_edgeMinPhotos (3 regions)
  * - Floating: Requires decomp_floatingMinPhotos (4 regions)
  */
 export function proposePositions(
   heroPhoto: PhotoDimension,
-  canvasWidth: number,
-  gap: number,
   contentStats: ContentStats,
   tuning: V3Tuning
-): HeroProposal[] {
-  const { width: heroWidth, height: heroHeight } = computeHeroSize(
-    heroPhoto.aspectRatio,
-    canvasWidth,
-    gap,
-    contentStats,
-    tuning
-  );
+): NormalizedHeroProposal[] {
+  const heroWidth = heroPhoto.aspectRatio;  // Width when height = 1
+  const heroHeight = 1.0;
   
-  const proposals: HeroProposal[] = [];
+  const proposals: NormalizedHeroProposal[] = [];
   
   // Corner placement: Always available
+  // Hero at origin (0, 0) - position is 'top-left' in normalized space
+  // The 'top-right' position is determined after we know the total width
   proposals.push({
     rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
     mode: 'corner',
     position: 'top-left',
   });
   
-  // Top-right corner variant
+  // We also propose 'top-right' but x will be adjusted during assembly
   proposals.push({
-    rect: { 
-      x: canvasWidth - heroWidth, 
-      y: 0, 
-      width: heroWidth, 
-      height: heroHeight 
-    },
+    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
     mode: 'corner',
     position: 'top-right',
   });
   
   // Edge placement: Requires enough content photos
   if (contentStats.count >= tuning.decomp_edgeMinPhotos) {
-    // Left edge (Phase 2)
     proposals.push({
       rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
       mode: 'edge',
       position: 'left',
     });
     
-    // Right edge (Phase 2)
     proposals.push({
-      rect: { 
-        x: canvasWidth - heroWidth, 
-        y: 0, 
-        width: heroWidth, 
-        height: heroHeight 
-      },
+      rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
       mode: 'edge',
       position: 'right',
     });
@@ -130,14 +76,8 @@ export function proposePositions(
   
   // Floating placement: Requires many content photos
   if (contentStats.count >= tuning.decomp_floatingMinPhotos) {
-    // Centered (Phase 3)
     proposals.push({
-      rect: { 
-        x: (canvasWidth - heroWidth) / 2, 
-        y: 0, // Y will be derived during intersection
-        width: heroWidth, 
-        height: heroHeight 
-      },
+      rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
       mode: 'floating',
       position: 'center',
     });

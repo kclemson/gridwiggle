@@ -151,6 +151,60 @@ export interface DecompositionResult {
 }
 
 // ============================================================================
+// Normalized Space Types (hero height = 1)
+// ============================================================================
+
+/**
+ * A region in normalized space where hero height = 1.
+ * All dimensions are in AR units, not pixels.
+ */
+export interface NormalizedRegion {
+  x: number;
+  y: number;
+  width: number;  // In AR units (heroWidth = heroAR when heroHeight = 1)
+  height: number; // Relative to hero height (1.0)
+}
+
+/**
+ * A cell in normalized space.
+ */
+export interface NormalizedCell extends NormalizedRegion {
+  photoId: string;
+}
+
+/**
+ * Result of packing in normalized space.
+ */
+export interface NormalizedPackResult {
+  cells: NormalizedCell[];
+  width: number;   // Total width used (in AR units)
+  height: number;  // Total height used (relative to hero = 1)
+  rowCount: number;
+}
+
+/**
+ * A hero proposal in normalized space.
+ */
+export interface NormalizedHeroProposal {
+  /** Hero dimensions in normalized space (height = 1) */
+  rect: NormalizedRegion;
+  /** How the canvas is decomposed around the hero */
+  mode: DecompositionMode;
+  /** Which corner/edge the hero is placed at */
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right' | 'center';
+}
+
+/**
+ * Result of the BESIDE/BELOW split search.
+ */
+export interface SplitResult {
+  besidePhotos: PhotoDimension[];
+  belowPhotos: PhotoDimension[];
+  besideRowCount: number;
+  score: number;
+}
+
+// ============================================================================
 // Layout Result Types
 // ============================================================================
 

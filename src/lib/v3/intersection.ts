@@ -1,24 +1,27 @@
 /**
  * Constraint Intersection Engine
  * 
- * Orchestrates Canvas, Hero, and ContentPool entities to find
- * valid layout configurations where all constraints overlap.
+ * Orchestrates the normalized space layout algorithm:
+ * 1. Hero proposes positions (normalized)
+ * 2. Find best BESIDE/BELOW split
+ * 3. Pack both regions in normalized space
+ * 4. Scale to pixels
+ * 5. Validate constraints
  */
 
 import { 
   PhotoDimension,
   V3Tuning,
-  HeroProposal,
+  NormalizedHeroProposal,
   ScoredConfiguration,
   LayoutCell,
-  RegionSpec,
+  HeroProposal,
   DEFAULT_V3_TUNING
 } from './types';
-import { packPhotosIntoRegion } from './row-pack';
+import { packToFillHeight, packToFillWidth } from './normalized-pack';
+import { findBestSplit } from './split-search';
 import { calculateContentStats } from './utils';
-import { decomposeCanvas } from './entities/canvas';
 import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
-import { distributePhotosConstrained, packAllRegions } from './entities/content-pool';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -28,11 +31,13 @@ import { devLogger } from '@/lib/devLogger';
 /**
  * Find valid layout configurations through constraint intersection.
  * 
- * Algorithm:
- * 1. Hero proposes positions based on content count thresholds
- * 2. For each proposal: decompose canvas, check region viability, distribute content
- * 3. Validate prominence: heroArea / runnerUpArea >= hero_minProminence
- * 4. Return best valid config (or null - no silent fallbacks)
+ * New normalized space algorithm:
+ * 1. Hero proposes positions (corner, edge, floating) in normalized space
+ * 2. For each proposal: find best BESIDE/BELOW split
+ * 3. Pack both regions in normalized space (hero height = 1)
+ * 4. Scale entire layout to pixel dimensions
+ * 5. Validate constraints (canvas AR, prominence)
+ * 6. Return best valid config (or null - no silent fallbacks)
  */
 export function findValidConfiguration(
   photos: PhotoDimension[],
@@ -52,30 +57,20 @@ export function findValidConfiguration(
   // Get content statistics
   const contentStats = calculateContentStats(contentPhotos);
   
-  // Generate hero position proposals
-  const proposals = proposePositions(
-    heroPhoto,
-    canvasWidth,
-    gap,
-    contentStats,
-    tuning
-  );
+  // Generate hero position proposals in normalized space
+  const proposals = proposePositions(heroPhoto, contentStats, tuning);
   
-  // Log all proposals that will be evaluated
-  const proposalSummary = proposals.map(p => `${p.mode}:${p.position}`).join(', ');
-  devLogger.log('v3', 'Proposals generated', {
+  devLogger.log('v3', 'Normalized proposals generated', {
     count: proposals.length,
+    heroAR: heroPhoto.aspectRatio.toFixed(2),
     contentCount: contentStats.count,
-    proposals: proposalSummary,
-    edgeThreshold: tuning.decomp_edgeMinPhotos,
-    floatingThreshold: tuning.decomp_floatingMinPhotos,
   });
   
   // Evaluate each proposal
   const validConfigs: ScoredConfiguration[] = [];
   
   for (const proposal of proposals) {
-    const config = evaluateProposal(
+    const config = evaluateNormalizedProposal(
       proposal,
       heroPhoto,
       contentPhotos,
@@ -91,197 +86,301 @@ export function findValidConfiguration(
   
   // Return null if no valid configurations (no silent fallback)
   if (validConfigs.length === 0) {
+    devLogger.log('v3', 'No valid configurations found');
     return null;
   }
   
   // Sort by score and return best
   validConfigs.sort((a, b) => b.score - a.score);
+  
+  devLogger.log('v3', 'Best configuration selected', {
+    score: validConfigs[0].score.toFixed(3),
+    prominenceRatio: validConfigs[0].prominenceRatio.toFixed(2),
+    canvasHeight: Math.round(validConfigs[0].canvasHeight),
+  });
+  
   return validConfigs[0];
 }
 
 // ============================================================================
-// Proposal Evaluation
+// Normalized Proposal Evaluation
 // ============================================================================
 
 /**
- * Evaluate a single hero proposal.
+ * Evaluate a hero proposal using normalized space packing.
  */
-function evaluateProposal(
-  proposal: HeroProposal,
+function evaluateNormalizedProposal(
+  proposal: NormalizedHeroProposal,
   heroPhoto: PhotoDimension,
   contentPhotos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
   tuning: V3Tuning
 ): ScoredConfiguration | null {
-  // Calculate hero area and max allowed content area FIRST
-  const heroArea = proposal.rect.width * proposal.rect.height;
-  const maxContentArea = heroArea / tuning.hero_minProminence;
+  const heroAR = heroPhoto.aspectRatio;
   
-  devLogger.log('v3', 'Evaluating proposal', {
+  // Calculate normalized gap (as fraction of hero height)
+  // We'll refine this after we know the scale factor
+  const estimatedNormalizedGap = 0.02; // ~2% of hero height
+  
+  devLogger.log('v3', 'Evaluating normalized proposal', {
     mode: proposal.mode,
     position: proposal.position,
-    heroArea: Math.round(heroArea),
-    maxContentArea: Math.round(maxContentArea),
-    contentCount: contentPhotos.length,
+    heroAR: heroAR.toFixed(2),
   });
   
-  // Calculate canvas-level height constraint
-  const maxCanvasHeight = canvasWidth / tuning.canvas_minAR;
-  const heroBottom = proposal.rect.y + proposal.rect.height;
-  const maxBelowHeight = maxCanvasHeight - heroBottom - gap;
-  
-  devLogger.log('v3', 'Canvas height budget', {
-    maxCanvasHeight: Math.round(maxCanvasHeight),
-    heroBottom: Math.round(heroBottom),
-    maxBelowHeight: Math.round(maxBelowHeight),
-  });
-  
-  // Decompose canvas around hero
-  const decomposition = decomposeCanvas(
-    canvasWidth,
-    proposal.rect,
-    proposal.mode,
-    gap,
-    tuning,
-    proposal.position
-  );
-  
-  // Check region viability
-  if (!decomposition.valid) {
-    devLogger.log('v3', 'Proposal rejected: decomposition invalid', {
-      mode: proposal.mode,
-      position: proposal.position,
-      reason: decomposition.invalidReason,
-    });
+  // Edge and floating modes not yet implemented - use corner decomposition
+  if (proposal.mode !== 'corner') {
+    devLogger.log('v3', 'Mode not implemented, skipping', { mode: proposal.mode });
     return null;
   }
   
-  // Distribute content photos with constraint awareness
-  const distribution = distributePhotosConstrained(
+  // Find best BESIDE/BELOW split
+  const splitResult = findBestSplit(
     contentPhotos,
-    decomposition.regions,
-    gap,
-    tuning,
-    maxContentArea
+    heroAR,
+    estimatedNormalizedGap,
+    tuning
   );
   
-  // Log distribution decision
-  if (distribution.splitInfo) {
-    devLogger.log('v3', 'Distribution split', {
-      besideCount: distribution.splitInfo.besideCount,
-      belowCount: distribution.splitInfo.belowCount,
-      totalPhotos: contentPhotos.length,
-    });
-  }
-  
-  // Check if distribution failed
-  if (distribution.totalAssigned === 0 && contentPhotos.length > 0) {
-    devLogger.log('v3', 'Proposal rejected: distribution failed', {
+  if (!splitResult) {
+    devLogger.log('v3', 'No valid split found for proposal', {
       mode: proposal.mode,
       position: proposal.position,
-      reason: 'No valid photo split found that satisfies constraints',
     });
     return null;
   }
   
-  // Pack all regions with constraint awareness
-  const { cells: contentCells, totalHeight, contentAreas, diagnostics } = packAllRegions(
-    contentPhotos,
-    decomposition.regions,
-    distribution,
-    gap,
-    tuning,
-    maxContentArea,
-    maxBelowHeight  // Canvas-level height budget for unbounded regions
+  // Pack BESIDE at height = 1
+  const besideResult = packToFillHeight(
+    splitResult.besidePhotos,
+    1.0,
+    estimatedNormalizedGap,
+    splitResult.besideRowCount
   );
   
-  // Log per-region diagnostics
-  diagnostics.forEach((d, i) => {
-    if (d.constraintViolation) {
-      devLogger.log('v3', 'Region constraint violation', {
-        regionIndex: i,
-        violation: d.constraintViolation,
-        maxCellArea: Math.round(d.maxCellArea),
-        actualHeight: Math.round(d.actualHeight),
-        usedRowCount: d.usedRowCount,
-      });
-    }
-  });
+  // Calculate hero row width
+  const heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
   
-  // Check if any region had constraint violations
-  const hasViolation = diagnostics.some(d => d.constraintViolation);
-  if (hasViolation) {
-    devLogger.log('v3', 'Proposal rejected: region constraints violated', {
-      mode: proposal.mode,
-      position: proposal.position,
+  // Determine BELOW row count
+  const belowRowCount = calculateOptimalBelowRowCount(
+    splitResult.belowPhotos,
+    heroRowWidth,
+    estimatedNormalizedGap,
+    tuning
+  );
+  
+  // Pack BELOW at hero row width
+  const belowResult = packToFillWidth(
+    splitResult.belowPhotos,
+    heroRowWidth,
+    estimatedNormalizedGap,
+    belowRowCount
+  );
+  
+  // Calculate total normalized canvas
+  const normalizedWidth = heroRowWidth;
+  const normalizedHeight = 1.0 + estimatedNormalizedGap + belowResult.height;
+  
+  // Calculate scale factor to convert to pixels
+  const scaleFactor = canvasWidth / normalizedWidth;
+  const pixelGap = gap; // Use actual pixel gap
+  
+  // Recalculate with correct normalized gap
+  const correctedNormalizedGap = pixelGap / scaleFactor;
+  
+  // If gap correction is significant, repack (for now, accept small error)
+  // This could be iterative for higher precision
+  
+  // Convert all cells to pixels
+  const pixelCells = convertToPixels(
+    heroPhoto,
+    proposal.position,
+    heroAR,
+    besideResult.cells,
+    belowResult.cells,
+    scaleFactor,
+    pixelGap,
+    normalizedWidth
+  );
+  
+  // Calculate actual canvas dimensions
+  const canvasHeight = normalizedHeight * scaleFactor;
+  const canvasAR = canvasWidth / canvasHeight;
+  
+  // Validate canvas AR
+  if (canvasAR < tuning.canvas_minAR) {
+    devLogger.log('v3', 'Canvas too tall', {
+      canvasAR: canvasAR.toFixed(2),
+      minAR: tuning.canvas_minAR,
     });
     return null;
   }
   
-  // Final cap check (safety net - should rarely trigger now)
-  const largestContentArea = contentAreas.length > 0 ? Math.max(...contentAreas) : 0;
-  if (largestContentArea > maxContentArea) {
-    devLogger.log('v3', 'Proposal rejected: content cell exceeds cap (safety)', {
-      mode: proposal.mode,
-      position: proposal.position,
-      heroArea: Math.round(heroArea),
-      maxContentArea: Math.round(maxContentArea),
-      largestContentArea: Math.round(largestContentArea),
-      excessRatio: (largestContentArea / maxContentArea).toFixed(2),
+  if (canvasAR > tuning.canvas_maxAR) {
+    devLogger.log('v3', 'Canvas too wide', {
+      canvasAR: canvasAR.toFixed(2),
+      maxAR: tuning.canvas_maxAR,
     });
     return null;
   }
-  
-  // Add hero cell
-  const heroCell: LayoutCell = {
-    photoId: heroPhoto.id,
-    x: proposal.rect.x,
-    y: proposal.rect.y,
-    width: proposal.rect.width,
-    height: proposal.rect.height,
-  };
-  
-  const allCells = [heroCell, ...contentCells];
   
   // Validate hero prominence
-  const prominence = validateProminence(heroArea, contentAreas, tuning);
+  const heroPixelArea = (heroAR * scaleFactor) * scaleFactor; // heroWidth × heroHeight in pixels
+  const contentAreas = pixelCells.slice(1).map(c => c.width * c.height);
+  const prominence = validateProminence(heroPixelArea, contentAreas, tuning);
   
   if (!prominence.valid) {
-    devLogger.log('v3', 'Proposal rejected: prominence too low', {
-      mode: proposal.mode,
-      position: proposal.position,
-      heroArea: Math.round(heroArea),
-      runnerUpArea: largestContentArea,
+    devLogger.log('v3', 'Prominence too low', {
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
     });
     return null;
   }
   
-  // Calculate canvas height (max of hero bottom and content bottom)
-  const heroRectBottom = proposal.rect.y + proposal.rect.height;
-  const canvasHeight = Math.max(heroRectBottom, totalHeight);
+  // Validate minimum cell sizes
+  const minCellSize = Math.min(tuning.region_minWidth, tuning.region_minHeight);
+  const hasSmallCells = pixelCells.some(c => 
+    c.width < minCellSize || c.height < minCellSize
+  );
+  
+  if (hasSmallCells) {
+    devLogger.log('v3', 'Cells too small', { minCellSize });
+    return null;
+  }
   
   // Score the configuration
-  const score = scoreConfiguration(prominence.ratio, allCells, tuning);
+  const score = scoreConfiguration(prominence.ratio, pixelCells, tuning);
+  
+  // Create legacy-format proposal for ScoredConfiguration compatibility
+  const heroCell = pixelCells[0];
+  const legacyProposal: HeroProposal = {
+    rect: { x: heroCell.x, y: heroCell.y, width: heroCell.width, height: heroCell.height },
+    mode: proposal.mode,
+    position: proposal.position,
+  };
   
   devLogger.log('v3', 'Proposal accepted', {
     mode: proposal.mode,
     position: proposal.position,
     prominenceRatio: prominence.ratio.toFixed(2),
+    canvasAR: canvasAR.toFixed(2),
     score: score.toFixed(3),
-    canvasHeight: Math.round(canvasHeight),
   });
   
   return {
-    proposal,
-    distribution: { assignments: distribution.assignments, totalAssigned: distribution.totalAssigned },
-    cells: allCells,
+    proposal: legacyProposal,
+    distribution: { 
+      assignments: new Map([
+        [0, splitResult.besidePhotos.map(p => p.id)],
+        [1, splitResult.belowPhotos.map(p => p.id)],
+      ]), 
+      totalAssigned: contentPhotos.length 
+    },
+    cells: pixelCells,
     canvasHeight,
     prominenceRatio: prominence.ratio,
     score,
   };
+}
+
+// ============================================================================
+// Pixel Conversion
+// ============================================================================
+
+/**
+ * Convert normalized cells to pixel cells.
+ */
+function convertToPixels(
+  heroPhoto: PhotoDimension,
+  position: string,
+  heroAR: number,
+  besideCells: { photoId: string; x: number; y: number; width: number; height: number }[],
+  belowCells: { photoId: string; x: number; y: number; width: number; height: number }[],
+  scaleFactor: number,
+  gap: number,
+  normalizedWidth: number
+): LayoutCell[] {
+  const cells: LayoutCell[] = [];
+  
+  // Hero cell
+  const heroNormalizedWidth = heroAR;
+  const heroNormalizedHeight = 1.0;
+  
+  let heroX: number;
+  if (position === 'top-right' || position === 'right') {
+    // Hero on right side
+    heroX = (normalizedWidth - heroNormalizedWidth) * scaleFactor;
+  } else {
+    // Hero on left side (default)
+    heroX = 0;
+  }
+  
+  cells.push({
+    photoId: heroPhoto.id,
+    x: heroX,
+    y: 0,
+    width: heroNormalizedWidth * scaleFactor,
+    height: heroNormalizedHeight * scaleFactor,
+  });
+  
+  // BESIDE cells - offset based on hero position
+  const besideNormalizedGap = gap / scaleFactor;
+  let besideOffsetX: number;
+  
+  if (position === 'top-right' || position === 'right') {
+    // BESIDE is to the LEFT of hero
+    besideOffsetX = 0;
+  } else {
+    // BESIDE is to the RIGHT of hero
+    besideOffsetX = heroNormalizedWidth + besideNormalizedGap;
+  }
+  
+  for (const cell of besideCells) {
+    cells.push({
+      photoId: cell.photoId,
+      x: (besideOffsetX + cell.x) * scaleFactor,
+      y: cell.y * scaleFactor,
+      width: cell.width * scaleFactor,
+      height: cell.height * scaleFactor,
+    });
+  }
+  
+  // BELOW cells - full width, offset below hero row
+  const belowOffsetY = 1.0 + besideNormalizedGap;
+  
+  for (const cell of belowCells) {
+    cells.push({
+      photoId: cell.photoId,
+      x: cell.x * scaleFactor,
+      y: (belowOffsetY + cell.y) * scaleFactor,
+      width: cell.width * scaleFactor,
+      height: cell.height * scaleFactor,
+    });
+  }
+  
+  return cells;
+}
+
+// ============================================================================
+// Row Count Calculation for BELOW
+// ============================================================================
+
+/**
+ * Calculate optimal row count for BELOW region.
+ */
+function calculateOptimalBelowRowCount(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  normalizedGap: number,
+  tuning: V3Tuning
+): number {
+  const n = photos.length;
+  if (n <= 1) return 1;
+  if (n <= 3) return 1;
+  if (n <= 6) return 2;
+  if (n <= 12) return 3;
+  return Math.min(n, Math.ceil(n / 4));
 }
 
 // ============================================================================
@@ -298,15 +397,12 @@ function scoreConfiguration(
   tuning: V3Tuning
 ): number {
   // Base score from prominence (higher prominence = better)
-  // Normalized: ratio of 1.5 gives score of 1.0
   const prominenceScore = prominenceRatio / tuning.hero_targetProminence;
   
   // Cell area uniformity (lower variance = better)
   const areas = cells.slice(1).map(c => c.width * c.height); // Exclude hero
   const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
   
-  // Combine scores
-  // For Phase 1, keep it simple - just prominence and uniformity
   return (prominenceScore * 0.6) + (areaUniformity * 0.4);
 }
 
@@ -327,7 +423,6 @@ function coefficientOfVariation(values: number[]): number {
 
 /**
  * Generate a layout with no hero - all photos in rows.
- * Used when no hero photo is designated.
  */
 function generateSimpleRowsLayout(
   photos: PhotoDimension[],
@@ -339,54 +434,46 @@ function generateSimpleRowsLayout(
     return null;
   }
   
-  // Calculate max allowed height from canvas AR constraint
-  const maxCanvasHeight = canvasWidth / tuning.canvas_minAR;
+  // Calculate normalized gap
+  const estimatedHeight = canvasWidth; // Rough estimate
+  const normalizedGap = gap / estimatedHeight;
   
-  // Create a region spanning the full canvas width
-  const region: RegionSpec = {
-    x: 0,
-    y: 0,
-    width: canvasWidth,
-    height: Infinity, // Will be determined by packing
-  };
+  // Determine row count based on photo count
+  const rowCount = calculateOptimalBelowRowCount(photos, 1.0, normalizedGap, tuning);
   
-  // Pack all photos into rows with height constraint
-  const result = packPhotosIntoRegion(
-    photos,
-    region,
-    gap,
-    tuning,
-    { maxHeight: maxCanvasHeight }
-  );
+  // Pack in normalized space (use width = 1.0 as reference)
+  const normalizedResult = packToFillWidth(photos, 1.0, normalizedGap, rowCount);
   
-  devLogger.log('v3', 'Simple rows layout', {
-    photoCount: photos.length,
-    maxCanvasHeight: Math.round(maxCanvasHeight),
-    actualHeight: Math.round(result.actualHeight),
-    canvasAR: (canvasWidth / result.actualHeight).toFixed(2),
-  });
+  // Scale to canvas width
+  const scaleFactor = canvasWidth;
   
-  if (result.cells.length === 0) {
-    return null;
-  }
+  const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
+    photoId: cell.photoId,
+    x: cell.x * scaleFactor,
+    y: cell.y * scaleFactor,
+    width: cell.width * scaleFactor,
+    height: cell.height * scaleFactor,
+  }));
   
-  // Create a "dummy" proposal for consistency with ScoredConfiguration type
+  const canvasHeight = normalizedResult.height * scaleFactor;
+  
+  // Create dummy proposal for compatibility
   const dummyProposal: HeroProposal = {
     rect: { x: 0, y: 0, width: 0, height: 0 },
     mode: 'corner',
     position: 'top-left',
   };
   
-  // Score based on area uniformity (no hero prominence to consider)
-  const areas = result.cells.map(c => c.width * c.height);
+  // Score based on area uniformity
+  const areas = cells.map(c => c.width * c.height);
   const areaUniformity = 1 / (1 + coefficientOfVariation(areas));
   
   return {
     proposal: dummyProposal,
     distribution: { assignments: new Map([[0, photos.map(p => p.id)]]), totalAssigned: photos.length },
-    cells: result.cells,
-    canvasHeight: result.actualHeight,
-    prominenceRatio: 1, // No hero, so ratio is neutral
-    score: areaUniformity, // Simple scoring for hero-less layouts
+    cells,
+    canvasHeight,
+    prominenceRatio: 1,
+    score: areaUniformity,
   };
 }

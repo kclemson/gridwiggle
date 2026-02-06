@@ -13,7 +13,8 @@
  */
 
 import { CollageLayout, CollageCell } from '@/types/collage';
-import { PhotoDimension, shuffleArray, calculateOptimalBesideRowCount } from '@/lib/layoutMath';
+import { PhotoDimension, shuffleArray, calculateOptimalBesideRowCount, mean } from '@/lib/layoutMath';
+import { devLogger } from '@/lib/devLogger';
 
 // Re-export for consumers that imported from here
 export type { PhotoDimension };
@@ -185,6 +186,16 @@ export function buildHeroUnitBlock(
     : optimalRows === 3 
     ? [3, 2, 1] 
     : [2, 3, 1];
+
+  // Log row selection decision
+  const avgCandidateAR = candidates.length > 0 ? mean(candidates.map(p => p.aspectRatio)) : 1.0;
+  devLogger.log('layout', 'Row selection', {
+    heroAR: hero.aspectRatio,
+    candidateCount: candidates.length,
+    avgCandidateAR,
+    optimalRows,
+    rowModesToTry,
+  });
   
   // Try each row mode in order of preference
   for (const rowCount of rowModesToTry) {
@@ -267,7 +278,10 @@ function tryBuildHeroUnit(
       ? packBesideAs2Rows(besidePhotos, targetBesideWidth, gap, 0)
       : packBesideAs1Row(besidePhotos, targetBesideWidth, gap, 0);
     
-    if (packResult.combinedHeight === 0) continue;
+    if (packResult.combinedHeight === 0) {
+      devLogger.log('layout', 'Config rejected', { rowCount, besideCount, reason: 'empty pack result' });
+      continue;
+    }
     
     // Hero height = beside combined height
     const heroHeight = packResult.combinedHeight;
@@ -278,7 +292,15 @@ function tryBuildHeroUnit(
     const scaleFactor = canvasWidth / totalNaturalWidth;
     
     // Accept if within tolerance
-    if (scaleFactor < scaleToleranceLow || scaleFactor > scaleToleranceHigh) continue;
+    if (scaleFactor < scaleToleranceLow || scaleFactor > scaleToleranceHigh) {
+      devLogger.log('layout', 'Config rejected', { 
+        rowCount, 
+        besideCount, 
+        scaleFactor, 
+        reason: `scale ${scaleFactor.toFixed(3)} outside [${scaleToleranceLow}, ${scaleToleranceHigh}]` 
+      });
+      continue;
+    }
     
     // Apply scaling
     const scaledHeroWidth = Math.round(heroWidth * scaleFactor);
@@ -328,6 +350,13 @@ function tryBuildHeroUnit(
       );
     }
     
+    devLogger.log('layout', 'Config accepted', {
+      rowCount,
+      besideCount,
+      scaleFactor,
+      heroWidthFraction: scaledHeroWidth / canvasWidth,
+    });
+
     return {
       type: 'hero-unit',
       cells: [heroCell, ...besideCells],

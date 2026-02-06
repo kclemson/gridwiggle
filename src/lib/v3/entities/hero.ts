@@ -59,6 +59,20 @@ export function proposePositions(
     position: 'top-right',
   });
   
+  // Bottom-left: hero at bottom-left, BELOW region above
+  proposals.push({
+    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
+    mode: 'corner',
+    position: 'bottom-left',
+  });
+
+  // Bottom-right: hero at bottom-right, BELOW region above  
+  proposals.push({
+    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
+    mode: 'corner',
+    position: 'bottom-right',
+  });
+  
   // Edge placement: Requires enough content photos
   if (contentStats.count >= tuning.decomp_edgeMinPhotos) {
     proposals.push({

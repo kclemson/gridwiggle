@@ -28,7 +28,8 @@ import {
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import type { RejectedLayout } from '@/lib/v3/types';
-import { Shuffle, Star, Image, Eye, EyeOff } from 'lucide-react';
+import { Shuffle, Star, Image, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
@@ -244,8 +245,16 @@ export default function V3Test() {
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">V3 Layout Test</h1>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold">V3 Layout Test</h1>
+            {!layout && rejectedLayout && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md animate-pulse-soft">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="font-medium text-sm">REJECTED: {rejectedLayout.reason.replace(/_/g, ' ')}</span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Button 
               onClick={() => setShowRejected(s => !s)}
@@ -299,7 +308,10 @@ export default function V3Test() {
           />
           
           {/* Right: Canvas */}
-          <div className="border rounded-lg p-4 bg-card order-1 lg:order-2">
+          <div className={cn(
+            "border rounded-lg p-4 order-1 lg:order-2",
+            layout ? "bg-card" : "bg-destructive/5 border-destructive"
+          )}>
             {layout ? (
               <>
                 <LayoutVisualization layout={layout} photos={photoSet.photos} />
@@ -309,7 +321,7 @@ export default function V3Test() {
               </>
             ) : showRejected && scaledRejectedLayout ? (
               <div className="relative">
-                <div className="ring-2 ring-destructive rounded-lg overflow-hidden">
+                <div className="ring-4 ring-destructive rounded-lg overflow-hidden animate-pulse-soft">
                   <LayoutVisualization layout={scaledRejectedLayout} photos={photoSet.photos} />
                 </div>
                 <div className="mt-3 text-base font-medium text-foreground text-center">

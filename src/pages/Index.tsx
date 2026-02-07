@@ -11,15 +11,16 @@ import { DebugPanel, AlgorithmVersion } from '@/components/DebugPanel';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { getSmartCrop } from '@/services/smartCropService';
+import { generateLayoutInWorker } from '@/services/layoutGenerationService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
-
 import { generateCollageLayoutV3 } from '@/lib/v3';
+import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
-import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
+import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -71,6 +72,9 @@ export default function Index() {
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
   photosRef.current = state.photos;
+  
+  // Request ID for stale response detection (worker-based generation)
+  const latestRequestIdRef = useRef(0);
 
   // Options for regenerating the collage layout
   interface RegenerateOptions {
@@ -89,7 +93,8 @@ export default function Index() {
   }
 
   // Centralized collage regeneration - all triggers use this
-  const regenerateCollage = useCallback((options: RegenerateOptions = {}) => {
+  // Now async with Web Worker for non-blocking UI
+  const regenerateCollage = useCallback(async (options: RegenerateOptions = {}) => {
     const {
       photos = photosRef.current,
       settings = state.settings,
@@ -120,66 +125,109 @@ export default function Index() {
       return;
     }
     
-    // Build weights from priorities (with optional override for pending state updates)
-    const photoWeights: Record<string, number> = {};
-    for (const photo of photosToUse) {
+    // Build PhotoDimension[] for worker (lightweight - no blobs)
+    const dimensions: PhotoDimension[] = photosToUse.map(photo => {
+      const crop = getDisplayCrop(photo);
+      const width = crop ? crop.width : photo.originalWidth;
+      const height = crop ? crop.height : photo.originalHeight;
       const effectivePriority = priorityOverride?.photoId === photo.id 
         ? priorityOverride.priority 
         : photo.priority;
-      photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
-    }
+      return {
+        id: photo.id,
+        aspectRatio: width / height,
+        weight: effectivePriority === 1 ? 2.0 : 1.0,
+      };
+    });
     
-    // Set generating state and use setTimeout(0) to let React paint before blocking
+    // Map slider (0-100) directly to normalized gap (0 to 0.04)
+    const normalizedGap = (settings.gapSize / 100) * 0.04;
+    
+    // Track this request to detect stale responses
+    const requestId = ++latestRequestIdRef.current;
+    
     setIsGenerating(true);
+    devLogger.clear();
+    remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
     
-    setTimeout(() => {
-      try {
-        devLogger.clear();
-        remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
-        
-        // V3 is the production algorithm
-        // In dev mode, algorithmVersion toggle in DebugPanel can override
-        const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
-
-        const layout = useV3
-          ? generateCollageLayoutV3(photosToUse, settings, { 
-              photoWeights,
-              randomize,
-              tuning: tuningOverride,
-            })
-          : generateCollageLayout(photosToUse, settings, { 
-              photoWeights,
-              randomize,
-              tuning: DEFAULT_TUNING,
-            });
-        
-        setDebugLogs(devLogger.getLogs());
-        
-        if (layout) {
-          setLayout(layout);
-          setLayoutError(null);  // Clear any previous error
-          remoteLogger.info('layout', 'Layout generated', { cells: layout.cells.length });
-        } else if (state.layout) {
-          // Generation failed but we have a previous layout - keep it, show error
-          setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
-        } else {
-          // No previous layout - nothing to preserve
-          setLayout(null);
-          setLayoutError("Couldn't generate a layout with these photos.");
-        }
-      } catch (error) {
-        console.error('Layout generation failed:', error);
-        remoteLogger.error('layout', 'Generation failed', { 
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
+    // V3 is the production algorithm
+    // In dev mode, algorithmVersion toggle in DebugPanel can override
+    const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+    
+    try {
+      let layout;
+      
+      if (useV3) {
+        // Worker-based async generation (non-blocking)
+        const result = await generateLayoutInWorker({
+          dimensions,
+          normalizedGap,
+          tuning: tuningOverride,
+          randomize,
         });
-        if (!state.layout) {
-          setLayoutError("Something went wrong. Please try again.");
+        
+        // Check for stale response (user clicked again while we were working)
+        if (requestId !== latestRequestIdRef.current) {
+          return; // Discard stale result
         }
-      } finally {
+        
+        layout = result.layout;
+        
+        // Populate debug logs from worker
+        if (result.logs) {
+          for (const log of result.logs) {
+            devLogger.log(log.category, log.label, log.data);
+          }
+        }
+        
+        remoteLogger.info('layout', 'Layout generated', {
+          cells: layout?.cells.length ?? 0,
+          durationMs: result.durationMs,
+          usedWorker: result.usedWorker,
+        });
+      } else {
+        // V1 fallback (dev-only, synchronous)
+        const photoWeights: Record<string, number> = {};
+        for (const d of dimensions) {
+          photoWeights[d.id] = d.weight;
+        }
+        layout = generateCollageLayout(photosToUse, settings, { 
+          photoWeights,
+          randomize,
+          tuning: DEFAULT_TUNING,
+        });
+      }
+      
+      setDebugLogs(devLogger.getLogs());
+      
+      if (layout) {
+        setLayout(layout);
+        setLayoutError(null);
+        remoteLogger.info('layout', 'Layout applied', { cells: layout.cells.length });
+      } else if (state.layout) {
+        setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+      } else {
+        setLayout(null);
+        setLayoutError("Couldn't generate a layout with these photos.");
+      }
+    } catch (error) {
+      // Check for stale response
+      if (requestId !== latestRequestIdRef.current) return;
+      
+      console.error('Layout generation failed:', error);
+      remoteLogger.error('layout', 'Generation failed', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      if (!state.layout) {
+        setLayoutError("Something went wrong. Please try again.");
+      }
+    } finally {
+      // Only clear generating if this is still the latest request
+      if (requestId === latestRequestIdRef.current) {
         setIsGenerating(false);
       }
-    }, 50);  // Allow 2-3 animation frames before blocking work
+    }
   }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler

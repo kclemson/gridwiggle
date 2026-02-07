@@ -1,316 +1,211 @@
 
 
-## Extract Shared Debug Log Component
+## Fix Missing Debug Logs in Main App
 
 ### Design Intent
-Create a shared, reusable debug log component that both V3Test and the main app can import, eliminating code duplication and ensuring consistent debugging UX.
+The main app uses a Web Worker for layout generation, but the worker's isolated JavaScript context means logs from the V3 algorithm (which uses `devLogger`) are lost. We need to make `devLogger` support log collection in worker contexts.
 
 ### User Outcome
-Same high-quality debug logs in the main app as V3Test - color-coded categories, flattened key:value format, efficiency badges - with a single source of truth.
+Debug logs in the main app will show the same detailed, color-coded rejection reasons, feasibility checks, and region search data as the V3Test tool - enabling proper debugging of layout failures.
 
 ---
 
-## Components to Extract
-
-From `src/pages/V3Test.tsx`, extract to `src/components/debug/DebugLogPanel.tsx`:
-
-| Current Location | New Shared Component |
-|-----------------|---------------------|
-| `formatLogData()` function | Stays in shared component |
-| `LogCountBadge` component | Exported from shared |
-| `DurationBadge` component | Exported from shared |
-| Log display JSX (lines 357-415) | `DebugLogPanel` component |
-
----
-
-## New File Structure
+## Root Cause Analysis
 
 ```text
-src/components/debug/
-├── DebugLogPanel.tsx      # Main shared component
-└── index.ts               # Re-exports
+V3Test (works):                           Main App (broken):
+┌─────────────────────────┐               ┌─────────────────────────┐
+│ V3Test.tsx              │               │ Index.tsx               │
+│   generateCollageV3()───┼──┐            │   generateLayoutInWorker()
+└─────────────────────────┘  │            └───────────┬─────────────┘
+                             │                        │
+                             ▼                        ▼
+┌─────────────────────────┐               ┌─────────────────────────┐
+│ v3/index.ts             │               │ Worker Thread           │
+│   devLogger.log() ──────┼──┐            │   workerLogger.log()  ◄──── Only 4 calls
+└─────────────────────────┘  │            │   findValidConfiguration()
+                             │            │      └─► devLogger.log()──► Lost!
+                             ▼            └─────────────────────────┘
+┌─────────────────────────┐
+│ v3/intersection.ts      │
+│   devLogger.log() ──────┼──┐
+└─────────────────────────┘  │
+                             │
+                             ▼
+┌─────────────────────────┐
+│ devLogger logs array    │  ◄── Same array, all logs collected
+└─────────────────────────┘
+```
+
+**Problem:** In the worker, `devLogger` writes to a separate isolated array that's never returned.
+
+---
+
+## Solution: Add Log Collector to devLogger
+
+Modify `devLogger` to support a collector mode:
+
+```typescript
+// src/lib/devLogger.ts
+
+let logs: LogEntry[] = [];
+let collector: ((entry: LogEntry) => void) | null = null;
+
+export const devLogger = {
+  log(category, label, data, level) {
+    if (!isDev) return;
+    
+    const entry = { timestamp: Date.now(), category, label, data, level };
+    
+    // If collector is set (worker mode), use it
+    if (collector) {
+      collector(entry);
+    } else {
+      // Normal mode - log to console + array
+      console.log(`[${category}] ${label}`, data);
+      logs.push(entry);
+    }
+  },
+  
+  // Set a custom collector (for worker contexts)
+  setCollector(fn: (entry: LogEntry) => void | null) {
+    collector = fn;
+  },
+  
+  // ... rest unchanged
+};
 ```
 
 ---
 
-## DebugLogPanel Props
+## Worker Changes
+
+Update the worker to redirect `devLogger` to its own array:
 
 ```typescript
-interface DebugLogPanelProps {
-  logs: LogEntry[];
-  durationMs?: number;
-  className?: string;
+// src/workers/layoutWorker.ts
+
+import { devLogger, LogEntry } from '@/lib/devLogger';
+
+// Worker-local log collection
+let logs: LogEntry[] = [];
+
+// Redirect devLogger to our local array
+devLogger.setCollector((entry) => {
+  logs.push(entry);
+});
+
+// In generateLayout:
+function generateLayout(...) {
+  logs = [];  // Clear at start
   
-  // Optional header content (for v1/v3 toggle, etc.)
-  headerRight?: React.ReactNode;
+  // Now all devLogger.log() calls from v3/*.ts go to our logs array
+  const config = findValidConfiguration(dims, normalizedGap, tuning, randomize);
   
-  // Scroll area height (V3Test uses 70vh, main app uses 100vh-120px)
-  maxHeight?: string;
+  // Return logs with response
 }
 ```
 
 ---
 
-## Files to Create/Modify
+## Files to Modify
 
-| File | Action |
-|------|--------|
-| `src/components/debug/DebugLogPanel.tsx` | **CREATE** - Extract shared component |
-| `src/components/debug/index.ts` | **CREATE** - Re-exports |
-| `src/pages/V3Test.tsx` | **MODIFY** - Import shared component |
-| `src/components/DebugPanel.tsx` | **MODIFY** - Replace log display with shared component, remove tuning UI |
-| `src/pages/Index.tsx` | **MODIFY** - Remove tuning props from DebugPanel |
+| File | Changes |
+|------|---------|
+| `src/lib/devLogger.ts` | Add `setCollector()` method for worker contexts |
+| `src/workers/layoutWorker.ts` | Redirect devLogger to worker-local collection, remove duplicated `workerLogger` |
 
 ---
 
 ## Technical Details
 
-### 1. DebugLogPanel.tsx (New Shared Component)
+### 1. devLogger.ts Changes
 
 ```typescript
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { LogEntry } from '@/lib/devLogger';
-import { extractReasonFrequencies } from '@/lib/v3CaptureStorage';
-import { cn } from '@/lib/utils';
+// Add collector support
+let collector: ((entry: LogEntry) => void) | null = null;
 
-// Thresholds for efficiency indicators
-const LOG_THRESHOLDS = { good: 30, warn: 80 };
-const DURATION_THRESHOLDS = { good: 10, warn: 50 };
-
-// Format log data: flatten nested objects, format numbers
-function formatLogData(data: Record<string, unknown>): string {
-  const pairs: string[] = [];
-  
-  function flatten(obj: Record<string, unknown>, prefix = '') {
-    for (const [key, value] of Object.entries(obj)) {
-      const fullKey = prefix ? `${prefix}_${key}` : key;
-      
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        flatten(value as Record<string, unknown>, fullKey);
-      } else if (Array.isArray(value)) {
-        const formatted = value.map(v => 
-          typeof v === 'number' ? v.toFixed(2) : String(v)
-        ).join(', ');
-        pairs.push(`${fullKey}:[${formatted}]`);
-      } else if (typeof value === 'number') {
-        const formatted = Number.isInteger(value) ? value : value.toFixed(2);
-        pairs.push(`${fullKey}:${formatted}`);
-      } else {
-        pairs.push(`${fullKey}:${value}`);
-      }
+export const devLogger = {
+  log(category: string, label: string, data: Record<string, unknown> = {}, level: 'info' | 'warn' | 'error' = 'info') {
+    if (!isDev) return;
+    
+    const entry: LogEntry = { timestamp: Date.now(), category, label, data, level };
+    
+    // Collector mode (worker) - skip console, just collect
+    if (collector) {
+      collector(entry);
+      return;
     }
-  }
-  
-  flatten(data);
-  return pairs.join(', ');
-}
+    
+    // Normal mode - console + local array
+    const consoleMethod = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+    consoleMethod(`[${category}] ${label}`, data);
+    logs.push(entry);
+  },
 
-export function LogCountBadge({ 
-  count, rejectCount, feasibilityCount 
-}: { 
-  count: number; rejectCount: number; feasibilityCount: number;
-}) {
-  const color = count <= LOG_THRESHOLDS.good ? 'text-green-600' 
-    : count <= LOG_THRESHOLDS.warn ? 'text-amber-600' 
-    : 'text-red-600';
+  // Set collector for worker contexts
+  setCollector(fn: ((entry: LogEntry) => void) | null) {
+    collector = fn;
+  },
   
-  return (
-    <span className={cn("tabular-nums", color)}>
-      {count} logs
-      {(rejectCount > 0 || feasibilityCount > 0) && (
-        <span className="text-muted-foreground ml-1">
-          ({rejectCount > 0 && <span className="text-red-500">{rejectCount} rej</span>}
-          {rejectCount > 0 && feasibilityCount > 0 && ', '}
-          {feasibilityCount > 0 && <span className="text-amber-500">{feasibilityCount} feas</span>})
-        </span>
-      )}
-    </span>
-  );
-}
+  // Check if in collector mode
+  hasCollector(): boolean {
+    return collector !== null;
+  },
 
-export function DurationBadge({ durationMs }: { durationMs: number }) {
-  const color = durationMs <= DURATION_THRESHOLDS.good ? 'text-green-600' 
-    : durationMs <= DURATION_THRESHOLDS.warn ? 'text-amber-600' 
-    : 'text-red-600';
-  
-  return (
-    <span className={cn("tabular-nums", color)}>{durationMs.toFixed(1)}ms</span>
-  );
-}
-
-interface DebugLogPanelProps {
-  logs: LogEntry[];
-  durationMs?: number;
-  className?: string;
-  headerRight?: React.ReactNode;
-  maxHeight?: string;
-}
-
-export function DebugLogPanel({ 
-  logs, 
-  durationMs, 
-  className,
-  headerRight,
-  maxHeight = 'calc(100vh - 120px)',
-}: DebugLogPanelProps) {
-  const logStats = extractReasonFrequencies(logs);
-  
-  return (
-    <div className={cn("border rounded-lg bg-card overflow-hidden", className)}>
-      {/* Header */}
-      <div className="p-3 border-b font-medium text-sm flex items-center justify-between">
-        <span>Debug Logs</span>
-        <div className="flex items-center gap-3 font-mono text-xs">
-          <LogCountBadge 
-            count={logs.length} 
-            rejectCount={logStats.rejectCount}
-            feasibilityCount={logStats.feasibilityCount}
-          />
-          {durationMs !== undefined && <DurationBadge durationMs={durationMs} />}
-          {headerRight}
-        </div>
-      </div>
-      
-      {/* Log entries */}
-      <ScrollArea style={{ maxHeight }}>
-        <div className="p-3 font-mono text-xs space-y-1">
-          {logs.length === 0 ? (
-            <div className="text-muted-foreground">No logs yet</div>
-          ) : (
-            logs.map((entry, idx) => {
-              const isReject = entry.level === 'warn' || entry.level === 'error' 
-                || entry.category.includes('reject');
-              const isFeasibility = entry.category === 'feasibility';
-              
-              return (
-                <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-                  <div className="flex gap-1 min-w-0">
-                    <span className={cn("shrink-0",
-                      isReject ? "text-red-500" 
-                        : isFeasibility ? "text-amber-500" 
-                        : "text-blue-500"
-                    )}>
-                      [{entry.category}]
-                    </span>
-                    <span className={cn("break-words min-w-0",
-                      isReject ? "text-red-400" 
-                        : isFeasibility ? "text-amber-400" 
-                        : "text-foreground"
-                    )}>
-                      {entry.label}
-                    </span>
-                  </div>
-                  {Object.keys(entry.data).length > 0 && (
-                    <span className={cn("break-all",
-                      isReject ? "text-red-400/70" 
-                        : isFeasibility ? "text-amber-400/70" 
-                        : "text-muted-foreground"
-                    )}>
-                      {formatLogData(entry.data)}
-                    </span>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  );
-}
+  // ... existing methods unchanged
+};
 ```
 
-### 2. Update DebugPanel.tsx
+### 2. layoutWorker.ts Changes
 
-Simplify to just wrap the shared component with v1/v3 toggle:
+Remove the separate `workerLogger` and use redirected `devLogger`:
 
 ```typescript
-import { LogEntry } from '@/lib/devLogger';
-import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { devLogger, LogEntry } from '@/lib/devLogger';
+import { findValidConfiguration, getLastRejection, clearRejections } from '@/lib/v3/intersection';
 
-export type AlgorithmVersion = 'v1' | 'v3';
+// Worker-local log storage
+let workerLogs: LogEntry[] = [];
 
-interface DebugPanelProps {
-  logs: LogEntry[];
-  durationMs?: number;
-  algorithmVersion: AlgorithmVersion;
-  onAlgorithmVersionChange: (version: AlgorithmVersion) => void;
+// Redirect all devLogger calls to worker-local array
+devLogger.setCollector((entry) => {
+  workerLogs.push(entry);
+});
+
+function generateLayout(dimensions, normalizedGap, tuningOverrides, randomize) {
+  // Clear worker logs at start of each generation
+  workerLogs = [];
+  
+  // ... existing generation logic ...
+  // All devLogger.log() calls from v3/*.ts now go to workerLogs
+  
+  const config = findValidConfiguration(dims, normalizedGap, tuning, randomize);
+  
+  // ...
 }
 
-export function DebugPanel({ 
-  logs, 
-  durationMs,
-  algorithmVersion,
-  onAlgorithmVersionChange,
-}: DebugPanelProps) {
-  const versionToggle = (
-    <ToggleGroup 
-      type="single" 
-      value={algorithmVersion} 
-      onValueChange={(value) => value && onAlgorithmVersionChange(value as AlgorithmVersion)}
-      size="sm"
-    >
-      <ToggleGroupItem value="v1" className="text-xs font-mono px-2 h-6">v1</ToggleGroupItem>
-      <ToggleGroupItem 
-        value="v3" 
-        className="text-xs font-mono px-2 h-6 data-[state=on]:bg-amber-500/20 data-[state=on]:text-amber-600"
-      >
-        v3
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
-
-  return (
-    <DebugLogPanel 
-      logs={logs}
-      durationMs={durationMs}
-      headerRight={versionToggle}
-    />
-  );
-}
+// In message handler:
+self.onmessage = (e) => {
+  // ...
+  const layout = generateLayout(...);
+  
+  const response = {
+    // ...
+    logs: isDev ? workerLogs : undefined,  // Use collected logs
+  };
+  
+  self.postMessage(response);
+};
 ```
-
-### 3. Update V3Test.tsx
-
-Replace inline log rendering with shared component:
-
-```typescript
-// Replace lines 357-415 with:
-<DebugLogPanel 
-  logs={logs}
-  durationMs={durationMs}
-  maxHeight="70vh"
-/>
-```
-
-### 4. Update Index.tsx
-
-Remove tuning props, add durationMs tracking:
-
-```typescript
-// Remove: handleV3TuningChange callback
-// Keep: v3Tuning state (still passed to worker)
-
-<DebugPanel 
-  logs={debugLogs}
-  durationMs={generationDurationMs}  // Track from worker result
-  algorithmVersion={algorithmVersion}
-  onAlgorithmVersionChange={setAlgorithmVersion}
-/>
-```
-
-Note: Need to track `durationMs` from worker result. The worker already returns it - just need to store it in state.
 
 ---
 
-## Changes Summary
+## Expected Result
 
-| File | Lines Changed |
-|------|---------------|
-| `src/components/debug/DebugLogPanel.tsx` | +120 (new) |
-| `src/components/debug/index.ts` | +3 (new) |
-| `src/pages/V3Test.tsx` | -80, +5 (import + use shared) |
-| `src/components/DebugPanel.tsx` | -100, +35 (simplified) |
-| `src/pages/Index.tsx` | -10, +8 (remove tuning, add duration) |
+After this fix:
+- Main app debug panel will show 30+ detailed logs instead of 3
+- Region search rejections will be visible with exact values
+- Feasibility checks will be logged
+- Same debugging experience as V3Test
 

@@ -55,6 +55,7 @@ export default function Index() {
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
   const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   
   // Carousel and navigator state
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -128,50 +129,57 @@ export default function Index() {
       photoWeights[photo.id] = effectivePriority === 1 ? 2.0 : 1.0;
     }
     
-    try {
-      devLogger.clear();
-      remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
-      
-      // V3 is the production algorithm
-      // In dev mode, algorithmVersion toggle in DebugPanel can override
-      const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+    // Set generating state and use setTimeout(0) to let React paint before blocking
+    setIsGenerating(true);
+    
+    setTimeout(() => {
+      try {
+        devLogger.clear();
+        remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
+        
+        // V3 is the production algorithm
+        // In dev mode, algorithmVersion toggle in DebugPanel can override
+        const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
 
-      const layout = useV3
-        ? generateCollageLayoutV3(photosToUse, settings, { 
-            photoWeights,
-            randomize,
-            tuning: tuningOverride,
-          })
-        : generateCollageLayout(photosToUse, settings, { 
-            photoWeights,
-            randomize,
-            tuning: DEFAULT_TUNING,
-          });
-      
-      setDebugLogs(devLogger.getLogs());
-      
-      if (layout) {
-        setLayout(layout);
-        setLayoutError(null);  // Clear any previous error
-        remoteLogger.info('layout', 'Layout generated', { cells: layout.cells.length });
-      } else if (state.layout) {
-        // Generation failed but we have a previous layout - keep it, show error
-        setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
-      } else {
-        // No previous layout - nothing to preserve
-        setLayout(null);
-        setLayoutError("Couldn't generate a layout with these photos.");
+        const layout = useV3
+          ? generateCollageLayoutV3(photosToUse, settings, { 
+              photoWeights,
+              randomize,
+              tuning: tuningOverride,
+            })
+          : generateCollageLayout(photosToUse, settings, { 
+              photoWeights,
+              randomize,
+              tuning: DEFAULT_TUNING,
+            });
+        
+        setDebugLogs(devLogger.getLogs());
+        
+        if (layout) {
+          setLayout(layout);
+          setLayoutError(null);  // Clear any previous error
+          remoteLogger.info('layout', 'Layout generated', { cells: layout.cells.length });
+        } else if (state.layout) {
+          // Generation failed but we have a previous layout - keep it, show error
+          setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+        } else {
+          // No previous layout - nothing to preserve
+          setLayout(null);
+          setLayoutError("Couldn't generate a layout with these photos.");
+        }
+      } catch (error) {
+        console.error('Layout generation failed:', error);
+        remoteLogger.error('layout', 'Generation failed', { 
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        if (!state.layout) {
+          setLayoutError("Something went wrong. Please try again.");
+        }
+      } finally {
+        setIsGenerating(false);
       }
-    } catch (error) {
-      console.error('Layout generation failed:', error);
-      remoteLogger.error('layout', 'Generation failed', { 
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      if (!state.layout) {
-        setLayoutError("Something went wrong. Please try again.");
-      }
-    }
+    }, 0);
   }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler
@@ -515,6 +523,7 @@ export default function Index() {
                     onToggleHero={handleToggleHero}
                     onViewAll={() => setNavigatorOpen(true)}
                     onRefresh={handleCreateCollage}
+                    isRefreshing={isGenerating}
                   />
                 )}
               </CollapsibleContent>
@@ -557,9 +566,10 @@ export default function Index() {
                           size="icon" 
                           className="h-8 w-8" 
                           onClick={handleCreateCollage}
+                          disabled={isGenerating}
                           title="Shuffle layout"
                         >
-                          <RefreshCw className="h-4 w-4" />
+                          <RefreshCw className={cn("h-4 w-4", isGenerating && "animate-spin")} />
                         </Button>
                         <Button 
                           variant="ghost" 
@@ -585,7 +595,10 @@ export default function Index() {
                       </p>
                     )}
 
-                    <div className="relative overflow-hidden">
+                    <div className={cn(
+                      "relative overflow-hidden transition-opacity duration-150",
+                      isGenerating && "opacity-60"
+                    )}>
                       <CollagePreview
                         photos={state.photos}
                         layout={state.layout}

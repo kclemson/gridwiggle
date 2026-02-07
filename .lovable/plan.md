@@ -1,197 +1,135 @@
 
-# Crop Dialog UX Improvements
+# UI Improvements: Progress Simplification, Image Optimization, Collapsible Carousel
 
 ## Overview
 
-Three UX improvements to the Adjust Crop dialog and photo carousel:
+Three improvements to enhance performance and reduce visual clutter:
 
-1. **Add Delete button to the Adjust Crop dialog** - Enables collapsing the carousel
-2. **Disable Save button when nothing has changed** - Clearer UI state
-3. **Add button press feedback** - Satisfying click interaction
+1. **Simplify progress display** - Remove redundant progress bar and counter
+2. **Optimize image loading** - Create display-resolution previews to avoid loading full-res images
+3. **Add collapsible carousel** - Auto-collapse after processing to maximize collage space
 
 ---
 
-## 1. Add Delete Button to Crop Editor
+## 1. Simplify Progress Display
+
+### What Changes
+Remove the purple progress bar and "X of Y photos processed" text from the processing view. The colored dots already communicate the same information more elegantly.
 
 ### User Outcome
-Once the delete functionality is in the Adjust Crop dialog, all photo management can be done via the collage preview. This allows the carousel to be collapsed by default, reducing visual clutter.
+A cleaner processing interface that doesn't repeat information. Users see the animated purple dot (currently processing), green dots (complete), and gray dots (pending).
 
-### Implementation
+### Technical Changes
+
+**File**: `src/components/PhotoProcessingView.tsx`
+
+Remove:
+- The "X of Y photos processed" paragraph
+- The `<Progress>` bar component
+- The status text ("Loading image...")
+- Keep: header, current photo thumbnail, stats, and dots
+
+---
+
+## 2. Display-Resolution Image Previews
+
+### Current Problem
+Every `<img>` tag uses `photo.objectUrl`, which points to the full-resolution blob. When a user uploads 50 photos at 4000×3000 (12MP each), the browser is asked to decode and render 600MP+ of image data for the 180px carousel thumbnails.
+
+### Solution
+Create a "display preview" version of each image when first loaded:
+- Scale down to max ~1200px on longest edge (sufficient for crop editor and collage preview)
+- Store as a separate `previewUrl` alongside the original blob
+- Use `previewUrl` for all rendering; reserve original blob for export only
+
+### User Outcome
+- Faster photo loading and smoother UI
+- Less memory pressure (fewer browser crashes/slowdowns)
+- Same export quality (full-res used for download)
+
+### Technical Changes
+
+**File**: `src/types/collage.ts`
+- Add `previewBlob?: Blob` and `previewUrl?: string` to `PhotoItem`
+
+**File**: `src/lib/imageUtils.ts`
+- Add `createDisplayPreview(blob: Blob, maxSize: number): Promise<{blob: Blob, url: string}>`
+- Uses OffscreenCanvas (or fallback canvas) to scale image down
+
+**File**: `src/components/PhotoUploader.tsx`
+- After getting dimensions, call `createDisplayPreview()` to generate preview
+- Set both `objectUrl` (original) and `previewUrl` (scaled) on the PhotoItem
+
+**File**: `src/components/common/CroppedImage.tsx`
+- Accept optional `previewSrc` prop, fallback to `src` if not provided
+- Collage and carousel pass `photo.previewUrl ?? photo.objectUrl`
 
 **File**: `src/components/CropEditor.tsx`
+- Use `photo.previewUrl ?? photo.objectUrl` for the SVG image
+- Crop coordinates still work because they're in original-pixel space (viewBox handles the mapping)
 
-Add a Delete button in the footer, left-aligned as a destructive action:
-
-```tsx
-// Add onDelete prop
-interface CropEditorProps {
-  photo: PhotoItem;
-  onClose: () => void;
-  onSave: (photoId: string, crop: CropRegion, priority: PhotoPriority) => void;
-  onDelete: (photoId: string) => void;  // NEW
-}
-
-// In DialogFooter, add delete button on the left
-<DialogFooter className="...">
-  <Button 
-    variant="ghost" 
-    onClick={() => onDelete(photo.id)}
-    className="text-destructive hover:text-destructive mr-auto"
-  >
-    <Trash2 className="h-4 w-4 mr-1.5" />
-    Delete Photo
-  </Button>
-  
-  {/* Existing hero checkbox and save/cancel... */}
-</DialogFooter>
-```
-
-**File**: `src/pages/Index.tsx`
-
-Pass the delete handler to CropEditor:
-
-```tsx
-<CropEditor
-  photo={editingPhoto}
-  onClose={() => setEditingPhotoId(null)}
-  onSave={handleSaveCrop}
-  onDelete={(photoId) => {
-    handleRemovePhoto(photoId);
-    setEditingPhotoId(null);
-  }}
-/>
-```
+**File**: `src/lib/exportCollage.ts`
+- Continue using `photo.blob` (original full-res) for export
 
 ---
 
-## 2. Disable Save When No Changes
+## 3. Collapsible Carousel with Auto-Collapse
 
 ### User Outcome
-The Save button is disabled and styled differently when the user hasn't made any edits, making it clear there's nothing to save.
+After all photos finish processing, the carousel automatically collapses to give more screen space to the collage. Users can expand it if they want to use the carousel navigation.
 
 ### Design
-- Compare current crop position/size against initial values
-- Compare hero toggle state against initial value
-- If both are unchanged, disable the Save button
+- Use Radix Collapsible component (already installed via shadcn)
+- Collapsed state shows just a header bar: "Photos (55)" with a chevron
+- Expanded state shows the full carousel
+- Auto-collapses 500ms after processing completes (smooth transition)
+- Persist open/closed state in localStorage
 
-### Implementation
+### Technical Changes
 
-**File**: `src/components/CropEditor.tsx`
+**File**: `src/pages/Index.tsx`
+- Add `carouselOpen` state, initialized from localStorage
+- Watch for transition from `isProcessing=true` → `false`, then set `carouselOpen=false` after delay
+- Wrap `PhotoCarousel` in Collapsible component
 
-Add change detection:
+```text
+┌─────────────────────────────────────────────┐
+│  Photos (55)                           ▼    │  ← Click to expand
+├─────────────────────────────────────────────┤
+│  [Collapsed: shows nothing below header]    │
+└─────────────────────────────────────────────┘
 
-```tsx
-// Store initial values for comparison
-const initialCrop = useRef<CropRegion>(getEditorInitialCrop(photo));
-const initialIsHero = useRef(photo.priority === 1);
+OR when expanded:
 
-// Detect if any changes were made
-const hasChanges = useMemo(() => {
-  const cropChanged = 
-    crop.x !== initialCrop.current.x ||
-    crop.y !== initialCrop.current.y ||
-    crop.width !== initialCrop.current.width ||
-    crop.height !== initialCrop.current.height;
-  
-  const heroChanged = isHero !== initialIsHero.current;
-  
-  return cropChanged || heroChanged;
-}, [crop, isHero]);
-
-// Disable save button when no changes
-<Button 
-  onClick={handleSave} 
-  disabled={!hasChanges}
->
-  Save
-</Button>
+┌─────────────────────────────────────────────┐
+│  Photos (55)                           ▲    │  ← Click to collapse
+├─────────────────────────────────────────────┤
+│  [Full carousel with photo + buttons]       │
+│  ← prev    [photo preview]    next →        │
+│  [Hero] [Edit] [Delete] [View All]          │
+└─────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Add Button Press Feedback
+## Implementation Sequence
 
-### User Outcome
-When clicking Save or any action button, users get immediate tactile feedback:
-- Visual "pressed" state (scale down briefly)
-- Button text changes or shows loading state
-- Dialog closes faster or shows transition
-
-### Design Pattern
-Use the "active" CSS pseudo-state for instant press feedback, plus a brief loading state:
-
-```css
-/* In button component - already has this via Tailwind */
-.button:active {
-  transform: scale(0.97);
-}
-```
-
-However, the current issue is the delay between click and dialog close. The fix:
-
-1. **Optimistic close**: Close dialog immediately, don't wait for state updates
-2. **Visual feedback**: Show a brief pressed/saving state
-
-### Implementation
-
-**File**: `src/components/CropEditor.tsx`
-
-Add immediate visual feedback:
-
-```tsx
-const [isSaving, setIsSaving] = useState(false);
-
-const handleSave = () => {
-  setIsSaving(true);
-  const priority: PhotoPriority = isHero ? 1 : 3;
-  
-  // Close immediately for responsiveness
-  onClose();
-  
-  // State update happens after close - user doesn't see the delay
-  onSave(photo.id, crop, priority);
-};
-
-// Button shows saving state briefly
-<Button 
-  onClick={handleSave} 
-  disabled={!hasChanges || isSaving}
-  className="active:scale-95 transition-transform"
->
-  {isSaving ? 'Saving...' : 'Save'}
-</Button>
-```
-
-**File**: `src/components/ui/button.tsx`
-
-Add active state to the base button for tactile feedback:
-
-```tsx
-const buttonVariants = cva(
-  "inline-flex items-center justify-center ... active:scale-[0.98] transition-transform duration-75",
-  // ... rest of variants
-);
-```
+1. **Progress simplification** (quick win)
+2. **Collapsible carousel** (medium - UI only)
+3. **Display previews** (larger - touches multiple files)
 
 ---
 
-## Collapsible Carousel (Follow-up)
-
-Once the delete button is in the crop editor, the carousel becomes optional. A follow-up could:
-
-- Add a "Photos" collapsible section header
-- Default to collapsed when a collage layout exists
-- Use Radix Collapsible component (already installed)
-
-This keeps the carousel available for users who want it, but removes visual clutter for those who interact via the collage.
-
----
-
-## Summary of Changes
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/components/CropEditor.tsx` | Add `onDelete` prop, delete button, change detection, save feedback |
-| `src/pages/Index.tsx` | Pass `onDelete` handler to CropEditor |
-| `src/components/ui/button.tsx` | Add `active:scale-[0.98]` for tactile press feedback |
-
+| `src/components/PhotoProcessingView.tsx` | Remove progress bar and counter |
+| `src/types/collage.ts` | Add `previewBlob` and `previewUrl` fields |
+| `src/lib/imageUtils.ts` | Add `createDisplayPreview()` function |
+| `src/components/PhotoUploader.tsx` | Generate display preview on upload |
+| `src/components/common/CroppedImage.tsx` | Accept and prefer preview URL |
+| `src/components/CropEditor.tsx` | Use preview URL for rendering |
+| `src/components/CollagePreview.tsx` | Pass preview URL to CroppedImage |
+| `src/components/PhotoCarousel.tsx` | Pass preview URL to CroppedImage |
+| `src/pages/Index.tsx` | Add collapsible carousel with auto-collapse |

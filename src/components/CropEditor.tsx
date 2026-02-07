@@ -211,9 +211,9 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
               </filter>
             </defs>
             
-            {/* Full image */}
+            {/* Full image - use preview for performance, viewBox handles coordinate mapping */}
             <image
-              href={photo.objectUrl}
+              href={photo.previewUrl ?? photo.objectUrl}
               x="0"
               y="0"
               width={photo.originalWidth}

@@ -81,11 +81,8 @@ export function PhotoCarousel({
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between px-1">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Photos ({photos.length})
-        </h3>
+      {/* Position indicator - header is now in the collapsible trigger */}
+      <div className="flex justify-end px-1">
         <span className="text-sm text-muted-foreground">
           {currentIndex + 1} of {photos.length}
         </span>
@@ -117,6 +114,7 @@ export function PhotoCarousel({
                     {crop ? (
                       <CroppedImage
                         src={photo.objectUrl}
+                        previewSrc={photo.previewUrl}
                         crop={crop}
                         originalWidth={photo.originalWidth}
                         originalHeight={photo.originalHeight}
@@ -124,7 +122,7 @@ export function PhotoCarousel({
                       />
                     ) : (
                       <img
-                        src={photo.objectUrl}
+                        src={photo.previewUrl ?? photo.objectUrl}
                         alt=""
                         className="w-full h-full object-cover"
                       />

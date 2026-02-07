@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { Upload, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getImageDimensions, generateId } from '@/lib/imageUtils';
+import { getImageDimensions, generateId, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem } from '@/types/collage';
 
 interface PhotoUploaderProps {
@@ -23,6 +23,9 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
       const objectUrl = URL.createObjectURL(blob);
       const dimensions = await getImageDimensions(objectUrl);
       
+      // Create display-resolution preview for UI rendering
+      const preview = await createDisplayPreview(blob, 1200);
+      
       return {
         id: generateId(),
         filename: file.name,
@@ -35,6 +38,8 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
         isProcessing: true,
         error: null,
         priority: 3, // Default: standard
+        previewUrl: preview.url,
+        previewBlob: preview.blob,
       };
     });
 

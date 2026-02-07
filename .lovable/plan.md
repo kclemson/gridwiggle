@@ -1,79 +1,61 @@
 
 
-## Quiet Production Console Logging
+## Expand Hero AR Range in Test Generator
 
 ### Design Intent
-Reduce console noise in production while maintaining full remote telemetry. Only critical failures that users/developers need to see should appear in the browser console.
+Allow the test generator to produce wider heroes (AR up to 3.0) so we can observe `beside=0` layouts where the hero spans the full canvas width.
 
 ### User Outcomes
-- **Production**: Console only shows layout failures with actionable error info
-- **Development**: No change - all logs still visible for debugging
-- **Remote logging**: Unchanged - all events still sent to the edge function for monitoring
+- V3 test page will occasionally generate very wide heroes (panorama-style)
+- This exposes the `beside=0` layout path that's currently unreachable due to narrow hero sampling
+- Helps debug and validate the full-width hero geometry before adding edge mode
 
----
+### The Change
 
-### Changes
+**File: `src/test/layout/photoGenerator.ts`**
 
-**`src/lib/remoteLogger.ts`**
-
-Update the `log()` method to conditionally output to console:
-
+**Current behavior** (line 70-72):
 ```typescript
-const isDev = import.meta.env.DEV;
+if (isHero) {
+  // Hero biased toward landscape/square
+  aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+}
+```
+- Bias range: 0.3 to 0.7
+- Resulting AR range: ~0.9 to ~1.6
+- Never wide enough for `beside=0` with 20+ photos
 
-export const remoteLogger = {
-  log(level: 'info' | 'warn' | 'error', category: string, message: string, data?: Record<string, unknown>) {
-    // In production: only log errors to console
-    // In development: log everything to console
-    if (isDev || level === 'error') {
-      const consoleFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-      consoleFn(`[${category}] ${message}`, data ?? '');
-    }
-    
-    // Always buffer for remote sending (unchanged)
-    logBuffer.push({
-      timestamp: Date.now(),
-      level,
-      category,
-      message,
-      data,
-    });
-    
-    // ... rest unchanged
-  },
-  // ...
-};
+**New behavior**:
+```typescript
+if (isHero) {
+  // Hero spans from square to panorama
+  // 70% chance: moderate landscape (AR 1.0-1.8)
+  // 30% chance: wide panorama (AR 2.0-3.0)
+  if (Math.random() < 0.3) {
+    // Wide panorama hero - enables beside=0 layouts
+    aspectRatio = 2.0 + Math.random() * 1.0;  // 2.0 to 3.0
+  } else {
+    // Standard landscape-biased hero
+    aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+  }
+}
 ```
 
-**`src/pages/Index.tsx`**
-
-Update the layout failure log to use `error` level so it appears in prod console:
-
+Also update the `MAX_ASPECT` constant to accommodate wider heroes:
 ```typescript
-// Line 208: Change from info to error
-remoteLogger.error('layout', 'Layout generation failed', {
-  durationMs: workerResult?.durationMs,
-  usedWorker: workerResult?.usedWorker ?? false,
-  reason: workerResult?.failure?.reason ?? 'unknown',
-});
+const MAX_ASPECT = 3.0;   // Panorama (was 2.0)
 ```
 
----
+### Why These Numbers
 
-### Behavior Matrix
-
-| Environment | Log Level | Console Output | Remote Send |
-|-------------|-----------|----------------|-------------|
-| Dev         | info      | ✅             | ✅          |
-| Dev         | warn      | ✅             | ✅          |
-| Dev         | error     | ✅             | ✅          |
-| **Prod**    | info      | ❌             | ✅          |
-| **Prod**    | warn      | ❌             | ✅          |
-| **Prod**    | error     | ✅             | ✅          |
-
----
+For `beside=0` to be valid with canvas AR ≥ 0.67:
+- With 20 content photos and belowHeight ~1.5, heroAR needs to be ≥ 2.0
+- With 30 content photos and belowHeight ~2.0, heroAR needs to be ≥ 2.5
+- AR 3.0 covers most realistic test cases
 
 ### Files Modified
-1. `src/lib/remoteLogger.ts` - Add dev check for console output
-2. `src/pages/Index.tsx` - Change layout failure from `info` → `error`
+
+| File | Change |
+|------|--------|
+| `src/test/layout/photoGenerator.ts` | Update `MAX_ASPECT` to 3.0; add 30% chance for wide panorama hero (AR 2.0-3.0) |
 

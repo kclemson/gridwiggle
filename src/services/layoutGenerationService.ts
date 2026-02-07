@@ -27,6 +27,13 @@ export interface LayoutGenerationResult {
   logs?: LogEntry[];
   failure?: { reason: string; details?: Record<string, unknown> };
   usedWorker: boolean;
+  rejectedLayout?: {
+    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
+    canvasWidth: number;
+    canvasHeight: number;
+    reason: string;
+    details: Record<string, unknown>;
+  };
 }
 
 // ============================================================================
@@ -166,6 +173,7 @@ export async function generateLayoutInWorker(
         logs: e.data.logs,
         failure: e.data.failure,
         usedWorker: true,
+        rejectedLayout: e.data.rejectedLayout,
       });
     };
     

@@ -7,7 +7,7 @@
 
 import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { CollageLayout, CollageCell } from '@/types/collage';
-import { findValidConfiguration, getLastRejection, clearRejections } from '@/lib/v3/intersection';
+import { findValidConfiguration, getLastRejection, getLastRejectedLayout, clearRejections, clearRejectedLayout } from '@/lib/v3/intersection';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
@@ -45,6 +45,13 @@ export interface LayoutResponse {
   durationMs: number;
   logs?: LogEntry[];
   failure?: { reason: string; details?: Record<string, unknown> };
+  rejectedLayout?: {
+    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
+    canvasWidth: number;
+    canvasHeight: number;
+    reason: string;
+    details: Record<string, unknown>;
+  };
 }
 
 // ============================================================================
@@ -70,8 +77,9 @@ function generateLayout(
   tuningOverrides: Partial<V3Tuning>,
   randomize: boolean
 ): CollageLayout | null {
-  // Clear worker logs at start of each generation
+  // Clear worker logs and rejected layout at start of each generation
   workerLogs = [];
+  clearRejectedLayout();
   
   if (dimensions.length < 2) return null;
   
@@ -176,6 +184,18 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
           ...rejection?.details,
         },
       };
+      
+      // Capture rejected layout geometry for visualization
+      const rejectedLayout = getLastRejectedLayout();
+      if (rejectedLayout?.cells) {
+        response.rejectedLayout = {
+          cells: rejectedLayout.cells,
+          canvasWidth: rejectedLayout.canvasWidth,
+          canvasHeight: rejectedLayout.canvasHeight,
+          reason: rejectedLayout.reason,
+          details: rejectedLayout.details,
+        };
+      }
     }
     
     self.postMessage(response);

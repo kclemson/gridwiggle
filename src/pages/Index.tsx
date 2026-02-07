@@ -16,6 +16,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
+import { RejectionBadge } from '@/components/debug/RejectionBadge';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
@@ -60,6 +61,13 @@ export default function Index() {
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [rejectedLayout, setRejectedLayout] = useState<{
+    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
+    canvasWidth: number;
+    canvasHeight: number;
+    reason: string;
+    details: Record<string, unknown>;
+  } | null>(null);
   
   // Carousel and navigator state
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -234,6 +242,7 @@ export default function Index() {
       if (layout) {
         setLayout(layout);
         setLayoutError(null);
+        setRejectedLayout(null);
         remoteLogger.info('layout', 'Layout generated', { 
           cells: layout.cells.length,
           durationMs: result.durationMs,
@@ -245,6 +254,28 @@ export default function Index() {
           usedWorker: result.usedWorker ?? false,
           reason: result.failure?.reason ?? 'unknown',
         });
+        
+        // Capture rejected layout for visualization
+        if (result.rejectedLayout) {
+          // Scale from normalized (0-1) to pixel coordinates (base 1000)
+          const SCALE = 1000;
+          setRejectedLayout({
+            cells: result.rejectedLayout.cells.map(c => ({
+              photoId: c.photoId,
+              x: Math.round(c.x * SCALE),
+              y: Math.round(c.y * SCALE),
+              width: Math.round(c.width * SCALE),
+              height: Math.round(c.height * SCALE),
+            })),
+            canvasWidth: Math.round(result.rejectedLayout.canvasWidth * SCALE),
+            canvasHeight: Math.round(result.rejectedLayout.canvasHeight * SCALE),
+            reason: result.rejectedLayout.reason,
+            details: result.rejectedLayout.details,
+          });
+        } else {
+          setRejectedLayout(null);
+        }
+        
         if (state.layout) {
           setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
         } else {
@@ -716,7 +747,7 @@ export default function Index() {
                       )}
                       
                       {/* Error overlay - shown when layout generation fails */}
-                      {layoutError && (
+                      {layoutError && !rejectedLayout && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl z-20">
                           <p className="text-sm text-muted-foreground text-center mb-3 px-4">
                             {layoutError}
@@ -735,6 +766,42 @@ export default function Index() {
                         </div>
                       )}
                     </div>
+                    
+                    {/* Rejected layout visualization - shown with real photos for subjective evaluation */}
+                    {layoutError && rejectedLayout && (
+                      <div className="relative">
+                        <div className="ring-4 ring-destructive rounded-lg overflow-hidden opacity-70">
+                          <CollagePreview
+                            photos={state.photos}
+                            layout={{
+                              width: rejectedLayout.canvasWidth,
+                              height: rejectedLayout.canvasHeight,
+                              cells: rejectedLayout.cells,
+                            }}
+                            gapColor={state.settings.gapColor}
+                            onSwapPhotos={() => {}} // Disabled for rejected
+                          />
+                        </div>
+                        <RejectionBadge 
+                          reason={rejectedLayout.reason} 
+                          details={rejectedLayout.details} 
+                        />
+                        <div className="mt-3 flex justify-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setLayoutError(null);
+                              setRejectedLayout(null);
+                              regenerateCollage({ randomize: true });
+                            }}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Try Again
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     
                     {/* Configure - only shown when collage exists */}
                     <CollageSettings

@@ -5,7 +5,7 @@
  * Dev-only component for debugging layout generation.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { LogEntry } from '@/lib/devLogger';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,11 @@ export function DebugPanel({
 }: DebugPanelProps) {
   // Track pending count in state so reset triggers re-render
   const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
+
+  // Sync pending count when logs change (after each generation)
+  useEffect(() => {
+    setPendingCount(getCaptureStats().pending);
+  }, [logs]);
 
   const handleExport = useCallback(() => {
     const { data, count } = exportPendingCaptures();

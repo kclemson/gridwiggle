@@ -25,13 +25,6 @@ export function PhotoProcessingView({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="text-center space-y-1">
-        <div className="flex items-center justify-center gap-2 text-primary">
-          <Wand2 className="h-5 w-5 animate-pulse" />
-          <h3 className="text-lg font-medium">Processing Photos</h3>
-        </div>
-      </div>
 
       {/* Current photo thumbnail */}
       {currentPhoto && (

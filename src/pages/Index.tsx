@@ -463,14 +463,23 @@ export default function Index() {
               <div className="relative">
                 <div className="space-y-2 pt-4 border-t border-border">
                 {!state.layout ? (
-                  // No layout yet - show Generate button
-                  <Button 
-                    onClick={handleCreateCollage}
-                    className="w-full"
-                  >
-                    <Grid3X3 className="h-4 w-4 mr-2" />
-                    Generate Collage
-                  </Button>
+                  // No layout yet - show error prompt if generation failed
+                  layoutError ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <AlertCircle className="h-5 w-5" />
+                        <span className="text-sm">{layoutError}</span>
+                      </div>
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCreateCollage}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Try Again
+                      </Button>
+                    </div>
+                  ) : null
                 ) : (
                   // Layout exists - show collage preview with shuffle/download
                   <>

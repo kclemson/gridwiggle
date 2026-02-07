@@ -12,11 +12,16 @@ const sessionId = crypto.randomUUID();
 let logBuffer: LogEntry[] = [];
 let flushTimeout: number | null = null;
 
+const isDev = import.meta.env.DEV;
+
 export const remoteLogger = {
   log(level: 'info' | 'warn' | 'error', category: string, message: string, data?: Record<string, unknown>) {
-    // Always log to console
-    const consoleFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-    consoleFn(`[${category}] ${message}`, data ?? '');
+    // In production: only log errors to console
+    // In development: log everything to console
+    if (isDev || level === 'error') {
+      const consoleFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+      consoleFn(`[${category}] ${message}`, data ?? '');
+    }
     
     // Buffer for remote sending
     logBuffer.push({

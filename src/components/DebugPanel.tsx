@@ -1,9 +1,10 @@
 import { LogEntry } from '@/lib/devLogger';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Check, X, AlertTriangle, ChevronRight, Filter } from 'lucide-react';
 import { V3Tuning } from '@/lib/v3/types';
 import { V3TuningSection } from '@/components/V3TuningSection';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { cn } from '@/lib/utils';
 
 export type AlgorithmVersion = 'v1' | 'v3';
 
@@ -15,7 +16,12 @@ interface DebugPanelProps {
   onAlgorithmVersionChange: (version: AlgorithmVersion) => void;
 }
 
-function getLogIcon(label: string, data: Record<string, unknown>) {
+function getLogIcon(label: string, data: Record<string, unknown>, category?: string) {
+  // Feasibility checks — amber filter icon
+  if (category === 'feasibility') {
+    return <Filter className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
+  }
+  
   // Check for accepted/rejected in config logs
   if (label.includes('Trying config') || label.includes('config')) {
     if (data.accepted === true) {
@@ -64,11 +70,15 @@ function formatValue(value: unknown): string {
 }
 
 function LogEntryRow({ entry }: { entry: LogEntry }) {
-  const icon = getLogIcon(entry.label, entry.data);
+  const icon = getLogIcon(entry.label, entry.data, entry.category);
   const dataEntries = Object.entries(entry.data);
+  const isFeasibility = entry.category === 'feasibility';
   
   return (
-    <div className="border-b border-border/50 py-2 px-3 last:border-b-0">
+    <div className={cn(
+      "border-b border-border/50 py-2 px-3 last:border-b-0",
+      isFeasibility && "bg-amber-500/10"
+    )}>
       <div className="flex items-center gap-2 font-medium text-xs">
         {icon}
         <span className="text-foreground">{entry.label}</span>

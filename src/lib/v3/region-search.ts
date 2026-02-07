@@ -9,7 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
-import { canMeetProminence, canMeetCanvasAR } from './feasibility';
+import { canMeetProminence, canBesideCountMeetCanvasAR } from './feasibility';
 
 // ============================================================================
 // Region Search Algorithm
@@ -77,8 +77,16 @@ export function findValidRegionAssignment(
     const besidePhotos = orderedPhotos.slice(0, besideCount);
     const belowPhotos = orderedPhotos.slice(besideCount);
     
-    // Early feasibility check for beside configurations
+    // Early feasibility checks for beside configurations
     if (besideCount > 0) {
+      // Canvas AR feasibility check at besideCount level
+      const canvasARFeasibility = canBesideCountMeetCanvasAR(
+        heroAR, besidePhotos, normalizedGap, tuning
+      );
+      if (!canvasARFeasibility.feasible) {
+        continue; // Skip entire besideCount — no row config can work
+      }
+      
       const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
       
       // Check if prominence is achievable with 1 row (worst case)
@@ -183,16 +191,13 @@ export function findValidRegionAssignment(
       // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
-      // Early canvas AR feasibility check
-      const canvasARFeasibility = canMeetCanvasAR(heroRowWidth, normalizedGap, tuning);
-      if (!canvasARFeasibility.feasible) {
-        devLogger.log('region', 'Skipping (canvas AR infeasible)', {
-          besideCount,
-          besideRowCount,
-          heroRowWidth: heroRowWidth.toFixed(2),
-          reason: canvasARFeasibility.reason,
-        });
-        continue;
+      // Canvas AR validation (post-pack check, no logging — outer loop already filtered)
+      const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+      const canvasWidth = heroRowWidth + 2 * normalizedGap;
+      const bestCaseAR = canvasWidth / minCanvasHeight;
+      
+      if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
+        continue; // Skip — canvas too wide
       }
       
       // Calculate optimal row count for BELOW (respecting both min and max AR)

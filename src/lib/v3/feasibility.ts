@@ -6,7 +6,7 @@
  * but never reject valid configurations.
  */
 
-import { V3Tuning } from './types';
+import { PhotoDimension, V3Tuning } from './types';
 import { devLogger } from '@/lib/devLogger';
 
 /**
@@ -67,36 +67,50 @@ export function canMeetProminence(
 }
 
 /**
- * Check if canvas AR can possibly be valid for a given hero row width.
+ * Estimate if ANY row configuration for a given besideCount could produce
+ * a valid canvas AR. Uses minimum heroRowWidth estimate.
  * 
- * This is a quick check BEFORE packing BELOW.
- * Only checks the "too wide" case since that's tighter.
+ * This is a TRUE pre-pack check — runs before any packing happens.
+ * 
+ * Key insight: The minimum heroRowWidth occurs when BESIDE is packed into
+ * maximum rows (most vertical stacking). We can estimate this without packing:
+ * - minBesideWidth ≈ sumBesideAR / maxRows
+ * - minHeroRowWidth = heroAR + gap + minBesideWidth
+ * 
+ * If even this best-case width exceeds canvas AR limits, skip the entire besideCount.
  */
-export function canMeetCanvasAR(
-  heroRowWidth: number,
+export function canBesideCountMeetCanvasAR(
+  heroAR: number,
+  besidePhotos: PhotoDimension[],
   normalizedGap: number,
   tuning: V3Tuning
-): { feasible: boolean; reason?: string } {
-  // Minimum canvas height (hero + gap + minimal below + border)
-  // Conservative estimate: belowHeight could be as low as 0.2
-  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
-  const canvasWidth = heroRowWidth + 2 * normalizedGap;
+): { feasible: boolean; minHeroRowWidth: number } {
+  if (besidePhotos.length === 0) {
+    return { feasible: true, minHeroRowWidth: heroAR };
+  }
   
-  // Best-case AR (tallest canvas = lowest AR for given width)
+  // Minimum besideWidth occurs at maximum row count (most vertical stacking)
+  const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
+  const maxRows = Math.min(besidePhotos.length, 4);
+  const minBesideWidth = sumBesideAR / maxRows;
+  
+  const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
+  
+  // Best-case canvas AR (minimum width / maximum height)
+  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+  const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
   const bestCaseAR = canvasWidth / minCanvasHeight;
   
-  // If even the best case exceeds maxAR, this heroRowWidth won't work
-  if (bestCaseAR > tuning.canvas_maxAR * 1.1) { // 10% margin for safety
-    devLogger.log('feasibility', 'Canvas AR infeasible', {
-      heroRowWidth: heroRowWidth.toFixed(2),
+  const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
+  
+  if (!feasible) {
+    devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
+      besideCount: besidePhotos.length,
+      minHeroRowWidth: minHeroRowWidth.toFixed(2),
       bestCaseAR: bestCaseAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,
     });
-    return { 
-      feasible: false, 
-      reason: `heroRowWidth ${heroRowWidth.toFixed(2)} → min AR ${bestCaseAR.toFixed(2)} > max ${tuning.canvas_maxAR}`
-    };
   }
   
-  return { feasible: true };
+  return { feasible, minHeroRowWidth };
 }

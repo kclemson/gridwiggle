@@ -608,6 +608,13 @@ export default function Index() {
                         onToggleHero={handleToggleHero}
                       />
                       
+                      {/* Generating overlay - spinner centered on canvas */}
+                      {isGenerating && (
+                        <div className="absolute inset-0 flex items-center justify-center z-10">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      )}
+                      
                       {/* Error overlay - shown when layout generation fails */}
                       {layoutError && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl z-20">

@@ -9,7 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types'
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
-import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR } from './feasibility';
+import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
 // Rejected Pack Type (for capturing last rejected layout)
@@ -86,9 +86,14 @@ export function findValidRegionAssignment(
     ? shuffleArray(photos)
     : [...photos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
-  // Search parameters - canvas AR constraint naturally limits valid assignments
-  const minBesidePhotos = 0;  // Allow "hero at top, all below"
-  const maxBesidePhotos = Math.min(photos.length, 12); // Reasonable upper bound for search
+  // Calculate avgContentAR once before the loop
+  const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
+  
+  // Calculate geometrically valid besideCount range based on hero shape and photo count
+  // This replaces the hardcoded 0–12 limit
+  const { minBeside, maxBeside } = calculateBesideCountRange(
+    heroAR, photos.length, avgContentAR, normalizedGap, tuning
+  );
   
   // Collect all valid assignments instead of tracking best
   const validRegionAssignments: RegionAssignment[] = [];
@@ -96,18 +101,15 @@ export function findValidRegionAssignment(
   // Track last rejected pack for debugging when all packs fail
   let lastRejectedPack: RejectedPack | undefined;
   
-  // Calculate avgContentAR once before the loop
-  const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
-  
   devLogger.log('region', 'Starting region assignment search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
     avgContentAR: avgContentAR.toFixed(2),
-    searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
+    searchRange: `${minBeside} to ${maxBeside} beside photos`,
     randomize,
   });
   
-  for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
+  for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
     // Slice from ordered array (shuffled or sorted)
     const besidePhotos = orderedPhotos.slice(0, besideCount);
     const belowPhotos = orderedPhotos.slice(besideCount);
@@ -152,7 +154,8 @@ export function findValidRegionAssignment(
         heroRowWidth, 
         normalizedGap,
         heroAR,
-        tuning
+        tuning,
+        randomize
       );
       
       // Pack BELOW
@@ -257,7 +260,8 @@ export function findValidRegionAssignment(
         heroRowWidth, 
         normalizedGap,
         heroAR,
-        tuning
+        tuning,
+        randomize
       );
       
       // Pack BELOW at derived width

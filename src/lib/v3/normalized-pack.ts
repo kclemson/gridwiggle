@@ -281,12 +281,22 @@ export function calculateRowCountRange(
  * - canvas_maxAR (prevents too-wide canvas)  
  * - hero_maxToSmallest (prevents tiny content cells)
  */
+/**
+ * Calculate optimal row count for BELOW packing given width and photo geometry.
+ * Enforces:
+ * - canvas_minAR (prevents too-tall canvas)
+ * - canvas_maxAR (prevents too-wide canvas)  
+ * - hero_maxToSmallest (prevents tiny content cells)
+ * 
+ * @param randomize - When true, picks randomly within valid range for variety
+ */
 export function calculateBelowRowCount(
   photos: PhotoDimension[],
   targetWidth: number,
   normalizedGap: number,
   heroAR: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  randomize: boolean = false
 ): number {
   const n = photos.length;
   if (n <= 1) return 1;
@@ -319,6 +329,11 @@ export function calculateBelowRowCount(
   const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
   const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
   
-  // Choose middle of valid range for balance
+  // When randomizing, pick uniformly from valid range for variety
+  if (randomize && minRows < maxRows) {
+    return minRows + Math.floor(Math.random() * (maxRows - minRows + 1));
+  }
+  
+  // Deterministic: choose middle of valid range for balance
   return Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
 }

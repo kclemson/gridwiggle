@@ -1,12 +1,14 @@
 
 # Plan: Geometrically-Derived BesideCount Range + Randomized Row Count Selection
 
+**Status: ✅ IMPLEMENTED**
+
 ## Overview
 
 This plan addresses two sources of variety reduction in the layout engine:
 
-1. **BesideCount range**: Currently hardcoded to 0–12, regardless of photo count or hero shape
-2. **BelowRowCount selection**: Always picks the middle of the valid range, biasing toward "average" layouts
+1. **BesideCount range**: ~~Currently hardcoded to 0–12~~ → Now dynamically calculated from hero AR and photo count
+2. **BelowRowCount selection**: ~~Always picks the middle~~ → Now picks randomly within valid range when `randomize=true`
 
 Both issues compound to reduce the diversity of layouts the algorithm can discover.
 

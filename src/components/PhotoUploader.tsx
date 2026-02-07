@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { Upload, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getImageDimensions, generateId, createDisplayPreview } from '@/lib/imageUtils';
+import { generateId } from '@/lib/imageUtils';
 import { PhotoItem } from '@/types/collage';
 
 interface PhotoUploaderProps {
@@ -16,34 +16,29 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
     inputRef.current?.click();
   };
 
-  const processFiles = useCallback(async (files: FileList) => {
-    const photoPromises = Array.from(files).map(async (file): Promise<PhotoItem> => {
-      // File is already a Blob - no conversion needed
-      const blob = file;
-      const objectUrl = URL.createObjectURL(blob);
-      const dimensions = await getImageDimensions(objectUrl);
-      
-      // Create display-resolution preview for UI rendering
-      const preview = await createDisplayPreview(blob, 1200);
-      
+  const processFiles = useCallback((files: FileList) => {
+    // Create minimal photo objects IMMEDIATELY (no async work)
+    // This allows the progress UI to appear instantly
+    const photos: PhotoItem[] = Array.from(files).map((file) => {
+      const objectUrl = URL.createObjectURL(file);
       return {
         id: generateId(),
         filename: file.name,
         objectUrl,
-        blob,
-        originalWidth: dimensions.width,
-        originalHeight: dimensions.height,
+        blob: file,
+        originalWidth: 0,  // Will be populated during smart crop processing
+        originalHeight: 0,
         smartCrop: null,
         manualCrop: null,
         isProcessing: true,
         error: null,
         priority: 3, // Default: standard
-        previewUrl: preview.url,
-        previewBlob: preview.blob,
+        previewUrl: objectUrl,  // Use original URL as temporary preview
+        previewBlob: file,
       };
     });
 
-    const photos = await Promise.all(photoPromises);
+    // Call parent immediately - progress UI shows right away
     onPhotosAdded(photos);
   }, [onPhotosAdded]);
 

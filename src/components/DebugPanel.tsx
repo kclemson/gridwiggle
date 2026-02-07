@@ -5,7 +5,7 @@
  * Dev-only component for debugging layout generation.
  */
 
-import { useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { LogEntry } from '@/lib/devLogger';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
 import { Button } from '@/components/ui/button';
@@ -27,8 +27,8 @@ export function DebugPanel({
   logs, 
   durationMs,
 }: DebugPanelProps) {
-  // Re-read on each render (cheap localStorage read, updates naturally)
-  const pendingCount = getCaptureStats().pending;
+  // Track pending count in state so reset triggers re-render
+  const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
 
   const handleExport = useCallback(() => {
     const { data, count } = exportPendingCaptures();
@@ -36,10 +36,12 @@ export function DebugPanel({
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     downloadJson(data, `v3-captures-${timestamp}.json`);
+    setPendingCount(0);  // Update state to trigger re-render
   }, []);
 
   const handleReset = useCallback(() => {
     clearCaptures();
+    setPendingCount(0);  // Update state to trigger re-render
   }, []);
 
   const headerRight = (

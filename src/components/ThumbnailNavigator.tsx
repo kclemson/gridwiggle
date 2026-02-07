@@ -5,7 +5,7 @@ import { CroppedImage } from './common/CroppedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Star } from 'lucide-react';
+import { X, Star, Crop } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
@@ -147,6 +147,13 @@ export function ThumbnailNavigator({
                     {isHero && (
                       <div className="absolute top-0.5 left-0.5 bg-yellow-500 rounded-full p-0.5">
                         <Star className="h-2.5 w-2.5 fill-yellow-950 text-yellow-950" />
+                      </div>
+                    )}
+
+                    {/* Crop indicator - shows if photo has any cropping applied */}
+                    {(photo.smartCrop || photo.manualCrop) && (
+                      <div className="absolute bottom-0.5 left-0.5 p-0.5 rounded bg-primary/80 text-white shadow-sm">
+                        <Crop className="h-2 w-2" />
                       </div>
                     )}
                     

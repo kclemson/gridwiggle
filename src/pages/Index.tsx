@@ -639,10 +639,8 @@ export default function Index() {
           photos={state.photos}
           currentIndex={carouselIndex}
           onSelect={(photoId) => {
-            const idx = state.photos.findIndex(p => p.id === photoId);
-            if (idx >= 0) {
-              setCarouselIndex(idx);
-            }
+            // Open crop editor directly - View All is for managing crops
+            setEditingPhotoId(photoId);
             setNavigatorOpen(false);
           }}
           onClose={() => setNavigatorOpen(false)}

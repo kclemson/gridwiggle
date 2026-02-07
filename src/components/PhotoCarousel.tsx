@@ -24,6 +24,7 @@ interface PhotoCarouselProps {
   onToggleHero: (photoId: string) => void;
   onViewAll: () => void;
   onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
 export function PhotoCarousel({
@@ -35,6 +36,7 @@ export function PhotoCarousel({
   onToggleHero,
   onViewAll,
   onRefresh,
+  isRefreshing = false,
 }: PhotoCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     startIndex: currentIndex,
@@ -203,10 +205,11 @@ export function PhotoCarousel({
                         e.stopPropagation();
                         onRefresh();
                       }}
+                      disabled={isRefreshing}
                       className="gap-1.5"
                       title="Regenerate collage"
                     >
-                      <RefreshCw className="h-4 w-4" />
+                      <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
                     </Button>
                   </div>
                 </div>

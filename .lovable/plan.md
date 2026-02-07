@@ -1,105 +1,94 @@
 
-# Move "Add Photos" Button to Header
+# Add Crop Indicator to Photo Thumbnails
 
-## Current Layout
+## What Users Will See
 
-```
-┌─────────────────────────────────────────┐
-│  gridwiggle                 [Clear All] │  ← header
-├─────────────────────────────────────────┤
-│         [+ Add More Photos]             │  ← standalone row
-│  PHOTOS (44) · 38 auto-cropped      ▼  │
-│  ...                                    │
-└─────────────────────────────────────────┘
+In the "View all" grid, photos that have any cropping applied (auto-crop or manual) will show a subtle visual indicator—matching the purple color used in the header for "auto-cropped".
+
+---
+
+## Design Approach
+
+A small corner indicator works well because:
+- It's subtle and doesn't obscure the image
+- Consistent with the existing hero badge pattern (top-left)
+- Uses the same purple (`text-primary`) as the header count
+
+**Proposed indicator**: A small crop icon in the bottom-left corner
+
+```text
+┌──────────────┐
+│ ⭐           │  ← hero badge (existing, top-left)
+│              │
+│ 🔲           │  ← crop indicator (new, bottom-left)
+└──────────────┘
 ```
 
-## Proposed Layout
-
-```
-┌─────────────────────────────────────────┐
-│  gridwiggle    [+ Add Photos] [Clear All] │  ← header with both buttons
-├─────────────────────────────────────────┤
-│  PHOTOS (44) · 38 auto-cropped      ▼  │
-│  ...                                    │
-└─────────────────────────────────────────┘
-```
+Bottom-left avoids collision with:
+- Hero badge (top-left)
+- Remove button (top-right)
 
 ---
 
 ## Technical Changes
 
-### 1. File: `src/components/PhotoUploader.tsx`
+### File: `src/components/PhotoThumbnail.tsx`
 
-**Lines 65-72**: Update the button text from "Add More Photos" to "Add Photos"
+**Add import**: `Crop` icon from lucide-react
 
-```tsx
-<Button
-  onClick={handleClick}
-  variant="outline"
-  className="touch-target gap-2"
->
-  <Plus className="h-5 w-5" />
-  Add Photos
-</Button>
-```
-
-### 2. File: `src/pages/Index.tsx`
-
-**Lines 394-404**: Add the PhotoUploader next to Clear All in the header
+**Add new badge** after the hero badge (around line 74):
 
 ```tsx
-{state.photos.length > 0 && (
-  <div className="flex items-center gap-2">
-    <PhotoUploader 
-      onPhotosAdded={handlePhotosAdded}
-      hasPhotos={true}
-    />
-    <Button
-      variant="ghost"
-      size="sm"
-      className="text-destructive hover:text-destructive"
-      onClick={clearAll}
-    >
-      <Trash2 className="h-4 w-4 mr-1" />
-      Clear All
-    </Button>
+{/* Crop indicator - shows if photo has any cropping applied */}
+{(photo.smartCrop || photo.manualCrop) && (
+  <div className="absolute bottom-1 left-1 p-0.5 rounded bg-primary/80 text-white shadow-sm">
+    <Crop className="h-2.5 w-2.5" />
   </div>
 )}
 ```
 
-**Lines 420-426**: Remove the standalone "Add more photos" row
-
-Delete:
-```tsx
-{/* Add more photos button */}
-<div className="flex justify-center">
-  <PhotoUploader 
-    onPhotosAdded={handlePhotosAdded}
-    hasPhotos={true}
-  />
-</div>
-```
-
-### 3. File: `src/components/PhotoUploader.tsx`
-
-**Lines 65-72**: Adjust button sizing to match header style
-
-```tsx
-<Button
-  onClick={handleClick}
-  variant="outline"
-  size="sm"
-  className="gap-1.5"
->
-  <Plus className="h-4 w-4" />
-  Add Photos
-</Button>
-```
-
-Using `size="sm"` and smaller icon (`h-4 w-4`) to match the header's compact style.
+**Design details:**
+- `bg-primary/80` - purple background with slight transparency
+- `p-0.5` - very small padding for a subtle indicator
+- `h-2.5 w-2.5` - tiny icon, smaller than the hero badge
+- `bottom-1 left-1` - positioned in bottom-left corner
+- `rounded` - slightly rounded corners
 
 ---
 
-## Result
+## Visual Result
 
-The header will now contain both action buttons side by side, saving vertical space and keeping all controls in one place. The button text is shortened from "Add More Photos" to "Add Photos" for a cleaner look.
+**Photo with hero + crop:**
+```
+┌──────────────┐
+│ ⭐           │
+│              │
+│ 🟣           │  ← small purple crop icon
+└──────────────┘
+```
+
+**Photo with crop only:**
+```
+┌──────────────┐
+│              │
+│              │
+│ 🟣           │
+└──────────────┘
+```
+
+**Photo with no crop:**
+```
+┌──────────────┐
+│              │
+│              │
+│              │
+└──────────────┘
+```
+
+---
+
+## Summary
+
+| File | Change |
+|------|--------|
+| `src/components/PhotoThumbnail.tsx` | Add Crop icon import, add crop indicator badge in bottom-left corner |

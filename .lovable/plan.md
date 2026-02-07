@@ -1,18 +1,17 @@
 
-# Plan: Standardize Rejection Details Across All Rejection Points
+
+# Plan: Add Constraint Breakdown to Below Row Count Results
 
 ## The Problem
 
-The `RejectionBadge` component is already shared between V3Test and the main app. However, the rejection points in `intersection.ts` pass minimal details, while `region-search.ts` passes full diagnostics.
-
-| Location | Rejection Types | Current Details |
-|----------|-----------------|-----------------|
-| `region-search.ts` | prominence, canvas AR | ✅ Full (`besideCount`, `besideRowCount`, `belowRowCount`, `heroAR`, `canvasAR`) |
-| `intersection.ts` | prominence, canvas AR, hero vs smallest | ❌ Minimal (only `ratio`, `required`, or `canvasAR`) |
+When `belowRowCount` shows a squeezed range like `3 (3-3)`, you can't tell which constraint caused the squeeze:
+- **maxRowsByMinAR** (canvas too tall) 
+- **minRowsByMaxAR** (canvas too wide)
+- **minRowsByCellSize** (cells too small vs hero)
 
 ## Solution
 
-Add standardized fields to all rejection points in `intersection.ts` so the `RejectionBadge` always displays full context.
+Expand `BelowRowCountResult` to include the raw constraint values, then surface them in rejection details.
 
 ---
 
@@ -20,131 +19,73 @@ Add standardized fields to all rejection points in `intersection.ts` so the `Rej
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/intersection.ts` | Add standardized fields to all 5 rejection points |
+| `src/lib/v3/normalized-pack.ts` | Expand `BelowRowCountResult` interface; return raw constraint values |
+| `src/lib/v3/region-search.ts` | Include constraint breakdown in rejection details |
+| `src/lib/v3/intersection.ts` | Include constraint breakdown in rejection details |
 
 ---
 
 ## Detailed Changes
 
-### 1. Extract Variables for Reuse
-
-Near line 227, after `belowRowCount` is defined, add:
+### 1. Expand BelowRowCountResult (normalized-pack.ts)
 
 ```typescript
-const belowRowCount = regionAssignment.belowRowCount;
-
-// For rejection diagnostics
-const besideCount = regionAssignment.besidePhotos.length;
-const besideRowCount = regionAssignment.besideRowCount;
+export interface BelowRowCountResult {
+  value: number;
+  minRows: number;
+  maxRows: number;
+  // Raw constraint values for diagnostics
+  constraints: {
+    maxRowsByMinAR: number;    // Prevents canvas too tall
+    minRowsByMaxAR: number;    // Prevents canvas too wide  
+    minRowsByCellSize: number; // Prevents tiny cells
+    targetWidth: number;       // The width being packed into
+  };
+}
 ```
 
-### 2. Canvas Too Tall (lines 277-292)
-
-Before:
+Update `calculateBelowRowCount` return to include these:
 ```typescript
-details: { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR },
+return { 
+  value, 
+  minRows, 
+  maxRows,
+  constraints: {
+    maxRowsByMinAR,
+    minRowsByMaxAR,
+    minRowsByCellSize,
+    targetWidth,
+  }
+};
 ```
 
-After:
+### 2. Update region-search.ts Rejections
+
+Where `belowRowResult` is used, include the constraint breakdown:
+
 ```typescript
 details: { 
   canvasAR: +canvasAR.toFixed(2), 
-  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
-  besideCount,
-  besideRowCount,
-  belowRowCount,
-  heroAR: +heroAR.toFixed(2),
+  besideCount: 0, 
+  besideRowCount: `0 (${minBeside}-${maxBeside})`, 
+  belowRowCount: `${belowRowCount} (${belowRowRange})`,
+  belowConstraints: belowRowResult.constraints, // NEW
+  heroAR: +heroAR.toFixed(2) 
 },
 ```
 
-### 3. Canvas Too Wide (lines 295-311)
+### 3. Update intersection.ts Rejections
 
-Before:
-```typescript
-details: { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR },
-```
+Pass through the constraint details from `belowResult`:
 
-After:
 ```typescript
+// Extract for diagnostics (near line 227)
+const belowConstraints = belowResult.constraints;
+
+// In rejection details:
 details: { 
-  canvasAR: +canvasAR.toFixed(2), 
-  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
-  besideCount,
-  besideRowCount,
-  belowRowCount,
-  heroAR: +heroAR.toFixed(2),
-},
-```
-
-### 4. Prominence Too Low (lines 322-338)
-
-Before:
-```typescript
-details: { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence },
-```
-
-After:
-```typescript
-details: { 
-  prominenceRatio: +prominence.ratio.toFixed(2), 
-  required: tuning.hero_minProminence,
-  besideCount,
-  besideRowCount,
-  belowRowCount,
-  heroAR: +heroAR.toFixed(2),
-  canvasAR: +canvasAR.toFixed(2),
-},
-```
-
-### 5. Hero Too Large vs Smallest (lines 343-367)
-
-This one already has more detail. Add the standard fields:
-
-Before:
-```typescript
-details: { 
-  ratio: +smallestCheck.ratio.toFixed(1), 
-  maxAllowed: tuning.hero_maxToSmallest,
-  heroArea: +heroArea.toFixed(3),
-  smallestAreas,
-},
-```
-
-After:
-```typescript
-details: { 
-  ratio: +smallestCheck.ratio.toFixed(1), 
-  maxAllowed: tuning.hero_maxToSmallest,
-  heroArea: +heroArea.toFixed(3),
-  smallestAreas,
-  besideCount,
-  besideRowCount,
-  belowRowCount,
-  heroAR: +heroAR.toFixed(2),
-  canvasAR: +canvasAR.toFixed(2),
-},
-```
-
-### 6. Simple Rows Canvas AR (lines 605-626)
-
-This is the hero-less case, so `besideCount`, `besideRowCount`, `belowRowCount` don't apply. Keep as-is but add row count info:
-
-Before:
-```typescript
-details: { 
-  canvasAR: +canvasAR.toFixed(2), 
-  minAR: tuning.canvas_minAR,
-  maxAR: tuning.canvas_maxAR,
-},
-```
-
-After:
-```typescript
-details: { 
-  canvasAR: +canvasAR.toFixed(2), 
-  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
-  rowCount,
-  photoCount: photos.length,
+  ...existingFields,
+  belowConstraints,
 },
 ```
 
@@ -152,17 +93,23 @@ details: {
 
 ## Expected Result
 
-All rejections from both files will display full context:
+Rejection badges will show:
 
 ```text
-REJECTED: prominence too low
-prominenceRatio: 0.84
-required: 1.3
-besideCount: 8
-besideRowCount: 4
-belowRowCount: 3
-heroAR: 0.60
-canvasAR: 0.74
+REJECTED: canvas_too_tall
+canvasAR: 0.53
+allowed: 0.67 - 2.00
+besideCount: 0
+besideRowCount: 0
+belowRowCount: 3 (3-3)
+belowConstraints: {
+  maxRowsByMinAR: 2,        ← "I wanted max 2 rows for height"
+  minRowsByMaxAR: 3,        ← "I needed min 3 rows for width"
+  minRowsByCellSize: 1,     ← "Cell size was fine"
+  targetWidth: 1.05
+}
+heroAR: 1.05
 ```
 
-The `RejectionBadge` component stays unchanged - it already renders all fields from `details`.
+Now you can immediately see the conflict: `maxRowsByMinAR: 2` vs `minRowsByMaxAR: 3` — the constraints are mutually exclusive for this configuration.
+

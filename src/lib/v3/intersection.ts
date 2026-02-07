@@ -219,17 +219,7 @@ function evaluateNormalizedProposal(
     withBorder: `${canvasWidth.toFixed(3)} x ${canvasHeight.toFixed(3)}`,
   });
   
-  // Convert all cells to normalized coordinates (with border offset)
-  const cells = convertToNormalized(
-    heroPhoto,
-    proposal.position,
-    heroAR,
-    besideResult.cells,
-    belowResult.cells,
-    belowResult.height,
-    normalizedGap,
-    normalizedWidth
-  );
+  // NOTE: cells are computed later after position selection for corner mode
   
   // Calculate canvas AR for validation
   const canvasAR = canvasWidth / canvasHeight;
@@ -255,8 +245,12 @@ function evaluateNormalizedProposal(
   }
   
   // Validate hero prominence (area ratios are scale-invariant)
+  // Content areas can be computed from packed results before final cell conversion
   const heroArea = heroAR * 1.0; // heroWidth × heroHeight in normalized space
-  const contentAreas = cells.slice(1).map(c => c.width * c.height);
+  const contentAreas = [
+    ...besideResult.cells.map(c => c.width * c.height),
+    ...belowResult.cells.map(c => c.width * c.height),
+  ];
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
@@ -280,6 +274,26 @@ function evaluateNormalizedProposal(
     return null;
   }
   
+  // For corner mode, apply random position selection for variety
+  // All 4 corner positions are symmetric - identical region assignments and scores
+  const cornerPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+  const selectedPosition = proposal.mode === 'corner' && randomize
+    ? cornerPositions[Math.floor(Math.random() * cornerPositions.length)]
+    : proposal.position;
+  
+  // Convert all cells to normalized coordinates (with border offset)
+  // Use selectedPosition for final coordinate mapping
+  const cells = convertToNormalized(
+    heroPhoto,
+    selectedPosition,
+    heroAR,
+    besideResult.cells,
+    belowResult.cells,
+    belowResult.height,
+    normalizedGap,
+    normalizedWidth
+  );
+  
   // Score the configuration
   const score = scoreConfiguration(prominence.ratio, cells, tuning, randomize);
   
@@ -288,12 +302,12 @@ function evaluateNormalizedProposal(
   const legacyProposal: HeroProposal = {
     rect: { x: heroCell.x, y: heroCell.y, width: heroCell.width, height: heroCell.height },
     mode: proposal.mode,
-    position: proposal.position,
+    position: selectedPosition,
   };
   
   devLogger.log('layout', 'Proposal accepted', {
     mode: proposal.mode,
-    position: proposal.position,
+    position: selectedPosition,
     prominenceRatio: prominence.ratio.toFixed(2),
     canvasAR: canvasAR.toFixed(2),
     score: score.toFixed(3),

@@ -99,13 +99,19 @@ export function PhotoCarousel({
               const crop = getDisplayCrop(photo);
               const isHero = photo.priority === 1;
               
+              // Calculate aspect ratio from crop or original dimensions
+              const aspectRatio = crop 
+                ? crop.width / crop.height 
+                : photo.originalWidth / photo.originalHeight;
+              
               return (
                 <div
                   key={photo.id}
                   className="flex-[0_0_100%] min-w-0 relative"
                 >
-                <div 
-                    className="aspect-square bg-muted relative cursor-pointer max-w-[180px] mx-auto"
+                  <div 
+                    className="h-[180px] bg-muted relative cursor-pointer mx-auto"
+                    style={{ width: `${180 * aspectRatio}px`, maxWidth: '100%' }}
                     onClick={() => onPhotoClick(photo.id)}
                   >
                     {crop ? (

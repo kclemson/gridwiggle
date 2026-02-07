@@ -71,8 +71,8 @@ export function generatePhotoSet(
       // Hero spans from square to panorama
       // 70% chance: moderate landscape (AR 1.0-1.8)
       // 30% chance: wide panorama (AR 2.0-3.0)
-      if (Math.random() < 0.3) {
-        // Wide panorama hero - enables beside=0 layouts
+      if (Math.random() < 0.1) {
+        // 10% chance: wide panorama hero (AR 2.0-3.0)
         aspectRatio = 2.0 + Math.random() * 1.0;
       } else {
         // Standard landscape-biased hero

@@ -1,167 +1,342 @@
 
 
-# Performance Optimization: CSS-Based Image Rendering
+# Photo Management: Carousel with On-Demand Thumbnail Navigator
 
 ## Overview
 
-Replace SVG-based image cropping with CSS-based cropping using native `<img>` elements. This leverages hardware-accelerated image decoding and GPU compositing, significantly improving rendering performance when working with multiple photos.
+Replace the always-rendered thumbnail grid with a memory-efficient carousel that shows one photo at a time, plus an on-demand thumbnail navigator that loads lazily when the user wants to see all photos at once.
 
 ---
 
 ## Design Intent
 
-**Problem**: The current SVG `viewBox` approach forces the browser to:
-1. Load the full-resolution image into an `<image>` element
-2. Rasterize through SVG rendering pipeline
-3. Clip to the viewBox region
+**Problem**: Rendering 20-44 thumbnails simultaneously on mobile causes memory pressure and crashes. Each thumbnail holds an Object URL to a decoded image, which the browser keeps in memory.
 
-With 15-20 photos, this creates noticeable lag during drag operations and initial render.
+**Solution**: 
+- Default view: Carousel showing 1 photo at a time (3 in DOM due to Embla's virtualization)
+- On-demand: "View All" button opens a thumbnail strip/grid that loads progressively
+- Since smart crop works well 90% of the time, most users won't need the grid frequently
 
-**Solution**: Use CSS-based cropping with `overflow: hidden` and CSS transforms. The browser's native image pipeline is highly optimized and uses hardware acceleration.
+**User Outcome**:
+- Smooth performance on mobile with any number of photos
+- Quick "View All" access when reviewing crops is needed
+- Clear progress feedback during upload/processing
 
-**User Outcome**: Smoother interactions, faster initial render, no visible difference in the final output.
+---
+
+## UI Flow
+
+```text
+During Processing:
+┌─────────────────────────────────────┐
+│  Processing 12 of 44 photos...      │
+│  ════════════════════════ 27%       │
+│                                     │
+│  ┌─────────────────────────────┐    │
+│  │                             │    │
+│  │   [Current Photo]           │    │
+│  │       ○ spinner             │    │
+│  │                             │    │
+│  └─────────────────────────────┘    │
+│                                     │
+│  ✓ 11 ready                         │
+└─────────────────────────────────────┘
+
+After Processing (Carousel View):
+┌─────────────────────────────────────┐
+│  44 Photos                          │
+│                                     │
+│  ┌─────────────────────────────┐    │
+│  │                             │    │
+│  │     [Photo 12 of 44]        │    │
+│  │                             │    │
+│  │  ★ Hero   ✂️ Edit   🗑️       │    │
+│  └─────────────────────────────┘    │
+│                                     │
+│     ◀  ●○○○○○  12/44  ○○○○○  ▶     │
+│                                     │
+│         [ View All Photos ]         │
+└─────────────────────────────────────┘
+
+Thumbnail Navigator (On-Demand Overlay):
+┌─────────────────────────────────────┐
+│  Select Photo              [Close]  │
+│  ═══════════════════════════════    │
+│                                     │
+│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐     │
+│  │1 │ │2★│ │3 │ │4 │ │5 │ │░░│ ... │
+│  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘     │
+│                                     │
+│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐     │
+│  │7 │ │8 │ │9 │ │10│ │11│ │12│ ... │
+│  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘     │
+│                                     │
+│  Loading: 6 of 44...                │
+└─────────────────────────────────────┘
+```
 
 ---
 
 ## Technical Approach
 
-### CSS Cropping Math
+### Progressive Thumbnail Loading
 
-The key insight: we can achieve identical visual results by:
-1. Wrapping the image in a container sized to the **crop region's aspect ratio**
-2. Scaling the image so the crop region fills the container
-3. Translating the image to position the crop region at origin
+When the "View All" navigator opens:
+1. Show skeleton placeholders for all photos immediately
+2. Load thumbnails in batches of 6-8 using `requestIdleCallback` or `setTimeout`
+3. Each batch replaces skeletons with actual images
+4. User can tap any thumbnail (even before all load) to jump to that photo
 
-```text
-Container: sized by parent (fill mode)
-Image scale: containerWidth / crop.width (or containerHeight / crop.height)
-Image position: translate(-crop.x * scale, -crop.y * scale)
+This approach:
+- Gives immediate visual feedback (skeletons)
+- Doesn't block the main thread
+- Allows early interaction
+
+### Memory Management
+
+```typescript
+// Only keep thumbnails loaded while navigator is open
+const [navigatorOpen, setNavigatorOpen] = useState(false);
+const [loadedThumbnails, setLoadedThumbnails] = useState<Set<string>>(new Set());
+
+// When navigator closes, we can optionally clear the set
+// (browser will eventually GC unused decoded images)
 ```
-
-For `fit="cover"` (the common case in collages), the container already handles aspect ratio, so we just need to fill it with the cropped portion.
 
 ---
 
-## Changes by File
+## Component Structure
 
-### 1. `src/components/common/CroppedImage.tsx`
+### New Components
 
-**Replace SVG with CSS-based cropping:**
+| Component | Purpose |
+|-----------|---------|
+| `PhotoCarousel.tsx` | Main carousel view with swipe/arrows, action buttons |
+| `ThumbnailNavigator.tsx` | On-demand overlay with progressive loading |
+| `PhotoProcessingView.tsx` | Processing state showing current photo + progress |
 
-```text
-// For cropped images with fit="cover":
-<div className="w-full h-full overflow-hidden">
-  <img
-    src={src}
-    style={{
-      width: `${(originalWidth / crop.width) * 100}%`,
-      height: `${(originalHeight / crop.height) * 100}%`,
-      maxWidth: 'none',
-      transform: `translate(
-        ${(-crop.x / crop.width) * 100}%,
-        ${(-crop.y / crop.height) * 100}%
-      )`,
-    }}
+### Modified Components
+
+| Component | Changes |
+|-----------|---------|
+| `PhotoGrid.tsx` | Remove or deprecate (replaced by new components) |
+| `Index.tsx` | Swap PhotoGrid for PhotoCarousel, add state for navigator |
+
+---
+
+## File Details
+
+### 1. `src/components/PhotoCarousel.tsx` (NEW)
+
+Main carousel component for browsing photos one at a time.
+
+```typescript
+interface PhotoCarouselProps {
+  photos: PhotoItem[];
+  currentIndex: number;
+  onIndexChange: (index: number) => void;
+  onPhotoClick: (photoId: string) => void;  // Opens crop editor
+  onRemove: (photoId: string) => void;
+  onToggleHero: (photoId: string) => void;
+  onViewAll: () => void;  // Opens thumbnail navigator
+}
+```
+
+**Features**:
+- Uses Embla carousel with touch/swipe support
+- Shows current photo with crop applied (CroppedImage)
+- Hero badge, edit crop button, remove button
+- "View All" button at bottom
+- Counter: "12 of 44"
+- Previous/Next arrows (touch-friendly positioning)
+
+---
+
+### 2. `src/components/ThumbnailNavigator.tsx` (NEW)
+
+On-demand overlay for viewing all thumbnails.
+
+```typescript
+interface ThumbnailNavigatorProps {
+  photos: PhotoItem[];
+  onSelect: (photoId: string) => void;  // Jump to photo in carousel
+  onClose: () => void;
+}
+```
+
+**Features**:
+- Full-screen or sheet overlay
+- Progressive loading with skeletons
+- Small thumbnails (48-56px) in grid
+- Hero badges visible
+- Tap to select and close
+- Loading progress indicator
+
+**Progressive Loading Logic**:
+```typescript
+useEffect(() => {
+  // Load thumbnails in batches to avoid memory spike
+  const batchSize = 8;
+  let currentBatch = 0;
+  
+  const loadNextBatch = () => {
+    const start = currentBatch * batchSize;
+    const end = Math.min(start + batchSize, photos.length);
+    
+    setLoadedThumbnails(prev => {
+      const next = new Set(prev);
+      for (let i = start; i < end; i++) {
+        next.add(photos[i].id);
+      }
+      return next;
+    });
+    
+    currentBatch++;
+    if (end < photos.length) {
+      requestIdleCallback(loadNextBatch);
+    }
+  };
+  
+  loadNextBatch();
+}, [photos]);
+```
+
+---
+
+### 3. `src/components/PhotoProcessingView.tsx` (NEW)
+
+Processing state display during upload/smart crop.
+
+```typescript
+interface PhotoProcessingViewProps {
+  photos: PhotoItem[];
+  currentlyProcessingId: string | null;
+  progress: number;  // 0-100
+  status: string;    // "Detecting faces..."
+}
+```
+
+**Features**:
+- Progress bar with percentage
+- "X of Y photos processed" counter
+- Current photo thumbnail with spinner (only one in DOM)
+- Completed/error counts
+
+---
+
+### 4. `src/pages/Index.tsx` (MODIFY)
+
+**Changes**:
+1. Add state for carousel index and navigator visibility
+2. Track currently processing photo ID
+3. Replace PhotoGrid with conditional PhotoCarousel/PhotoProcessingView
+4. Add handler to jump carousel to selected photo
+
+```typescript
+// New state
+const [carouselIndex, setCarouselIndex] = useState(0);
+const [navigatorOpen, setNavigatorOpen] = useState(false);
+const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
+
+// In processSmartCrops:
+for (const photo of photos) {
+  setCurrentlyProcessingId(photo.id);
+  // ... process
+}
+setCurrentlyProcessingId(null);
+
+// Conditional rendering:
+{isProcessing ? (
+  <PhotoProcessingView 
+    photos={state.photos}
+    currentlyProcessingId={currentlyProcessingId}
+    progress={smartCropProgress}
+    status={processingStatus}
   />
-</div>
+) : (
+  <PhotoCarousel
+    photos={state.photos}
+    currentIndex={carouselIndex}
+    onIndexChange={setCarouselIndex}
+    onPhotoClick={setEditingPhotoId}
+    onRemove={handleRemovePhoto}
+    onToggleHero={handleToggleHero}
+    onViewAll={() => setNavigatorOpen(true)}
+  />
+)}
+
+{navigatorOpen && (
+  <ThumbnailNavigator
+    photos={state.photos}
+    onSelect={(photoId) => {
+      const idx = state.photos.findIndex(p => p.id === photoId);
+      setCarouselIndex(idx);
+      setNavigatorOpen(false);
+    }}
+    onClose={() => setNavigatorOpen(false)}
+  />
+)}
 ```
-
-**Key math explanation:**
-- `width: (originalWidth / crop.width) * 100%` scales the image so the crop region equals container width
-- `transform: translate(-crop.x/crop.width * 100%, ...)` shifts the image so crop region starts at (0,0)
-
-**For fit="contain"**: Use the same approach but with `object-fit: contain` on a wrapper that maintains the crop's aspect ratio.
-
-**Add React.memo** to prevent unnecessary re-renders.
 
 ---
 
-### 2. `src/components/CollagePreview.tsx`
+### 5. `src/hooks/useCollageState.ts` (MODIFY)
 
-**Memoize photo lookup:**
+**Debounce localStorage writes** to prevent main thread blocking during rapid state updates:
 
-```text
-const photoMap = useMemo(() => 
-  new Map(photos.map(p => [p.id, p])), 
-  [photos]
+```typescript
+// Add debounced save function
+const debouncedSaveMetadata = useMemo(
+  () => debounce((state: CollageState) => {
+    saveMetadataToStorage(state);
+  }, 300),
+  []
 );
 
-// Replace: photos.find(p => p.id === cell.photoId)
-// With: photoMap.get(cell.photoId)
+// Replace saveMetadataToStorage(next) calls with debouncedSaveMetadata(next)
 ```
 
-**Extract memoized cell component:**
-
-```text
-const CollageCell = React.memo(function CollageCell({ 
-  cell, photo, layoutWidth, layoutHeight, ...dragHandlers 
-}: CollageCellProps) {
-  // Current cell rendering logic
-});
-```
-
-**Add GPU hints for drag:**
-
-```text
-style={{
-  ...existingStyles,
-  willChange: isBeingDragged ? 'transform, opacity' : 'auto',
-}}
-```
+This preserves per-photo React state updates (visual feedback) while batching I/O.
 
 ---
 
-### 3. `src/components/PhotoThumbnail.tsx`
+## Thumbnail Size Considerations
 
-**Add React.memo wrapper:**
-
-```text
-export const PhotoThumbnail = React.memo(function PhotoThumbnail({
-  // existing props
-}: PhotoThumbnailProps) {
-  // existing implementation
-});
-```
-
----
-
-### 4. `src/test/CroppedImage.test.tsx`
-
-**Update tests for CSS-based rendering:**
-
-The tests currently check for SVG elements when crops are provided. Update to check for:
-- `<img>` element with correct inline styles
-- Percentage-based transform values
-- Proper scaling calculations
+For the navigator thumbnails:
+- **Size**: 48-56px height (smaller than current 80px grid)
+- **Why smaller**: Faster to decode, less memory per image
+- **Grid layout**: `grid-cols-6` on mobile, fills width
 
 ---
 
 ## Files Summary
 
-| File | Changes |
-|------|---------|
-| `src/components/common/CroppedImage.tsx` | Replace SVG with CSS cropping, add `React.memo` |
-| `src/components/CollagePreview.tsx` | Memoize photo lookup, extract cell component, add GPU hints |
-| `src/components/PhotoThumbnail.tsx` | Add `React.memo` wrapper |
-| `src/test/CroppedImage.test.tsx` | Update to test CSS-based output |
+| File | Action | Description |
+|------|--------|-------------|
+| `src/components/PhotoCarousel.tsx` | CREATE | Main carousel view with actions |
+| `src/components/ThumbnailNavigator.tsx` | CREATE | On-demand thumbnail grid with progressive load |
+| `src/components/PhotoProcessingView.tsx` | CREATE | Processing state with progress |
+| `src/pages/Index.tsx` | MODIFY | Swap grid for carousel, add navigator state |
+| `src/hooks/useCollageState.ts` | MODIFY | Debounce localStorage writes |
+| `src/components/PhotoGrid.tsx` | DEPRECATE | No longer used in main flow |
 
 ---
 
-## Visual Verification
+## Memory Impact
 
-After implementation, verify these scenarios produce identical output:
-1. Uncropped image in collage cell
-2. Smart-cropped image in collage cell  
-3. Manual-cropped image in collage cell
-4. Thumbnail with and without crop
-5. Export to PNG (uses same CroppedImage component)
+| Scenario | Before | After |
+|----------|--------|-------|
+| 44 photos uploaded | 44 thumbnails in DOM | 3 carousel slides in DOM |
+| Reviewing crops | 44 thumbnails always visible | 0-44 thumbnails (on-demand) |
+| Navigator closed | N/A | Thumbnails can be GC'd |
 
 ---
 
-## Why This Is Safe
+## Preserving Current Behavior
 
-1. **Same coordinates**: The crop `{x, y, width, height}` values are unchanged
-2. **Same calculation source**: `getDisplayCrop()` remains the single source of truth
-3. **Pure rendering change**: Only how we display the crop, not what we display
-4. **Testable**: Side-by-side visual comparison possible before removing SVG path
+- **Sequential feedback**: Each photo still updates React state individually (spinner to image)
+- **Smart crop accuracy**: No changes to crop calculation or storage
+- **Hero toggle**: Available in carousel actions
+- **Crop editor**: Accessible via tap on carousel photo
+- **Desktop**: Same UI as mobile (consistent experience)
 

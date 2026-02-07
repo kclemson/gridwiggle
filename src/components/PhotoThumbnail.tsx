@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { X, Loader2, AlertCircle, Star } from 'lucide-react';
+import { X, Loader2, AlertCircle, Star, Crop } from 'lucide-react';
 import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { getDisplayCrop } from '@/lib/cropUtils';
@@ -70,6 +70,13 @@ export const PhotoThumbnail = memo(function PhotoThumbnail({
       {photo.priority === 1 && (
         <div className="absolute top-1 left-1 p-1 rounded-full bg-amber-500 text-white shadow-sm">
           <Star className="h-3 w-3 fill-current" />
+        </div>
+      )}
+
+      {/* Crop indicator - shows if photo has any cropping applied */}
+      {(photo.smartCrop || photo.manualCrop) && (
+        <div className="absolute bottom-1 left-1 p-0.5 rounded bg-primary/80 text-white shadow-sm">
+          <Crop className="h-2.5 w-2.5" />
         </div>
       )}
 

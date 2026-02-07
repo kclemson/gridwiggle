@@ -10,7 +10,8 @@ import {
   Trash2, 
   ChevronLeft, 
   ChevronRight,
-  Grid3X3
+  Grid3X3,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +23,7 @@ interface PhotoCarouselProps {
   onRemove: (photoId: string) => void;
   onToggleHero: (photoId: string) => void;
   onViewAll: () => void;
+  onRefresh: () => void;
 }
 
 export function PhotoCarousel({
@@ -32,6 +34,7 @@ export function PhotoCarousel({
   onRemove,
   onToggleHero,
   onViewAll,
+  onRefresh,
 }: PhotoCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     startIndex: currentIndex,
@@ -191,6 +194,19 @@ export function PhotoCarousel({
                     >
                       <Grid3X3 className="h-4 w-4" />
                       View All
+                    </Button>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRefresh();
+                      }}
+                      className="gap-1.5"
+                      title="Regenerate collage"
+                    >
+                      <RefreshCw className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

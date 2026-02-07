@@ -16,6 +16,7 @@ import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { generateCollageLayoutV3 } from '@/lib/v3';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
+import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
@@ -129,6 +130,7 @@ export default function Index() {
     
     try {
       devLogger.clear();
+      remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
       
       // V3 is the production algorithm
       // In dev mode, algorithmVersion toggle in DebugPanel can override
@@ -151,6 +153,7 @@ export default function Index() {
       if (layout) {
         setLayout(layout);
         setLayoutError(null);  // Clear any previous error
+        remoteLogger.info('layout', 'Layout generated', { cells: layout.cells.length });
       } else if (state.layout) {
         // Generation failed but we have a previous layout - keep it, show error
         setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
@@ -161,6 +164,10 @@ export default function Index() {
       }
     } catch (error) {
       console.error('Layout generation failed:', error);
+      remoteLogger.error('layout', 'Generation failed', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       if (!state.layout) {
         setLayoutError("Something went wrong. Please try again.");
       }
@@ -181,6 +188,7 @@ export default function Index() {
     for (const photo of photos) {
       // Track currently processing photo for the ProcessingView
       setCurrentlyProcessingId(photo.id);
+      remoteLogger.info('smartcrop', 'Processing photo', { photoId: photo.id });
       
       try {
         // Get fresh photo data from state (dimensions may have been updated)
@@ -228,6 +236,10 @@ export default function Index() {
         });
       } catch (error) {
         console.error('Smart crop failed for photo:', photo.id, error);
+        remoteLogger.error('smartcrop', 'Failed', { 
+          photoId: photo.id, 
+          error: error instanceof Error ? error.message : String(error),
+        });
         updatePhoto(photo.id, {
           isProcessing: false,
           error: error instanceof Error ? error.message : 'Failed to process',
@@ -301,6 +313,8 @@ export default function Index() {
     if (succeeded.length === 0) {
       return;
     }
+    
+    remoteLogger.info('upload', 'Photos added', { count: succeeded.length });
 
     const wasLayoutEmpty = state.layout === null;
 
@@ -500,6 +514,7 @@ export default function Index() {
                     onRemove={handleRemovePhoto}
                     onToggleHero={handleToggleHero}
                     onViewAll={() => setNavigatorOpen(true)}
+                    onRefresh={handleCreateCollage}
                   />
                 )}
               </CollapsibleContent>

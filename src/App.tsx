@@ -6,14 +6,18 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import LayoutRating from "./pages/LayoutRating";
 import V3Test from "./pages/V3Test";
+import { remoteLogger } from "@/lib/remoteLogger";
 
 const queryClient = new QueryClient();
 
 const App = () => {
-  // Global safety net for unhandled promise rejections
+  // Global safety net for unhandled promise rejections - sends to remote logging
   useEffect(() => {
     const handleRejection = (event: PromiseRejectionEvent) => {
-      console.error("Unhandled rejection:", event.reason);
+      remoteLogger.error("unhandled", "Promise rejection", {
+        reason: event.reason?.message ?? String(event.reason),
+        stack: event.reason?.stack,
+      });
       event.preventDefault();
     };
     window.addEventListener("unhandledrejection", handleRejection);

@@ -587,6 +587,20 @@ function generateSimpleRowsLayout(
   
   // Validate canvas AR bounds
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+    // Capture rejected layout for visualization
+    setRejectedLayout({
+      cells,
+      canvasWidth,
+      canvasHeight,
+      reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
+      details: { 
+        canvasAR: +canvasAR.toFixed(2), 
+        minAR: tuning.canvas_minAR,
+        maxAR: tuning.canvas_maxAR,
+      },
+      timestamp: Date.now(),
+    });
+    
     devLogger.log('layout', 'Simple rows layout outside AR bounds', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,

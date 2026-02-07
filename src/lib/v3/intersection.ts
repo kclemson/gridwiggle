@@ -234,8 +234,6 @@ function evaluateNormalizedProposal(
     actualHeight: Math.round(actualCanvasHeight),
   });
   
-  const pixelGap = gap;
-  
   // Convert all cells to pixels
   const pixelCells = convertToPixels(
     heroPhoto,
@@ -245,7 +243,7 @@ function evaluateNormalizedProposal(
     belowResult.cells,
     belowResult.height,
     scaleFactor,
-    pixelGap,
+    estimatedNormalizedGap,  // Use same gap as packing phase
     normalizedWidth
   );
   
@@ -335,15 +333,14 @@ function convertToPixels(
   belowCells: { photoId: string; x: number; y: number; width: number; height: number }[],
   belowHeight: number,
   scaleFactor: number,
-  gap: number,
+  normalizedGap: number,  // Now receives normalized gap directly
   normalizedWidth: number
 ): LayoutCell[] {
   const cells: LayoutCell[] = [];
   
-  // Hero cell
+  // Hero cell - normalizedGap is now passed in as parameter
   const heroNormalizedWidth = heroAR;
   const heroNormalizedHeight = 1.0;
-  const normalizedGap = gap / scaleFactor;
   
   // Determine position type
   const isBottom = position === 'bottom-left' || position === 'bottom-right';

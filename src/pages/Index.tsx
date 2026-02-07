@@ -437,9 +437,27 @@ export default function Index() {
                         <span className="text-emerald-600 normal-case tracking-normal">
                           {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
                         </span>
+                        {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
+                          <>
+                            <span className="mx-2 text-muted-foreground/50">·</span>
+                            <span className="text-primary/80 normal-case tracking-normal">
+                              {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
+                            </span>
+                          </>
+                        )}
                       </>
                     ) : (
-                      `Photos (${state.photos.length})`
+                      <>
+                        Photos ({state.photos.length})
+                        {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
+                          <>
+                            <span className="mx-2 text-muted-foreground/50 normal-case">·</span>
+                            <span className="text-primary/80 normal-case font-normal tracking-normal">
+                              {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
+                            </span>
+                          </>
+                        )}
+                      </>
                     )}
                   </h3>
                   

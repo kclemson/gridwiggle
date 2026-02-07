@@ -1,152 +1,198 @@
 
 
-## Improve V3 Debug Log Scannability
+## Create Feasibility Module for Early Bounds Checking
 
 ### Design Intent
-Make failure cases stand out visually in both the browser console and the V3Test UI logs, while reducing log noise from repetitive packing operations.
+Introduce a dedicated `feasibility.ts` module that provides **pre-validators** - pure functions that algebraically estimate whether a configuration is worth attempting. This mirrors the existing `validateProminence` / `validateSmallestCellRatio` pattern in `hero.ts`, but runs *before* expensive packing operations.
 
 ### User Outcomes
-- Failure logs will use `[layout-reject]` category and appear in red in the UI
-- Console logs will use `console.warn` for rejections, making them visually distinct in DevTools
-- Fewer logs to scroll through by consolidating repetitive row-packing logs
-- Faster debugging cycles when iterating on V3 algorithm
+- Fewer wasted packing attempts → faster layout generation
+- No change to valid output variety - we're only skipping provably-invalid candidates
+- Consistent pattern: `canMeet*` for pre-checks, `validate*` for post-checks
+
+---
+
+## Architectural Pattern
+
+The feasibility module follows the same structure as the existing validators:
+
+| Phase | Module | Function Pattern | Returns |
+|-------|--------|------------------|---------|
+| Pre-pack | `feasibility.ts` | `canMeetProminence(...)` | `{ feasible: boolean; estimate: number }` |
+| Post-pack | `entities/hero.ts` | `validateProminence(...)` | `{ valid: boolean; ratio: number }` |
+
+This makes the contract clear:
+- **`canMeet*`** = algebraic estimate, may have false positives (allows some failures through)
+- **`validate*`** = exact check after packing, authoritative
 
 ---
 
 ## Changes
 
-### Part 1: Reduce Log Noise
-
-#### File: `src/lib/v3/utils.ts`
-
-Remove or consolidate these logs in `distributeByARBudget`:
-- **Remove**: "Starting AR-budget distribution" (line 175-181) - the input params are already visible in region-level logs
-- **Remove**: "After greedy packing" (line 214-218) - intermediate state, covered by final
-- **Keep**: "Final distribution" but simplify it
-- **Remove**: "Height validation" (line 250-254) - intermediate validation step
-- **Remove**: "Merged row with previous/next" (lines 284-287, 295-298) - low-level detail
-
-This reduces 5-6 logs per packing attempt down to 1.
-
-#### File: `src/lib/v3/row-pack.ts`
-
-- **Remove**: "Row count selection" (line 285-292) - rarely needed for debugging failures
-
----
-
-### Part 2: Distinguish Failure Logs
-
-#### File: `src/lib/devLogger.ts`
-
-Add a new `level` field to `LogEntry` and update the logger:
+### New File: `src/lib/v3/feasibility.ts`
 
 ```typescript
-export interface LogEntry {
-  timestamp: number;
-  category: string;
-  label: string;
-  data: Record<string, unknown>;
-  level?: 'info' | 'warn' | 'error';  // NEW
-}
+/**
+ * Feasibility Pre-validators
+ * 
+ * Algebraic estimates to prune search space BEFORE expensive packing.
+ * These are optimistic bounds - may allow some failures through,
+ * but never reject valid configurations.
+ */
 
-export const devLogger = {
-  log(category: string, label: string, data: Record<string, unknown> = {}, level: 'info' | 'warn' | 'error' = 'info') {
-    if (!isDev) return;
-    
-    // Use appropriate console method based on level
-    const consoleMethod = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-    consoleMethod(`[${category}] ${label}`, data);
-    
-    logs.push({ timestamp: Date.now(), category, label, data, level });
-  },
+import { PhotoDimension, V3Tuning } from './types';
+import { devLogger } from '@/lib/devLogger';
 
-  // Convenience methods
-  warn(category: string, label: string, data: Record<string, unknown> = {}) {
-    this.log(category, label, data, 'warn');
-  },
-
-  error(category: string, label: string, data: Record<string, unknown> = {}) {
-    this.log(category, label, data, 'error');
-  },
+/**
+ * Check if prominence can possibly be achieved for a given beside count.
+ * 
+ * Algebraic estimate:
+ * - Hero area = heroAR × 1.0 (fixed in normalized space)
+ * - Max beside cell area ≈ (besideWidth / besideCount) × (1 / besideRowCount)
+ * - For few photos in 1 row, each photo is ~50% of hero row height
+ * 
+ * This is conservative (optimistic) - allows some failures through
+ * but never rejects valid configurations.
+ */
+export function canMeetProminence(
+  heroAR: number,
+  besideCount: number,
+  besideRowCount: number,
+  avgBesideAR: number,
+  tuning: V3Tuning
+): { feasible: boolean; estimatedRatio: number } {
+  // No beside photos = prominence will be determined by BELOW
+  // We can't predict that here, so allow it
+  if (besideCount === 0) {
+    return { feasible: true, estimatedRatio: Infinity };
+  }
   
-  // ...existing clear() and getLogs()
-};
+  const heroArea = heroAR * 1.0;
+  
+  // Estimate: each beside photo gets roughly equal share of the region
+  // Region height = 1.0 (hero height), split into besideRowCount rows
+  // Region width = sum of all beside ARs × row height
+  const rowHeight = 1.0 / besideRowCount;
+  
+  // The largest beside cell is likely the one with the highest AR
+  // But we use average as a conservative estimate
+  const estimatedCellWidth = avgBesideAR * rowHeight;
+  const estimatedCellArea = estimatedCellWidth * rowHeight;
+  
+  // This is the estimated largest cell area
+  // Reality may be different due to row distribution
+  const estimatedRatio = heroArea / estimatedCellArea;
+  
+  // Use 80% of required threshold as feasibility gate
+  // This is conservative - allows marginal cases through for exact check
+  const feasibilityThreshold = tuning.hero_minProminence * 0.8;
+  const feasible = estimatedRatio >= feasibilityThreshold;
+  
+  if (!feasible) {
+    devLogger.log('feasibility', 'Prominence unlikely', {
+      besideCount,
+      besideRowCount,
+      estimatedRatio: estimatedRatio.toFixed(2),
+      threshold: feasibilityThreshold.toFixed(2),
+    });
+  }
+  
+  return { feasible, estimatedRatio };
+}
 ```
-
-#### File: `src/lib/v3/intersection.ts`
-
-Change these failure logs from `devLogger.log` to `devLogger.warn` with a distinct category:
-
-| Current | New |
-|---------|-----|
-| `devLogger.log('layout', 'Canvas too tall', ...)` | `devLogger.warn('layout-reject', 'Canvas too tall', ...)` |
-| `devLogger.log('layout', 'Canvas too wide', ...)` | `devLogger.warn('layout-reject', 'Canvas too wide', ...)` |
-| `devLogger.log('layout', 'Prominence too low', ...)` | `devLogger.warn('layout-reject', 'Prominence too low', ...)` |
-| `devLogger.log('layout', 'Hero too large vs smallest cells', ...)` | `devLogger.warn('layout-reject', 'Hero too large vs smallest cells', ...)` |
-| `devLogger.log('layout', 'No valid configurations found')` | `devLogger.warn('layout-reject', 'No valid configurations found')` |
-| `devLogger.log('layout', 'No valid region assignment found for proposal', ...)` | `devLogger.warn('layout-reject', 'No valid region assignment', ...)` |
-
-#### File: `src/lib/v3/region-search.ts`
-
-Same pattern for region rejections:
-
-| Current | New |
-|---------|-----|
-| `devLogger.log('region', 'Assignment rejected...')` | `devLogger.warn('region-reject', 'Assignment rejected...', ...)` |
-| `devLogger.log('region', 'No valid assignment found')` | `devLogger.warn('region-reject', 'No valid assignment found')` |
 
 ---
 
-### Part 3: UI Conditional Formatting
+### File: `src/lib/v3/region-search.ts`
 
-#### File: `src/pages/V3Test.tsx`
+Add feasibility check before entering the expensive row-count loop:
 
-Update the log entry rendering to apply red styling for warn/error levels:
+**Change 1: Import feasibility (add to imports at top)**
+```typescript
+import { canMeetProminence } from './feasibility';
+```
 
-```tsx
-logs.map((entry, idx) => {
-  const isReject = entry.level === 'warn' || entry.level === 'error' 
-    || entry.category.includes('reject');
+**Change 2: Add early check after selecting beside photos (around line 76)**
+
+Before the `for (let besideRowCount = minRows...)` loop, add:
+
+```typescript
+// Early feasibility check for beside configurations
+if (besideCount > 0) {
+  const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
   
-  return (
-    <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-      <div className="flex gap-1 min-w-0">
-        <span className={cn(
-          "shrink-0",
-          isReject ? "text-red-500" : "text-blue-500"
-        )}>
-          [{entry.category}]
-        </span>
-        <span className={cn(
-          "break-words min-w-0",
-          isReject ? "text-red-400" : "text-foreground"
-        )}>
-          {entry.label}
-        </span>
-      </div>
-      {Object.keys(entry.data).length > 0 && (
-        <span className={cn(
-          "break-all",
-          isReject ? "text-red-400/70" : "text-muted-foreground"
-        )}>
-          {formatLogData(entry.data)}
-        </span>
-      )}
-    </div>
+  // Check if prominence is achievable with 1 row (worst case)
+  const worstCaseFeasibility = canMeetProminence(
+    heroAR,
+    besideCount,
+    1, // worst case: 1 row = largest possible cells
+    avgBesideAR,
+    tuning
   );
-})
+  
+  if (!worstCaseFeasibility.feasible) {
+    devLogger.log('region', 'Skipping besideCount (prominence infeasible)', {
+      besideCount,
+      estimatedRatio: worstCaseFeasibility.estimatedRatio.toFixed(2),
+    });
+    continue; // Skip entire besideCount iteration
+  }
+}
+```
+
+---
+
+### Bonus: Early-exit for randomize mode
+
+Also add early-exit when we have enough candidates (low-risk, simple):
+
+**Change 3: After pushing to validRegionAssignments (around line 238)**
+
+```typescript
+validRegionAssignments.push({
+  besidePhotos,
+  belowPhotos,
+  besideRowCount,
+  belowRowCount,
+  score,
+});
+
+// Early exit for randomize mode - we don't need exhaustive search
+if (randomize && validRegionAssignments.length >= 8) {
+  devLogger.log('region', 'Early exit (enough candidates for randomize)', {
+    candidates: validRegionAssignments.length,
+  });
+  break;
+}
+```
+
+**Change 4: Also break outer loop if we hit the limit**
+
+After the inner `for (besideRowCount...)` loop ends, add:
+```typescript
+// Check if we should exit outer loop too
+if (randomize && validRegionAssignments.length >= 8) {
+  break;
+}
 ```
 
 ---
 
 ## Summary
 
-| Area | Before | After |
-|------|--------|-------|
-| Logs per pack operation | 5-6 | 1 |
-| Failure category | `[layout]` | `[layout-reject]` or `[region-reject]` |
-| Console output | All `console.log` | Failures use `console.warn` |
-| UI styling | All blue | Rejections in red |
+| Change | File | Impact |
+|--------|------|--------|
+| Create feasibility module | `src/lib/v3/feasibility.ts` | New file with `canMeetProminence` |
+| Import and use feasibility check | `src/lib/v3/region-search.ts` | Skip infeasible besideCount values |
+| Early-exit for randomize | `src/lib/v3/region-search.ts` | Stop after 8 valid candidates |
+
+### Expected Impact
+
+| Metric | Before | After (Est.) |
+|--------|--------|--------------|
+| besideCount iterations skipped | 0 | 2-4 per layout |
+| Packing operations saved | 0 | 4-12 per layout |
+| Time for randomize mode | ~200ms | ~100ms |
 
 ---
 
@@ -154,10 +200,6 @@ logs.map((entry, idx) => {
 
 | File | Changes |
 |------|---------|
-| `src/lib/devLogger.ts` | Add `level` field and `warn()`/`error()` methods |
-| `src/lib/v3/utils.ts` | Remove 5 redundant logs from AR-budget distribution |
-| `src/lib/v3/row-pack.ts` | Remove 1 redundant "Row count selection" log |
-| `src/lib/v3/intersection.ts` | Change 6 failure logs to `devLogger.warn('layout-reject', ...)` |
-| `src/lib/v3/region-search.ts` | Change 2+ rejection logs to `devLogger.warn('region-reject', ...)` |
-| `src/pages/V3Test.tsx` | Add conditional red styling for reject/warn entries |
+| `src/lib/v3/feasibility.ts` | **NEW** - Pre-validator module |
+| `src/lib/v3/region-search.ts` | Import feasibility, add early check, add early-exit |
 

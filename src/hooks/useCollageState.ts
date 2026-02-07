@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { 
   PhotoItem, 
   PhotoMetadata, 
@@ -17,6 +17,7 @@ import {
 } from '@/lib/photoStorage';
 
 const STORAGE_KEY = 'smart-collage-state';
+const SAVE_DEBOUNCE_MS = 300;
 
 const defaultSettings: CollageSettings = {
   shape: 'auto',
@@ -123,6 +124,31 @@ export function useCollageState() {
   
   // Track Object URLs for cleanup
   const objectUrlsRef = useRef<Set<string>>(new Set());
+  
+  // Debounce timer ref for localStorage writes
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Debounced save function - batches rapid state updates into single localStorage write
+  const debouncedSaveMetadata = useMemo(() => {
+    return (stateToSave: CollageState) => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+      saveTimerRef.current = setTimeout(() => {
+        saveMetadataToStorage(stateToSave);
+        saveTimerRef.current = null;
+      }, SAVE_DEBOUNCE_MS);
+    };
+  }, []);
+  
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
 
   // Initialize: load from storage on mount
   useEffect(() => {
@@ -216,7 +242,7 @@ export function useCollageState() {
           ...prev,
           photos: [...prev.photos, ...succeeded],
         };
-        saveMetadataToStorage(next);
+        debouncedSaveMetadata(next);
         return next;
       });
     }
@@ -237,7 +263,7 @@ export function useCollageState() {
         ...prev,
         photos: prev.photos.filter((p) => p.id !== photoId),
       };
-      saveMetadataToStorage(next);
+      debouncedSaveMetadata(next);
       return next;
     });
 
@@ -257,10 +283,10 @@ export function useCollageState() {
           p.id === photoId ? { ...p, ...updates } : p
         ),
       };
-      saveMetadataToStorage(next);
+      debouncedSaveMetadata(next);
       return next;
     });
-  }, []);
+  }, [debouncedSaveMetadata]);
 
   const updateSettings = useCallback((updates: Partial<CollageSettings>) => {
     setState((prev) => {
@@ -268,10 +294,10 @@ export function useCollageState() {
         ...prev,
         settings: { ...prev.settings, ...updates },
       };
-      saveMetadataToStorage(next);
+      debouncedSaveMetadata(next);
       return next;
     });
-  }, []);
+  }, [debouncedSaveMetadata]);
 
   const setLayout = useCallback((layout: CollageLayout | null) => {
     setState((prev) => {
@@ -279,10 +305,10 @@ export function useCollageState() {
         ...prev,
         layout,
       };
-      saveMetadataToStorage(next);
+      debouncedSaveMetadata(next);
       return next;
     });
-  }, []);
+  }, [debouncedSaveMetadata]);
 
   const updateLayoutCells = useCallback((cells: CollageLayout['cells']) => {
     setState((prev) => {
@@ -290,10 +316,10 @@ export function useCollageState() {
         ...prev,
         layout: prev.layout ? { ...prev.layout, cells } : null,
       };
-      saveMetadataToStorage(next);
+      debouncedSaveMetadata(next);
       return next;
     });
-  }, []);
+  }, [debouncedSaveMetadata]);
 
   const clearAll = useCallback(async () => {
     // Revoke all Object URLs

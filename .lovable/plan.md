@@ -1,71 +1,105 @@
 
-# Add Spinner to Photos Header During Processing
+# Add Production Console Logging for V3 Layout Failures
 
-## Design Intent
+## Problem
 
-When photos are processing, users should see activity indication even in the collapsed state. Moving the spinner from the photo thumbnail to the header makes the "working" status visible at all times.
+When the V3 layout fails to generate, there's no console output in production builds. The `devLogger` only operates in development mode, making it hard to diagnose failures in production.
 
-## User Experience
+## User Outcome
 
-**Before**: Spinner only visible on photo thumbnail when expanded
-**After**: Spinner appears in the header next to "X of Y ready" - visible whether collapsed or expanded
+After this change, any layout generation failure will emit a `console.warn` with:
+- Photo count and hero info
+- The specific reason for failure (e.g., "Canvas too tall", "Hero too large vs smallest cells")
+- Key metrics that caused the rejection
+
+This helps diagnose issues without needing to reproduce in dev mode.
 
 ## Technical Changes
 
-### 1. File: `src/pages/Index.tsx`
+### File: `src/lib/v3/index.ts`
 
-**Add spinner to header during processing** (around lines 437-443):
+**Add failure logging at the entry point** (around line 130-133):
 
-```tsx
+```typescript
 // Current:
-{isProcessing ? (
-  <>
-    Photos
-    <span className="mx-2 text-muted-foreground/50">·</span>
-    <span className="text-emerald-600 normal-case tracking-normal">
-      {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
-    </span>
+if (!config) {
+  devLogger.log('v3', 'No valid configuration found');
+  return null;
+}
 
 // After:
-{isProcessing ? (
-  <>
-    Photos
-    <span className="mx-2 text-muted-foreground/50">·</span>
-    <Loader2 className="inline h-3 w-3 animate-spin text-muted-foreground" />
-    <span className="ml-1.5 text-emerald-600 normal-case tracking-normal">
-      {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
-    </span>
+if (!config) {
+  devLogger.log('v3', 'No valid configuration found');
+  console.warn('[V3 Layout] Generation failed', {
+    photoCount: photos.length,
+    heroCount,
+    avgAR: (dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length).toFixed(2),
+  });
+  return null;
+}
 ```
 
-This places a small spinner between the dot separator and the progress count.
+### File: `src/lib/v3/intersection.ts`
 
-### 2. File: `src/components/PhotoProcessingView.tsx`
+**Add failure reason tracking** - return detailed rejection info that bubbles up to the entry point. Modify each rejection point to include the reason:
 
-**Remove spinner overlay from photo thumbnail** (lines 38-41):
-
-```tsx
-// Remove this block:
-{/* Spinner overlay */}
-<div className="absolute inset-0 flex items-center justify-center bg-black/40">
-  <Loader2 className="h-8 w-8 text-white animate-spin" />
-</div>
+1. **Canvas too tall** (line 263-268):
+```typescript
+// Add reason to a returned object or track in a module-level variable
 ```
 
-The photo thumbnail will now display without the dark overlay and spinner, showing the image clearly while the header spinner indicates activity.
+2. **Canvas too wide** (line 271-276)
+3. **Prominence too low** (line 284-289)  
+4. **Hero too large vs smallest** (line 295-301)
 
-## Visual Result
+The cleanest approach is to have `findValidConfiguration` track the last rejection reason and include it in the final log.
 
-**Header (collapsed or expanded)**:
+### Implementation Strategy
+
+Add a simple rejection tracking mechanism:
+
+```typescript
+// In intersection.ts - track last rejection
+let lastRejectionReason: { reason: string; details: Record<string, unknown> } | null = null;
+
+function setRejection(reason: string, details: Record<string, unknown>) {
+  lastRejectionReason = { reason, details };
+}
+
+export function getLastRejection() {
+  return lastRejectionReason;
+}
+
+export function clearRejections() {
+  lastRejectionReason = null;
+}
 ```
-Photos · ◌ 2 of 5 ready
-         ↑ spinner here
-```
 
-**Photo thumbnail**: Clean image without spinner overlay
+Then in `index.ts`:
+
+```typescript
+import { findValidConfiguration, getLastRejection, clearRejections } from './intersection';
+
+// Before search
+clearRejections();
+
+// After failure
+if (!config) {
+  const rejection = getLastRejection();
+  console.warn('[V3 Layout] Generation failed', {
+    photoCount: photos.length,
+    heroCount,
+    ...rejection?.details,
+    reason: rejection?.reason ?? 'No valid proposals',
+  });
+  return null;
+}
+```
 
 ## Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `Loader2` spinner to header between separator and "X of Y ready" |
-| `src/components/PhotoProcessingView.tsx` | Remove spinner overlay from photo thumbnail |
+| `src/lib/v3/intersection.ts` | Add `setRejection`, `getLastRejection`, `clearRejections` helpers |
+| `src/lib/v3/intersection.ts` | Call `setRejection` at each validation failure point |
+| `src/lib/v3/index.ts` | Log failure with `console.warn` including rejection reason |

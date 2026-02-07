@@ -171,7 +171,8 @@ function evaluateNormalizedProposal(
       1.0,
       normalizedGapForLayout,
       splitResult.besideRowCount,
-      tuning
+      tuning,
+      randomize
     );
     heroRowWidth = heroAR + normalizedGapForLayout + besideResult.width;
   }
@@ -185,7 +186,8 @@ function evaluateNormalizedProposal(
     heroRowWidth,
     normalizedGapForLayout,
     belowRowCount,
-    tuning
+    tuning,
+    randomize
   );
   
   // Calculate total normalized canvas
@@ -503,7 +505,8 @@ function generateSimpleRowsLayout(
   );
   
   // Pack in normalized space (use width = 1.0 as reference)
-  const normalizedResult = packToFillWidth(photos, 1.0, estimatedNormalizedGap, rowCount, tuning);
+  // Simple rows always use deterministic packing (no hero = no shuffle)
+  const normalizedResult = packToFillWidth(photos, 1.0, estimatedNormalizedGap, rowCount, tuning, false);
   
   // ============================================================================
   // Bottom-Up: Derive scale factor from geometry

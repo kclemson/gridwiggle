@@ -94,11 +94,14 @@ export function findBestSplit(
       
       if (belowResult.cells.length === 0) continue;
       
-      // Validate canvas AR
+      // Validate canvas AR (include border to match final validation)
       const totalHeight = 1.0 + normalizedGap + belowResult.height;
-      const canvasAR = heroRowWidth / totalHeight;
+      const normalizedWidthWithBorder = heroRowWidth + 2 * normalizedGap;
+      const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
+      const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+      const AR_EPSILON = 0.01;
+      if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
         devLogger.log('v3-split', 'Split rejected (no BESIDE): canvas AR out of range', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
@@ -156,11 +159,14 @@ export function findBestSplit(
       
       if (belowPhotos.length > 0 && belowResult.cells.length === 0) continue;
       
-      // Validate canvas AR
+      // Validate canvas AR (include border to match final validation)
       const totalHeight = 1.0 + normalizedGap + belowResult.height;
-      const canvasAR = heroRowWidth / totalHeight;
+      const normalizedWidthWithBorder = heroRowWidth + 2 * normalizedGap;
+      const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
+      const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+      const AR_EPSILON = 0.01;
+      if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
         devLogger.log('v3-split', 'Split rejected: canvas AR out of range', {
           besideCount,
           besideRowCount,

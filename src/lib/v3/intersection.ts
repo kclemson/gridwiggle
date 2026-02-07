@@ -258,8 +258,9 @@ function evaluateNormalizedProposal(
   // Calculate canvas AR for validation
   const canvasAR = actualCanvasWidth / actualCanvasHeight;
   
-  // Validate canvas AR
-  if (canvasAR < tuning.canvas_minAR) {
+  // Validate canvas AR (with epsilon tolerance for floating-point precision)
+  const AR_EPSILON = 0.01;
+  if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
     devLogger.log('v3', 'Canvas too tall', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
@@ -267,7 +268,7 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  if (canvasAR > tuning.canvas_maxAR) {
+  if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
     devLogger.log('v3', 'Canvas too wide', {
       canvasAR: canvasAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,

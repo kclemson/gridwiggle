@@ -1,58 +1,105 @@
 
-# Simplify Carousel Hero Indicator
+# Three Changes: Thumbnail Navigator, Carousel Loop, V3 Default
 
 ## Overview
 
-Two quick changes to clean up the carousel UI and prevent button size jumps when toggling hero status.
+Three targeted changes to improve UX and promote V3 to production.
 
 ---
 
-## Changes
+## 1. Remove White Outline on Unloaded Thumbnails
 
-### 1. Remove On-Photo Hero Badge
+**Problem**: In the "View All" navigator, the current carousel position shows a white/purple ring outline even when the thumbnail hasn't loaded yet, appearing as an empty box with just an outline (looks buggy).
 
-**Current** (lines 133-139):
+**Solution**: Only show the ring when the thumbnail is actually loaded.
+
+**File**: `src/components/ThumbnailNavigator.tsx`
+
+**Change** (line 119):
 ```tsx
-{/* Hero badge */}
-{isHero && (
-  <div className="absolute top-2 left-2 bg-yellow-500 text-yellow-950 px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1">
-    <Star className="h-3 w-3 fill-current" />
-    Hero
-  </div>
-)}
-```
+// Before
+isSelected && "ring-2 ring-primary ring-offset-2"
 
-**Change**: Delete this entire block. The purple button below already indicates hero status clearly.
+// After - only show ring when both selected AND loaded
+isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+```
 
 ---
 
-### 2. Use Consistent Button Text
+## 2. Enable Carousel Looping
 
-**Current** (line 164):
+**Problem**: When the user reaches the last photo and clicks the right arrow, nothing happens. They expect it to loop back to the first photo.
+
+**Solution**: Enable Embla's built-in loop option.
+
+**File**: `src/components/PhotoCarousel.tsx`
+
+**Change** (line 38):
 ```tsx
-{photo.priority === 1 ? 'Hero' : 'Mark as hero (larger)'}
+// Before
+loop: false,
+
+// After
+loop: true,
 ```
 
-**Change**: Always show "Hero" regardless of state:
+This automatically makes the navigation arrows always active and enables infinite scrolling in both directions.
+
+---
+
+## 3. Make V3 the Default Algorithm in Production
+
+**Problem**: V3 is ready for production, but the algorithm selection is tied to the dev-only DebugPanel. Need to ensure V3 is always used regardless of environment.
+
+**Solution**: Change the generateLayout function to always use V3, removing the conditional branch.
+
+**File**: `src/pages/Index.tsx`
+
+**Current** (lines 118-129):
 ```tsx
-Hero
+// Use v1 or v3 algorithm based on selection
+const layout = algorithmVersion === 'v3'
+  ? generateCollageLayoutV3(photosToUse, settings, { 
+      photoWeights,
+      randomize,
+      tuning: tuningOverride,
+    })
+  : generateCollageLayout(photosToUse, settings, { 
+      photoWeights,
+      randomize,
+      tuning: DEFAULT_TUNING,
+    });
 ```
 
-The button's visual styling (default/purple vs outline) already communicates the toggled state, so the text doesn't need to change.
+**After**:
+```tsx
+// V3 is the production algorithm
+// In dev mode, algorithmVersion toggle in DebugPanel can override
+const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+
+const layout = useV3
+  ? generateCollageLayoutV3(photosToUse, settings, { 
+      photoWeights,
+      randomize,
+      tuning: tuningOverride,
+    })
+  : generateCollageLayout(photosToUse, settings, { 
+      photoWeights,
+      randomize,
+      tuning: DEFAULT_TUNING,
+    });
+```
+
+This ensures:
+- **Production**: Always uses V3 (no toggle available)
+- **Development**: Respects the DebugPanel toggle for A/B testing during development
 
 ---
 
 ## Files Summary
 
-| File | Lines | Change |
-|------|-------|--------|
-| `src/components/PhotoCarousel.tsx` | 133-139 | Remove hero badge overlay |
-| `src/components/PhotoCarousel.tsx` | 164 | Change to static "Hero" text |
-
----
-
-## Result
-
-- Cleaner photo display without redundant badge
-- Button stays consistent size when toggling hero on/off
-- Purple fill + filled star still clearly indicates hero status
+| File | Change |
+|------|--------|
+| `src/components/ThumbnailNavigator.tsx` | Show ring only when thumbnail is loaded |
+| `src/components/PhotoCarousel.tsx` | Enable `loop: true` for infinite scrolling |
+| `src/pages/Index.tsx` | Make V3 the default, with dev-only fallback toggle |

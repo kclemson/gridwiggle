@@ -68,15 +68,26 @@ export function generatePhotoSet(
     let aspectRatio: number;
     
     if (isHero) {
-      // Hero spans from square to panorama
-      // 70% chance: moderate landscape (AR 1.0-1.8)
-      // 30% chance: wide panorama (AR 2.0-3.0)
-      if (Math.random() < 0.1) {
-        // 10% chance: wide panorama hero (AR 2.0-3.0)
-        aspectRatio = 2.0 + Math.random() * 1.0;
+      // Realistic hero AR distribution
+      // 5% very tall portrait, 25% portrait, 25% square-ish,
+      // 35% moderate landscape, 10% wide panorama
+      const roll = Math.random();
+      
+      if (roll < 0.05) {
+        // 5%: Very tall portrait (tight face crops, vertical products)
+        aspectRatio = 0.4 + Math.random() * 0.2;  // AR 0.4 - 0.6
+      } else if (roll < 0.30) {
+        // 25%: Portrait
+        aspectRatio = 0.6 + Math.random() * 0.3;  // AR 0.6 - 0.9
+      } else if (roll < 0.55) {
+        // 25%: Square-ish
+        aspectRatio = 0.9 + Math.random() * 0.3;  // AR 0.9 - 1.2
+      } else if (roll < 0.90) {
+        // 35%: Moderate landscape
+        aspectRatio = 1.2 + Math.random() * 0.6;  // AR 1.2 - 1.8
       } else {
-        // Standard landscape-biased hero
-        aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+        // 10%: Wide panorama
+        aspectRatio = 2.0 + Math.random() * 1.0;  // AR 2.0 - 3.0
       }
     } else {
       aspectRatio = sampleAspectRatio(orientationBias);

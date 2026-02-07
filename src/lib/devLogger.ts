@@ -21,16 +21,24 @@ export interface LogEntry {
 
 const isDev = import.meta.env.DEV;
 let logs: LogEntry[] = [];
+let collector: ((entry: LogEntry) => void) | null = null;
 
 export const devLogger = {
   log(category: string, label: string, data: Record<string, unknown> = {}, level: 'info' | 'warn' | 'error' = 'info') {
     if (!isDev) return;
     
-    // Use appropriate console method based on level
+    const entry: LogEntry = { timestamp: Date.now(), category, label, data, level };
+    
+    // Collector mode (worker) - skip console, just collect
+    if (collector) {
+      collector(entry);
+      return;
+    }
+    
+    // Normal mode - console + local array
     const consoleMethod = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     consoleMethod(`[${category}] ${label}`, data);
-    
-    logs.push({ timestamp: Date.now(), category, label, data, level });
+    logs.push(entry);
   },
 
   warn(category: string, label: string, data: Record<string, unknown> = {}) {
@@ -39,6 +47,16 @@ export const devLogger = {
 
   error(category: string, label: string, data: Record<string, unknown> = {}) {
     this.log(category, label, data, 'error');
+  },
+
+  // Set collector for worker contexts (pass null to clear)
+  setCollector(fn: ((entry: LogEntry) => void) | null) {
+    collector = fn;
+  },
+
+  // Check if in collector mode
+  hasCollector(): boolean {
+    return collector !== null;
   },
 
   clear() {

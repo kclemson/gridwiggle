@@ -46,13 +46,13 @@ export function decomposeCanvas(
     case 'corner':
       return decomposeCorner(canvasWidth, heroRect, gap, position);
     case 'edge':
-      devLogger.log('v3', 'Edge mode fallback', {
+      devLogger.log('layout', 'Edge mode fallback', {
         position,
         reason: 'Edge decomposition not yet implemented, using corner',
       });
       return decomposeCorner(canvasWidth, heroRect, gap, position);
     case 'floating':
-      devLogger.log('v3', 'Floating mode fallback', {
+      devLogger.log('layout', 'Floating mode fallback', {
         position,
         reason: 'Floating decomposition not yet implemented, using corner',
       });

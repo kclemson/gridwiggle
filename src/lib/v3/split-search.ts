@@ -64,7 +64,7 @@ export function findBestSplit(
   // Collect all valid splits instead of tracking best
   const validSplits: SplitResult[] = [];
   
-  devLogger.log('v3-split', 'Starting split search', {
+  devLogger.log('region', 'Starting region assignment search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
     searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
@@ -102,7 +102,7 @@ export function findBestSplit(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        devLogger.log('v3-split', 'Split rejected (no BESIDE): canvas AR out of range', {
+        devLogger.log('region', 'Assignment rejected (no BESIDE): canvas AR out of range', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
           allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
@@ -117,7 +117,7 @@ export function findBestSplit(
       const prominenceRatioNoAside = maxContentAreaNoAside > 0 ? heroAreaNoAside / maxContentAreaNoAside : Infinity;
       
       if (prominenceRatioNoAside < tuning.hero_minProminence) {
-        devLogger.log('v3-split', 'Split rejected (no BESIDE): prominence too low', {
+        devLogger.log('region', 'Assignment rejected (no BESIDE): prominence too low', {
           besideCount: 0,
           prominenceRatio: prominenceRatioNoAside.toFixed(2),
           required: tuning.hero_minProminence,
@@ -129,7 +129,7 @@ export function findBestSplit(
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
       const score = scoreSplit(heroAR, emptyBesideResult, belowResult, normalizedGap, tuning);
       
-      devLogger.log('v3-split', 'Valid split candidate (no BESIDE)', {
+      devLogger.log('region', 'Valid assignment candidate (no BESIDE)', {
         besideCount: 0,
         belowCount: belowPhotos.length,
         belowRowCount,
@@ -182,7 +182,7 @@ export function findBestSplit(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        devLogger.log('v3-split', 'Split rejected: canvas AR out of range', {
+        devLogger.log('region', 'Assignment rejected: canvas AR out of range', {
           besideCount,
           besideRowCount,
           canvasAR: canvasAR.toFixed(2),
@@ -201,7 +201,7 @@ export function findBestSplit(
       const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
       
       if (prominenceRatio < tuning.hero_minProminence) {
-        devLogger.log('v3-split', 'Split rejected: prominence too low', {
+        devLogger.log('region', 'Assignment rejected: prominence too low', {
           besideCount,
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),
@@ -219,7 +219,7 @@ export function findBestSplit(
         tuning
       );
       
-      devLogger.log('v3-split', 'Valid split candidate', {
+      devLogger.log('region', 'Valid assignment candidate', {
         besideCount,
         besideRowCount,
         besideWidth: besideResult.width.toFixed(2),
@@ -245,7 +245,7 @@ export function findBestSplit(
       ? validSplits[Math.floor(Math.random() * validSplits.length)]
       : validSplits.reduce((best, current) => current.score > best.score ? current : best);
     
-    devLogger.log('v3-split', `Split selected ${randomize ? 'randomly' : 'by best score'}`, {
+    devLogger.log('region', `Assignment selected ${randomize ? 'randomly' : 'by best score'}`, {
       totalCandidates: validSplits.length,
       besideCount: selected.besidePhotos.length,
       belowCount: selected.belowPhotos.length,
@@ -255,7 +255,7 @@ export function findBestSplit(
     return selected;
   }
   
-  devLogger.log('v3-split', 'No valid split found');
+  devLogger.log('region', 'No valid assignment found');
   return null;
 }
 

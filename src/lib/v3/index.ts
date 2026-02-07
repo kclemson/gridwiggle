@@ -98,7 +98,7 @@ export function generateCollageLayoutV3(
   // Middle of slider (~50) produces ~0.02, matching current default
   const normalizedGap = (settings.gapSize / 100) * 0.04;
   
-  devLogger.log('v3', 'Starting V3 layout generation', {
+  devLogger.log('layout', 'Starting V3 layout generation', {
     photoCount: photos.length,
     tuning: {
       hero_targetProminence: tuning.hero_targetProminence,
@@ -117,7 +117,7 @@ export function generateCollageLayoutV3(
   // Check for hero
   const heroCount = dimensions.filter(d => d.weight > 1).length;
   
-  devLogger.log('v3', 'Photo analysis', {
+  devLogger.log('layout', 'Photo analysis', {
     heroCount,
     contentCount: dimensions.length - heroCount,
     avgAR: dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length,
@@ -130,7 +130,7 @@ export function generateCollageLayoutV3(
   const config = findValidConfiguration(dimensions, normalizedGap, tuning, randomize);
   
   if (!config) {
-    devLogger.log('v3', 'No valid configuration found');
+    devLogger.log('layout', 'No valid configuration found');
     // Production logging - always emit on failure
     const rejection = getLastRejection();
     const avgAR = dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length;
@@ -144,7 +144,7 @@ export function generateCollageLayoutV3(
     return null;
   }
   
-  devLogger.log('v3', 'Selected layout', {
+  devLogger.log('layout', 'Selected layout', {
     mode: config.proposal.mode,
     position: config.proposal.position,
     prominenceRatio: config.prominenceRatio.toFixed(2),
@@ -161,7 +161,7 @@ export function generateCollageLayoutV3(
     height: cell.height * VIRTUAL_CANVAS_BASE,
   }));
   
-  devLogger.log('v3', 'Final layout dimensions', {
+  devLogger.log('layout', 'Final layout dimensions', {
     width: config.canvasWidth.toFixed(3),
     height: config.canvasHeight.toFixed(3),
     aspectRatio: (config.canvasWidth / config.canvasHeight).toFixed(2),

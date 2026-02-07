@@ -78,7 +78,7 @@ export function findValidConfiguration(
   // Generate hero position proposals in normalized space
   const proposals = proposePositions(heroPhoto, contentStats, tuning);
   
-  devLogger.log('v3', 'Normalized proposals generated', {
+  devLogger.log('layout', 'Normalized proposals generated', {
     count: proposals.length,
     heroAR: heroPhoto.aspectRatio.toFixed(2),
     contentCount: contentStats.count,
@@ -104,14 +104,14 @@ export function findValidConfiguration(
   
   // Return null if no valid configurations (no silent fallback)
   if (validConfigs.length === 0) {
-    devLogger.log('v3', 'No valid configurations found');
+    devLogger.log('layout', 'No valid configurations found');
     return null;
   }
   
   // Sort by score and return best
   validConfigs.sort((a, b) => b.score - a.score);
   
-  devLogger.log('v3', 'Best configuration selected', {
+  devLogger.log('layout', 'Best configuration selected', {
     score: validConfigs[0].score.toFixed(3),
     prominenceRatio: validConfigs[0].prominenceRatio.toFixed(2),
     canvasHeight: Math.round(validConfigs[0].canvasHeight),
@@ -137,7 +137,7 @@ function evaluateNormalizedProposal(
 ): ScoredConfiguration | null {
   const heroAR = heroPhoto.aspectRatio;
   
-  devLogger.log('v3', 'Evaluating normalized proposal', {
+  devLogger.log('layout', 'Evaluating normalized proposal', {
     mode: proposal.mode,
     position: proposal.position,
     heroAR: heroAR.toFixed(2),
@@ -146,7 +146,7 @@ function evaluateNormalizedProposal(
   
   // Edge and floating modes not yet implemented - use corner decomposition
   if (proposal.mode !== 'corner') {
-    devLogger.log('v3', 'Mode not implemented, skipping', { mode: proposal.mode });
+    devLogger.log('layout', 'Mode not implemented, skipping', { mode: proposal.mode });
     return null;
   }
   
@@ -160,7 +160,7 @@ function evaluateNormalizedProposal(
   );
   
   if (!splitResult) {
-    devLogger.log('v3', 'No valid split found for proposal', {
+    devLogger.log('layout', 'No valid split found for proposal', {
       mode: proposal.mode,
       position: proposal.position,
     });
@@ -213,7 +213,7 @@ function evaluateNormalizedProposal(
   const canvasWidth = normalizedWidthWithBorder;
   const canvasHeight = normalizedHeightWithBorder;
   
-  devLogger.log('v3', 'Normalized canvas dimensions', {
+  devLogger.log('layout', 'Normalized canvas dimensions', {
     normalizedWidth: normalizedWidth.toFixed(3),
     normalizedHeight: normalizedHeight.toFixed(3),
     withBorder: `${canvasWidth.toFixed(3)} x ${canvasHeight.toFixed(3)}`,
@@ -237,7 +237,7 @@ function evaluateNormalizedProposal(
   // Validate canvas AR (with epsilon tolerance for floating-point precision)
   const AR_EPSILON = 0.01;
   if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
-    devLogger.log('v3', 'Canvas too tall', {
+    devLogger.log('layout', 'Canvas too tall', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
     });
@@ -246,7 +246,7 @@ function evaluateNormalizedProposal(
   }
   
   if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-    devLogger.log('v3', 'Canvas too wide', {
+    devLogger.log('layout', 'Canvas too wide', {
       canvasAR: canvasAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,
     });
@@ -260,7 +260,7 @@ function evaluateNormalizedProposal(
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
-    devLogger.log('v3', 'Prominence too low', {
+    devLogger.log('layout', 'Prominence too low', {
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
     });
@@ -272,7 +272,7 @@ function evaluateNormalizedProposal(
   const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, tuning);
   
   if (!smallestCheck.valid) {
-    devLogger.log('v3', 'Hero too large vs smallest cells', {
+    devLogger.log('layout', 'Hero too large vs smallest cells', {
       ratio: smallestCheck.ratio.toFixed(1),
       maxAllowed: tuning.hero_maxToSmallest,
     });
@@ -291,7 +291,7 @@ function evaluateNormalizedProposal(
     position: proposal.position,
   };
   
-  devLogger.log('v3', 'Proposal accepted', {
+  devLogger.log('layout', 'Proposal accepted', {
     mode: proposal.mode,
     position: proposal.position,
     prominenceRatio: prominence.ratio.toFixed(2),
@@ -487,7 +487,7 @@ function generateSimpleRowsLayout(
     height: cell.height,
   }));
   
-  devLogger.log('v3', 'Simple rows: normalized canvas dimensions', {
+  devLogger.log('layout', 'Simple rows: normalized canvas dimensions', {
     normalizedHeight: normalizedResult.height.toFixed(3),
     withBorder: `${canvasWidth.toFixed(3)} x ${canvasHeight.toFixed(3)}`,
   });
@@ -496,7 +496,7 @@ function generateSimpleRowsLayout(
   
   // Validate canvas AR bounds
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
-    devLogger.log('v3', 'Simple rows layout outside AR bounds', {
+    devLogger.log('layout', 'Simple rows layout outside AR bounds', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
       maxAR: tuning.canvas_maxAR,

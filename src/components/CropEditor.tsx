@@ -139,6 +139,24 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.05;
   const handleSize = Math.min(targetHandleSize, maxHandleSize);
   const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
+  
+  // Minimum touch target of 44px in screen space (iOS HIG recommendation)
+  const hitAreaSize = viewScale > 0 ? 44 / viewScale : 44;
+  
+  // Offset handles inward when at image edges so they're fully visible
+  const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
+    const handleRadius = handleSize / 2;
+    let cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+    let cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+    
+    // Offset inward if at image edge
+    if (corner.includes('w') && crop.x <= 0) cx += handleRadius;
+    if (corner.includes('e') && crop.x + crop.width >= photo.originalWidth) cx -= handleRadius;
+    if (corner.includes('n') && crop.y <= 0) cy += handleRadius;
+    if (corner.includes('s') && crop.y + crop.height >= photo.originalHeight) cy -= handleRadius;
+    
+    return { cx, cy };
+  };
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
@@ -242,8 +260,7 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
             
             {/* Corner handles */}
             {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => {
-              const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
-              const cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+              const { cx, cy } = getHandlePosition(corner);
               const cursorMap = {
                 nw: 'nwse-resize',
                 ne: 'nesw-resize',
@@ -252,17 +269,27 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
               };
               
               return (
-                <circle
-                  key={corner}
-                  cx={cx}
-                  cy={cy}
-                  r={handleSize / 2}
-                  fill="white"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={strokeWidth}
-                  style={{ cursor: cursorMap[corner] }}
-                  onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
-                />
+                <g key={corner}>
+                  {/* Invisible hit area - larger for easier touch/click */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={hitAreaSize / 2}
+                    fill="transparent"
+                    style={{ cursor: cursorMap[corner] }}
+                    onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
+                  />
+                  {/* Visible handle */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={handleSize / 2}
+                    fill="white"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={strokeWidth}
+                    style={{ cursor: cursorMap[corner], pointerEvents: 'none' }}
+                  />
+                </g>
               );
             })}
           </svg>

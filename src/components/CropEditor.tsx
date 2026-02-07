@@ -133,12 +133,12 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
     onClose();
   };
 
-  // Handle size in viewBox units so it appears as ~20px on screen
-  // Cap at 5% of smaller dimension to prevent oversized handles on small images
-  const targetHandleSize = viewScale > 0 ? 20 / viewScale : 20;
-  const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.05;
+  // Handle size in viewBox units so it appears as ~28px on screen
+  // Cap at 8% of smaller dimension to prevent oversized handles on small images
+  const targetHandleSize = viewScale > 0 ? 28 / viewScale : 28;
+  const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.08;
   const handleSize = Math.min(targetHandleSize, maxHandleSize);
-  const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
+  const strokeWidth = viewScale > 0 ? 3 / viewScale : 3;
   
   // Minimum touch target of 44px in screen space (iOS HIG recommendation)
   const hitAreaSize = viewScale > 0 ? 44 / viewScale : 44;
@@ -179,6 +179,13 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
           >
+            {/* Drop shadow filter for handle visibility */}
+            <defs>
+              <filter id="handleShadow" x="-50%" y="-50%" width="200%" height="200%">
+                <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="black" floodOpacity="0.5" />
+              </filter>
+            </defs>
+            
             {/* Full image */}
             <image
               href={photo.objectUrl}
@@ -279,14 +286,15 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
                     style={{ cursor: cursorMap[corner] }}
                     onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
                   />
-                  {/* Visible handle */}
+                  {/* Visible handle - with shadow and dark stroke for visibility */}
                   <circle
                     cx={cx}
                     cy={cy}
                     r={handleSize / 2}
                     fill="white"
-                    stroke="hsl(var(--primary))"
+                    stroke="#333"
                     strokeWidth={strokeWidth}
+                    filter="url(#handleShadow)"
                     style={{ cursor: cursorMap[corner], pointerEvents: 'none' }}
                   />
                 </g>

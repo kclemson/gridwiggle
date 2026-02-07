@@ -205,7 +205,7 @@ export default function Index() {
           usedWorker: workerResult?.usedWorker ?? false,
         });
       } else {
-        remoteLogger.info('layout', 'Layout generation failed', {
+        remoteLogger.error('layout', 'Layout generation failed', {
           durationMs: workerResult?.durationMs,
           usedWorker: workerResult?.usedWorker ?? false,
           reason: workerResult?.failure?.reason ?? 'unknown',

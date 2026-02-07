@@ -1,203 +1,163 @@
 
 
-## Add Export & Reset Controls to Main App Debug Panel
+## Remove V1 Layout Algorithm
 
 ### Design Intent
-Enable JSON export of layout captures from the main app using direct event handler calls instead of effects - cleaner, more predictable, no state sync.
+Fully remove the V1 layout algorithm since V3 is now production-ready. This cleans up ~3,000 lines of legacy code while keeping the algorithm-agnostic `reflowAfterSwap` utility.
 
 ### User Outcome
-- "X pending" badge shows captures ready to export
-- Export button downloads JSON, Reset button clears captures
-- No automatic clearing - full manual control
+- Cleaner codebase with one layout engine instead of two
+- No change to app behavior (V3 already handles all layouts)
+- Debug panel simplified (no more v1/v3 toggle needed)
 
 ---
 
-## Architecture: Event Handler vs Effect
+## What Gets Removed
 
-```text
-Effect Approach (avoided):              Event Handler Approach (preferred):
-┌─────────────────────────┐             ┌─────────────────────────┐
-│ Index.tsx               │             │ Index.tsx               │
-│   setState(captureData) │             │   saveCapture() ◄────── Direct call
-└───────────┬─────────────┘             └─────────────────────────┘
-            │                           
-            ▼                           
-┌─────────────────────────┐             
-│ DebugPanel.tsx          │             No prop passing, no effect,
-│   useEffect(() => {     │             just call the function when
-│     saveCapture(...)    │             generation completes
-│   }, [captureData])     │             
-└─────────────────────────┘             
-```
+| File | Lines | Status |
+|------|-------|--------|
+| `src/lib/collageLayout.ts` | 977 | **DELETE** (except `reflowAfterSwap`) |
+| `src/lib/heroLayout.ts` | 1808 | **DELETE** |
+| `src/lib/layoutBlocks.ts` | 512 | **DELETE** |
+| `src/lib/layoutMath.ts` | ~200 | **REVIEW** (may have shared utilities) |
+
+**Total removed:** ~3,000+ lines
 
 ---
 
-## Files to Modify
+## What Gets Modified
 
 | File | Changes |
 |------|---------|
-| `src/components/DebugPanel.tsx` | Add export/reset UI only (no captureData prop, no effect) |
-| `src/pages/Index.tsx` | Call `saveCapture()` directly after generation completes |
+| `src/pages/Index.tsx` | Remove v1 fallback branch, simplify to always use V3 worker |
+| `src/components/DebugPanel.tsx` | Remove `AlgorithmVersion` toggle, simplify props |
+| `src/lib/collageLayout.ts` → `src/lib/layoutUtils.ts` | Keep only `reflowAfterSwap` in a smaller utility file |
+| `src/test/layout/layoutAdapter.ts` | Update to use V3 instead of V1 |
 
 ---
 
 ## Technical Details
 
-### 1. DebugPanel.tsx - Simple Export UI
+### 1. Extract `reflowAfterSwap` to New Utility File
 
-No `captureData` prop, no save effect. Just UI controls:
+Create `src/lib/layoutUtils.ts` with just the swap reflow logic:
 
 ```typescript
-import { useState, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Download, Trash2 } from 'lucide-react';
-import { 
-  getCaptureStats, 
-  exportPendingCaptures, 
-  downloadJson,
-  clearCaptures,
-} from '@/lib/v3CaptureStorage';
+// src/lib/layoutUtils.ts
+import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
+import { getDisplayCrop } from '@/lib/cropUtils';
 
-export function DebugPanel({ 
-  logs, 
-  durationMs,
-  algorithmVersion,
-  onAlgorithmVersionChange,
-}: DebugPanelProps) {
-  const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
-
-  // Refresh count (called after external save)
-  const refreshPendingCount = useCallback(() => {
-    setPendingCount(getCaptureStats().pending);
-  }, []);
-
-  const handleExport = useCallback(() => {
-    const { data, count } = exportPendingCaptures();
-    if (count === 0) return;
-    
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    downloadJson(data, `v3-captures-${algorithmVersion}-${timestamp}.json`);
-    setPendingCount(0);
-  }, [algorithmVersion]);
-
-  const handleReset = useCallback(() => {
-    clearCaptures();
-    setPendingCount(0);
-  }, []);
-
-  // ... rest of component with headerRight containing controls
+/**
+ * Swap two photos and reflow affected rows.
+ * Algorithm-agnostic - works with any layout structure.
+ */
+export function reflowAfterSwap(
+  layout: CollageLayout,
+  photos: PhotoItem[],
+  photoId1: string,
+  photoId2: string,
+  gap: number
+): CollageLayout {
+  // ... existing implementation from collageLayout.ts
 }
 ```
 
-### 2. Index.tsx - Direct saveCapture Call
+### 2. Simplify Index.tsx
 
-Call `saveCapture()` directly in the generation callback:
+Remove the v1 branch entirely:
 
 ```typescript
-import { 
-  saveCapture, 
-  extractReasonFrequencies,
-  getLastRejection,
-} from '@/lib/v3CaptureStorage';
+// Before
+const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+if (useV3) {
+  // V3 worker path
+} else {
+  // V1 fallback
+  layout = generateCollageLayout(photosToUse, settings, {...});
+}
 
-// In regenerateCollage, after worker responds:
-const regenerateCollage = useCallback(async (...) => {
-  // ... existing generation logic ...
-  
-  worker.onmessage = (e) => {
-    const result = e.data;
-    
-    // ... existing result handling ...
-    
-    // Save capture directly (dev only, v3 only)
-    if (isDev && algorithmVersion === 'v3') {
-      const heroPhoto = photosToUse.find(p => /* priority 1 */);
-      const avgAR = dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length;
-      const landscapeCount = dimensions.filter(d => d.aspectRatio > 1).length;
-      const orientationBias = dimensions.length > 0 
-        ? (landscapeCount / dimensions.length) * 2 - 1 
-        : 0;
-      
-      const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
-        extractReasonFrequencies(result.logs || []);
-      const lastRejection = getLastRejection(result.logs || []);
-      
-      saveCapture({
-        photoCount: photosToUse.length,
-        heroCount: heroPhoto ? 1 : 0,
-        heroAR: heroPhoto 
-          ? dimensions.find(d => d.id === heroPhoto.id)?.aspectRatio ?? null 
-          : null,
-        avgAR,
-        orientationBias,
-        seed: requestId,
-        success: result.layout !== null,
-        canvasWidth: result.layout?.width ?? null,
-        canvasHeight: result.layout?.height ?? null,
-        canvasAR: result.layout 
-          ? result.layout.width / result.layout.height 
-          : null,
-        cellCount: result.layout?.cells.length ?? null,
-        logCount: result.logs?.length ?? 0,
-        rejectCount,
-        rejectReasons,
-        feasibilityCount,
-        feasibilityReasons,
-        durationMs: result.durationMs ?? 0,
-        failureReason: result.layout ? null : lastRejection?.reason ?? 'unknown',
-        failureDetails: result.layout ? null : lastRejection?.details ?? null,
-        capturedAt: new Date().toISOString(),
-      });
-    }
-  };
-}, [algorithmVersion, /* other deps */]);
+// After
+// Always use V3 worker
+const result = await generateLayoutInWorker({
+  dimensions,
+  normalizedGap,
+  tuning: tuningOverride,
+  randomize,
+});
 ```
 
-### 3. Refresh Pending Count
+Remove the `algorithmVersion` state and related imports.
 
-DebugPanel needs to know when captures change. Two options:
+### 3. Simplify DebugPanel
 
-**Option A**: Pass a ref to DebugPanel's refresh function:
+Remove algorithm toggle:
+
 ```typescript
-// Index.tsx
-const debugPanelRef = useRef<{ refreshPendingCount: () => void }>(null);
+// Before
+export type AlgorithmVersion = 'v1' | 'v3';
 
-// After saveCapture:
-debugPanelRef.current?.refreshPendingCount();
+interface DebugPanelProps {
+  logs: LogEntry[];
+  durationMs?: number;
+  algorithmVersion: AlgorithmVersion;
+  onAlgorithmVersionChange: (version: AlgorithmVersion) => void;
+}
 
-// DebugPanel
-forwardRef + useImperativeHandle
+// After
+interface DebugPanelProps {
+  logs: LogEntry[];
+  durationMs?: number;
+}
 ```
 
-**Option B**: Simpler - just re-read on any render (cheap localStorage read):
+Remove the `ToggleGroup` with v1/v3 buttons from the UI.
+
+### 4. Update Test Adapter
+
+Update `src/test/layout/layoutAdapter.ts` to use V3:
+
 ```typescript
-// DebugPanel re-reads count on each render
-// Badge shows current value, updates naturally when component re-renders
+import { generateCollageLayoutV3 } from '@/lib/v3';
+
+export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
+  // ... convert photos to PhotoDimension format
+  // ... call generateCollageLayoutV3 instead of generateCollageLayout
+}
 ```
 
-I'll use Option B since it's simpler and localStorage reads are fast.
+### 5. Delete V1 Files
 
----
-
-## UI Layout
-
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Debug Logs          15 logs  2.1ms  [3 pending] [🗑] [⬇] │v1│v3│          │
-├────────────────────────────────────────────────────────────────────────────┤
-│ [region] Starting search photoCount:8, heroAR:0.67                         │
-└────────────────────────────────────────────────────────────────────────────┘
+```
+rm src/lib/collageLayout.ts
+rm src/lib/heroLayout.ts
+rm src/lib/layoutBlocks.ts
 ```
 
 ---
 
-## Key Behaviors
+## Files Summary
 
-| Action | Result |
-|--------|--------|
-| Generate layout (v3) | Saves capture directly in callback |
-| Generate layout (v1) | No capture saved |
-| Click Reset | Clears all captures |
-| Click Export | Downloads JSON with algorithm version in filename |
+### To Delete
+- `src/lib/collageLayout.ts`
+- `src/lib/heroLayout.ts`
+- `src/lib/layoutBlocks.ts`
+
+### To Create
+- `src/lib/layoutUtils.ts` (extract `reflowAfterSwap` here)
+
+### To Modify
+- `src/pages/Index.tsx` - Remove v1 fallback + algorithmVersion state
+- `src/components/DebugPanel.tsx` - Remove algorithm toggle
+- `src/test/layout/layoutAdapter.ts` - Switch to V3
+
+---
+
+## Verification Checklist
+
+After implementation:
+1. Main app generates layouts with V3 only
+2. Photo swapping still works (uses `reflowAfterSwap`)
+3. Debug panel shows logs without algorithm toggle
+4. JSON capture/export still works
+5. No TypeScript errors
 

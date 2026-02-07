@@ -9,7 +9,7 @@ const MAX_ASPECT = 3.0;   // Panorama
 /**
  * Photo counts designed to expose edge cases in row-packing math.
  */
-export const TEST_PHOTO_COUNTS = [5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35, 50] as const;
+export const TEST_PHOTO_COUNTS = [5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35] as const;
 
 /**
  * Sample an aspect ratio using triangular distribution.

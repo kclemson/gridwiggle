@@ -1,105 +1,120 @@
 
-# Add Production Console Logging for V3 Layout Failures
+# Two-Tier Preview System for Collage Performance
 
 ## Problem
 
-When the V3 layout fails to generate, there's no console output in production builds. The `devLogger` only operates in development mode, making it hard to diagnose failures in production.
+The collage canvas IS using preview images, but:
+1. Current previews are 1200px (needed for the crop editor which shows detailed crops)
+2. The collage canvas is typically 400-600px wide, making 1200px previews overkill
+3. With 40+ photos, this means ~40 × (1200×800) = ~38 megapixels being decoded for a small canvas
+4. Additionally, the touch drag thumbnail uses full-res images, not previews
 
 ## User Outcome
 
-After this change, any layout generation failure will emit a `console.warn` with:
-- Photo count and hero info
-- The specific reason for failure (e.g., "Canvas too tall", "Hero too large vs smallest cells")
-- Key metrics that caused the rejection
+After this change:
+- Collage shuffling/refresh will be noticeably faster
+- Lower memory pressure on mobile devices
+- Reduced risk of iOS Safari page reloads due to memory pressure
 
-This helps diagnose issues without needing to reproduce in dev mode.
+## Technical Approach
 
-## Technical Changes
+### Add a Second Preview Tier
 
-### File: `src/lib/v3/index.ts`
+| Preview Type | Size | Use Case |
+|--------------|------|----------|
+| `previewUrl` (existing) | 1200px | Crop editor (needs detail) |
+| `thumbnailUrl` (new) | 480px | Collage canvas cells |
 
-**Add failure logging at the entry point** (around line 130-133):
+### Changes Required
 
+#### 1. File: `src/types/collage.ts`
+
+Add new fields to `PhotoItem`:
 ```typescript
-// Current:
-if (!config) {
-  devLogger.log('v3', 'No valid configuration found');
-  return null;
-}
-
-// After:
-if (!config) {
-  devLogger.log('v3', 'No valid configuration found');
-  console.warn('[V3 Layout] Generation failed', {
-    photoCount: photos.length,
-    heroCount,
-    avgAR: (dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length).toFixed(2),
-  });
-  return null;
+export interface PhotoItem {
+  // ... existing fields ...
+  previewUrl?: string;        // 1200px - for crop editor
+  previewBlob?: Blob;
+  thumbnailUrl?: string;      // 480px - for collage canvas (NEW)
+  thumbnailBlob?: Blob;       // (NEW)
 }
 ```
 
-### File: `src/lib/v3/intersection.ts`
+#### 2. File: `src/lib/imageUtils.ts`
 
-**Add failure reason tracking** - return detailed rejection info that bubbles up to the entry point. Modify each rejection point to include the reason:
+No changes needed - `createDisplayPreview` already accepts a size parameter.
 
-1. **Canvas too tall** (line 263-268):
+#### 3. File: `src/pages/Index.tsx`
+
+During photo processing, create both preview sizes:
 ```typescript
-// Add reason to a returned object or track in a module-level variable
+// Create both preview sizes
+const [preview, thumbnail] = await Promise.all([
+  createDisplayPreview(photo.blob, 1200),  // For crop editor
+  createDisplayPreview(photo.blob, 480),   // For collage canvas
+]);
+
+updatePhoto(photo.id, {
+  originalWidth: width,
+  originalHeight: height,
+  previewUrl: preview.url,
+  previewBlob: preview.blob,
+  thumbnailUrl: thumbnail.url,
+  thumbnailBlob: thumbnail.blob,
+});
 ```
 
-2. **Canvas too wide** (line 271-276)
-3. **Prominence too low** (line 284-289)  
-4. **Hero too large vs smallest** (line 295-301)
+#### 4. File: `src/components/common/CroppedImage.tsx`
 
-The cleanest approach is to have `findValidConfiguration` track the last rejection reason and include it in the final log.
-
-### Implementation Strategy
-
-Add a simple rejection tracking mechanism:
-
+Add new prop for thumbnail preference:
 ```typescript
-// In intersection.ts - track last rejection
-let lastRejectionReason: { reason: string; details: Record<string, unknown> } | null = null;
-
-function setRejection(reason: string, details: Record<string, unknown>) {
-  lastRejectionReason = { reason, details };
+interface CroppedImageProps {
+  src: string;
+  previewSrc?: string;
+  thumbnailSrc?: string;      // NEW - smallest preview for collage
+  // ... rest unchanged
 }
 
-export function getLastRejection() {
-  return lastRejectionReason;
-}
-
-export function clearRejections() {
-  lastRejectionReason = null;
-}
+// Use smallest available:
+const displaySrc = thumbnailSrc ?? previewSrc ?? src;
 ```
 
-Then in `index.ts`:
+#### 5. File: `src/components/CollagePreview.tsx`
 
+Pass thumbnail to CroppedImage:
 ```typescript
-import { findValidConfiguration, getLastRejection, clearRejections } from './intersection';
-
-// Before search
-clearRejections();
-
-// After failure
-if (!config) {
-  const rejection = getLastRejection();
-  console.warn('[V3 Layout] Generation failed', {
-    photoCount: photos.length,
-    heroCount,
-    ...rejection?.details,
-    reason: rejection?.reason ?? 'No valid proposals',
-  });
-  return null;
-}
+<CroppedImage
+  src={photo.objectUrl}
+  previewSrc={photo.previewUrl}
+  thumbnailSrc={photo.thumbnailUrl}  // NEW
+  ...
+/>
 ```
+
+Also fix the touch drag preview to use thumbnails:
+```typescript
+// Line 284: Use thumbnail instead of full-res
+<img src={photoMap.get(touchDragId)!.thumbnailUrl ?? photoMap.get(touchDragId)!.objectUrl} ... />
+```
+
+### Memory Management
+
+When revoking URLs on cleanup/removal, also revoke `thumbnailUrl` in:
+- `useCollageState.ts` - cleanup on unmount and photo removal
 
 ## Summary
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/intersection.ts` | Add `setRejection`, `getLastRejection`, `clearRejections` helpers |
-| `src/lib/v3/intersection.ts` | Call `setRejection` at each validation failure point |
-| `src/lib/v3/index.ts` | Log failure with `console.warn` including rejection reason |
+| `src/types/collage.ts` | Add `thumbnailUrl` and `thumbnailBlob` fields |
+| `src/pages/Index.tsx` | Generate both 1200px and 480px previews in parallel |
+| `src/components/common/CroppedImage.tsx` | Add `thumbnailSrc` prop, prefer it over `previewSrc` |
+| `src/components/CollagePreview.tsx` | Pass `thumbnailUrl`, fix touch drag preview |
+| `src/hooks/useCollageState.ts` | Revoke `thumbnailUrl` on cleanup |
+
+## Performance Impact
+
+With 40 photos:
+- Before: 40 × 1200px = ~960k pixels per image ≈ 38MP total
+- After: 40 × 480px = ~154k pixels per image ≈ 6MP total
+- **~6× reduction** in pixel data for collage rendering

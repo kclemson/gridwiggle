@@ -21,7 +21,7 @@ export function RejectionBadge({ reason, details }: RejectionBadgeProps) {
       </div>
       <div className="mt-2 text-sm text-destructive/80 font-mono">
         {Object.entries(details).map(([k, v]) => (
-          <div key={k}>{k}: {JSON.stringify(v)}</div>
+          <div key={k}>{k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
         ))}
       </div>
     </div>

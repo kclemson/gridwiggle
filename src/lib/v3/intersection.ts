@@ -19,7 +19,7 @@ import {
   DEFAULT_V3_TUNING
 } from './types';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
-import { findValidRegionAssignment } from './region-search';
+import { findValidRegionAssignment, RejectedPack } from './region-search';
 import { calculateContentStats, coefficientOfVariation } from './utils';
 import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
@@ -171,7 +171,7 @@ function evaluateNormalizedProposal(
   }
   
   // Find valid region assignment
-  const regionAssignment = findValidRegionAssignment(
+  const regionResult = findValidRegionAssignment(
     contentPhotos,
     heroAR,
     normalizedGap,
@@ -179,13 +179,27 @@ function evaluateNormalizedProposal(
     randomize
   );
   
-  if (!regionAssignment) {
+  if (!regionResult.assignment) {
+    // Capture last rejected pack if available
+    if (regionResult.lastRejectedPack) {
+      setRejectedLayout({
+        cells: regionResult.lastRejectedPack.cells,
+        canvasWidth: regionResult.lastRejectedPack.canvasWidth,
+        canvasHeight: regionResult.lastRejectedPack.canvasHeight,
+        reason: regionResult.lastRejectedPack.reason,
+        details: regionResult.lastRejectedPack.details,
+        timestamp: Date.now(),
+      });
+    }
     devLogger.warn('layout-reject', 'No valid region assignment', {
       mode: proposal.mode,
       position: proposal.position,
+      hasLastRejectedPack: !!regionResult.lastRejectedPack,
     });
     return null;
   }
+  
+  const regionAssignment = regionResult.assignment;
   
   // Handle "no BESIDE" vs "with BESIDE" cases
   let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };

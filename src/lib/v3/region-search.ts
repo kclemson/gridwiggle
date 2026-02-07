@@ -5,11 +5,36 @@
  * Uses normalized space packing to evaluate candidate assignments.
  */
 
-import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
+import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
 import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR } from './feasibility';
+
+// ============================================================================
+// Rejected Pack Type (for capturing last rejected layout)
+// ============================================================================
+
+/**
+ * Captured state of a rejected pack for debugging visualization.
+ * Only populated when packing was attempted but validation failed.
+ */
+export interface RejectedPack {
+  cells: LayoutCell[];
+  canvasWidth: number;
+  canvasHeight: number;
+  reason: string;
+  details: Record<string, unknown>;
+}
+
+/**
+ * Result of region assignment search.
+ * Includes optional lastRejectedPack when no valid assignment found but packing was attempted.
+ */
+export interface RegionSearchResult {
+  assignment: RegionAssignment | null;
+  lastRejectedPack?: RejectedPack;
+}
 
 // ============================================================================
 // Region Search Algorithm
@@ -37,19 +62,21 @@ export function findValidRegionAssignment(
   normalizedGap: number,
   tuning: V3Tuning,
   randomize: boolean = false
-): RegionAssignment | null {
+): RegionSearchResult {
   if (photos.length === 0) {
-    return null;
+    return { assignment: null };
   }
   
   // Edge case: only 1 photo - must go to BELOW (BESIDE would leave BELOW empty)
   if (photos.length === 1) {
     return {
-      besidePhotos: [],
-      belowPhotos: photos,
-      besideRowCount: 0,
-      belowRowCount: 1,
-      score: 0,
+      assignment: {
+        besidePhotos: [],
+        belowPhotos: photos,
+        besideRowCount: 0,
+        belowRowCount: 1,
+        score: 0,
+      }
     };
   }
   
@@ -64,6 +91,9 @@ export function findValidRegionAssignment(
   
   // Collect all valid assignments instead of tracking best
   const validRegionAssignments: RegionAssignment[] = [];
+  
+  // Track last rejected pack for debugging when all packs fail
+  let lastRejectedPack: RejectedPack | undefined;
   
   // Calculate avgContentAR once before the loop
   const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
@@ -137,6 +167,14 @@ export function findValidRegionAssignment(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+        // Capture rejected pack for visualization
+        lastRejectedPack = {
+          cells: buildRejectedCells(heroAR, null, belowResult, normalizedGap),
+          canvasWidth: normalizedWidthWithBorder,
+          canvasHeight: normalizedHeightWithBorder,
+          reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, belowRowCount },
+        };
         devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
@@ -152,6 +190,14 @@ export function findValidRegionAssignment(
       const prominenceRatioNoAside = maxContentAreaNoAside > 0 ? heroAreaNoAside / maxContentAreaNoAside : Infinity;
       
       if (prominenceRatioNoAside < tuning.hero_minProminence) {
+        // Capture rejected pack for visualization
+        lastRejectedPack = {
+          cells: buildRejectedCells(heroAR, null, belowResult, normalizedGap),
+          canvasWidth: normalizedWidthWithBorder,
+          canvasHeight: normalizedHeightWithBorder,
+          reason: 'prominence_too_low',
+          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: tuning.hero_minProminence, besideCount: 0 },
+        };
         devLogger.warn('region-reject', 'Prominence too low (no BESIDE)', {
           besideCount: 0,
           prominenceRatio: prominenceRatioNoAside.toFixed(2),
@@ -226,6 +272,14 @@ export function findValidRegionAssignment(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+        // Capture rejected pack for visualization
+        lastRejectedPack = {
+          cells: buildRejectedCells(heroAR, besideResult, belowResult, normalizedGap),
+          canvasWidth: normalizedWidthWithBorder,
+          canvasHeight: normalizedHeightWithBorder,
+          reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount, besideRowCount, belowRowCount },
+        };
         devLogger.warn('region-reject', 'Canvas AR out of range', {
           besideCount,
           besideRowCount,
@@ -245,6 +299,14 @@ export function findValidRegionAssignment(
       const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
       
       if (prominenceRatio < tuning.hero_minProminence) {
+        // Capture rejected pack for visualization
+        lastRejectedPack = {
+          cells: buildRejectedCells(heroAR, besideResult, belowResult, normalizedGap),
+          canvasWidth: normalizedWidthWithBorder,
+          canvasHeight: normalizedHeightWithBorder,
+          reason: 'prominence_too_low',
+          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence, besideCount, besideRowCount },
+        };
         devLogger.warn('region-reject', 'Prominence too low', {
           besideCount,
           besideRowCount,
@@ -309,11 +371,68 @@ export function findValidRegionAssignment(
       besideRowCount: selected.besideRowCount,
       score: selected.score.toFixed(3),
     });
-    return selected;
+    return { assignment: selected };
   }
   
-  devLogger.warn('region-reject', 'No valid assignment found');
-  return null;
+  devLogger.warn('region-reject', 'No valid assignment found', {
+    hasLastRejected: lastRejectedPack !== undefined,
+  });
+  return { assignment: null, lastRejectedPack };
+}
+
+// ============================================================================
+// Helper: Build Rejected Cells
+// ============================================================================
+
+/**
+ * Build cell array for rejected pack visualization.
+ * Uses top-left hero position (simplest case for debugging).
+ */
+function buildRejectedCells(
+  heroAR: number,
+  besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number } | null,
+  belowResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number },
+  normalizedGap: number
+): LayoutCell[] {
+  const cells: LayoutCell[] = [];
+  const borderOffset = normalizedGap;
+  
+  // Hero cell (top-left position)
+  cells.push({
+    photoId: 'hero',
+    x: borderOffset,
+    y: borderOffset,
+    width: heroAR,
+    height: 1.0,
+  });
+  
+  // BESIDE cells (right of hero)
+  if (besideResult) {
+    const besideOffsetX = borderOffset + heroAR + normalizedGap;
+    for (const cell of besideResult.cells) {
+      cells.push({
+        photoId: cell.photoId,
+        x: besideOffsetX + cell.x,
+        y: borderOffset + cell.y,
+        width: cell.width,
+        height: cell.height,
+      });
+    }
+  }
+  
+  // BELOW cells
+  const belowOffsetY = borderOffset + 1.0 + normalizedGap;
+  for (const cell of belowResult.cells) {
+    cells.push({
+      photoId: cell.photoId,
+      x: borderOffset + cell.x,
+      y: belowOffsetY + cell.y,
+      width: cell.width,
+      height: cell.height,
+    });
+  }
+  
+  return cells;
 }
 
 // ============================================================================

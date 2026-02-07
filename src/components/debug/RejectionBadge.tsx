@@ -14,12 +14,12 @@ interface RejectionBadgeProps {
 
 export function RejectionBadge({ reason, details }: RejectionBadgeProps) {
   return (
-    <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-      <div className="flex items-center gap-2 text-destructive font-medium">
-        <AlertTriangle className="h-4 w-4" />
-        Rejected: {reason.replace(/_/g, ' ')}
+    <div className="mt-3 p-4 bg-destructive/20 border-2 border-destructive rounded-lg">
+      <div className="flex items-center gap-2 text-destructive font-bold text-lg">
+        <AlertTriangle className="h-5 w-5" />
+        REJECTED: {reason.replace(/_/g, ' ')}
       </div>
-      <div className="mt-1 text-sm text-destructive/80 font-mono">
+      <div className="mt-2 text-sm text-destructive/80 font-mono">
         {Object.entries(details).map(([k, v]) => (
           <div key={k}>{k}: {JSON.stringify(v)}</div>
         ))}

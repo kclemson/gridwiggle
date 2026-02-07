@@ -65,3 +65,38 @@ export function canMeetProminence(
   
   return { feasible, estimatedRatio };
 }
+
+/**
+ * Check if canvas AR can possibly be valid for a given hero row width.
+ * 
+ * This is a quick check BEFORE packing BELOW.
+ * Only checks the "too wide" case since that's tighter.
+ */
+export function canMeetCanvasAR(
+  heroRowWidth: number,
+  normalizedGap: number,
+  tuning: V3Tuning
+): { feasible: boolean; reason?: string } {
+  // Minimum canvas height (hero + gap + minimal below + border)
+  // Conservative estimate: belowHeight could be as low as 0.2
+  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+  const canvasWidth = heroRowWidth + 2 * normalizedGap;
+  
+  // Best-case AR (tallest canvas = lowest AR for given width)
+  const bestCaseAR = canvasWidth / minCanvasHeight;
+  
+  // If even the best case exceeds maxAR, this heroRowWidth won't work
+  if (bestCaseAR > tuning.canvas_maxAR * 1.1) { // 10% margin for safety
+    devLogger.log('feasibility', 'Canvas AR infeasible', {
+      heroRowWidth: heroRowWidth.toFixed(2),
+      bestCaseAR: bestCaseAR.toFixed(2),
+      maxAR: tuning.canvas_maxAR,
+    });
+    return { 
+      feasible: false, 
+      reason: `heroRowWidth ${heroRowWidth.toFixed(2)} → min AR ${bestCaseAR.toFixed(2)} > max ${tuning.canvas_maxAR}`
+    };
+  }
+  
+  return { feasible: true };
+}

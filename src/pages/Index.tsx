@@ -386,9 +386,9 @@ export default function Index() {
         {/* Header */}
         <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-14 items-center justify-between px-4">
-            <h1 className="text-lg font-semibold flex items-center gap-2">
-              <img src="/favicon.png" alt="" className="h-5 w-5" />
-              gridwiggle.com
+            <h1 className="text-lg font-medium tracking-wide">
+              <span className="text-muted-foreground">grid</span>
+              <span className="text-primary">wiggle</span>
             </h1>
 
             {state.photos.length > 0 && (

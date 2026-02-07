@@ -108,8 +108,8 @@ export function findValidRegionAssignment(
         belowPhotos, 
         heroRowWidth, 
         normalizedGap,
-        tuning.canvas_minAR,
-        tuning.canvas_maxAR
+        heroAR,
+        tuning
       );
       
       // Pack BELOW
@@ -200,8 +200,8 @@ export function findValidRegionAssignment(
         belowPhotos, 
         heroRowWidth, 
         normalizedGap,
-        tuning.canvas_minAR,
-        tuning.canvas_maxAR
+        heroAR,
+        tuning
       );
       
       // Pack BELOW at derived width

@@ -1,175 +1,110 @@
 
-# Fix: Canvas AR Feasibility Check Ignores BELOW Height
+# Fix: Range-Based Early Prominence Feasibility Check
 
 ## Design Intent
 
-The current `canBesideCountMeetCanvasAR` feasibility check incorrectly rejects valid configurations because it assumes the canvas height is *only* the hero row (height = 1.0). This causes square/portrait heroes with many landscape photos to be pruned before the algorithm even considers that the BELOW region adds height which balances the aspect ratio.
+The early feasibility check exists to prune the search space before expensive packing operations. The current implementation incorrectly uses a single row count (1) as a "worst case", which backwards-rejects portrait heroes that would succeed with more rows.
+
+The fix changes the question from "does 1 row work?" to "does ANY row count in the valid range satisfy BOTH prominence constraints?"
 
 ## User Outcome
 
-- Square heroes (AR ~1.0) paired with landscape content will produce valid layouts
-- Portrait heroes (AR 0.6–0.9) will work with sufficient content photos  
-- The mockup layout (square hero + 4 beside + ~20 below) will succeed
-- Failure rate for portrait/square heroes should drop significantly
+- Portrait heroes with many content photos will be properly evaluated instead of immediately rejected
+- Layouts like the mockup (AR ~0.65 hero with 6 rows beside) will pass feasibility and get packed
+- No performance regression — still O(1) algebraic check with no packing
 
 ---
 
-## The Bug
+## Technical Approach
 
-In `src/lib/v3/feasibility.ts` (lines 99-104):
+### The Geometry
 
-```typescript
-// BUG: Assumes canvas height = hero row only
-const minCanvasHeight = 1.0 + 2 * normalizedGap;  // ← ignores BELOW!
-const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
-const bestCaseAR = canvasWidth / minCanvasHeight;
-
-const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
-```
-
-This calculates "best case AR" using minimum height (just hero), but for wide hero rows the BELOW region is what brings the AR back into range.
-
----
-
-## The Fix: Estimate BELOW Height Geometrically
-
-Replace the flawed check with a proper geometric estimate:
+In normalized space (hero height = 1.0):
 
 ```text
-Given:
-  - heroRowWidth = heroAR + gap + minBesideWidth
-  - belowCount = totalPhotos - besideCount - 1 (hero)
-  - avgContentAR = average AR of all content photos
+heroArea = heroAR × 1.0 = heroAR
 
-For the canvas to meet maxAR, we need:
-  canvasWidth / canvasHeight ≤ maxAR
-  → canvasHeight ≥ canvasWidth / maxAR
-  → requiredBelowHeight = canvasWidth / maxAR - heroRowHeight - gaps
+For BESIDE with R rows:
+  rowHeight = 1.0 / R
+  cellArea ≈ avgBesideAR × rowHeight² = avgBesideAR / R²
 
-The achievable BELOW height (minimum estimate) is:
-  belowHeight ≈ √(belowCount × avgAR / heroRowWidth)
+Prominence ratio = heroArea / cellArea = heroAR × R² / avgBesideAR
 ```
+
+### Two Competing Constraints
+
+1. **Minimum Prominence** (`hero_minProminence = 1.3`): Hero must be ≥1.3× the largest content cell
+   - Needs MORE rows (smaller cells)
+   - `R ≥ sqrt(minProminence × avgBesideAR / heroAR)`
+
+2. **Maximum Prominence** (`hero_maxToSmallest = 22`): Hero must be ≤22× the smallest content cell  
+   - Needs FEWER rows (larger cells)
+   - `R ≤ sqrt(maxToSmallest × avgBesideAR / heroAR)`
+
+### Feasibility = Range Intersection
+
+If `[minRowsForProminence, maxRowsForSmallest]` overlaps with physical limits `[1, min(besideCount, 6)]`, a valid configuration exists.
 
 ---
 
-## File to Modify
+## Verification
 
-| File | Changes |
-|------|---------|
-| `src/lib/v3/feasibility.ts` | Update signature to accept `totalContentCount` and `avgContentAR`, then estimate BELOW height before checking AR |
-
----
-
-## Technical Implementation
-
-### Updated Function Signature
-
-```typescript
-export function canBesideCountMeetCanvasAR(
-  heroAR: number,
-  besidePhotos: PhotoDimension[],
-  totalContentCount: number,      // NEW: total content photos (excluding hero)
-  avgContentAR: number,           // NEW: average AR of all content
-  normalizedGap: number,
-  tuning: V3Tuning
-): { feasible: boolean; minHeroRowWidth: number }
-```
-
-### Updated Logic
-
-```typescript
-// Calculate hero row width (same as before)
-const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
-const maxRows = Math.min(besidePhotos.length, 4);
-const minBesideWidth = sumBesideAR / maxRows;
-const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
-const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
-
-// Calculate required BELOW height to meet canvas_maxAR
-const heroRowHeightWithGaps = 1.0 + normalizedGap + 2 * normalizedGap;
-const requiredTotalHeight = canvasWidth / tuning.canvas_maxAR;
-const requiredBelowHeight = Math.max(0, requiredTotalHeight - heroRowHeightWithGaps);
-
-// Estimate achievable BELOW height
-const belowCount = totalContentCount - besidePhotos.length;
-if (belowCount > 0 && requiredBelowHeight > 0) {
-  // Geometric estimate: height ≈ √(n × avgAR / width)
-  // This is conservative (underestimates) as it assumes optimal packing
-  const estimatedBelowHeight = Math.sqrt(belowCount * avgContentAR / minHeroRowWidth);
-  
-  // Feasible if we can achieve ≥80% of required height (conservative margin)
-  const feasible = estimatedBelowHeight >= requiredBelowHeight * 0.8;
-  
-  if (!feasible) {
-    devLogger.log('feasibility', 'Canvas AR infeasible (BELOW too short)', {
-      besideCount: besidePhotos.length,
-      belowCount,
-      requiredBelowHeight: requiredBelowHeight.toFixed(2),
-      estimatedBelowHeight: estimatedBelowHeight.toFixed(2),
-    });
-  }
-  
-  return { feasible, minHeroRowWidth };
-}
-
-// No BELOW photos or no height needed → use original check
-const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
-const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
-return { feasible, minHeroRowWidth };
-```
-
-### Update Caller in region-search.ts
-
-```typescript
-// Calculate avgContentAR once before the loop
-const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
-
-// In the loop:
-const canvasARFeasibility = canBesideCountMeetCanvasAR(
-  heroAR, 
-  besidePhotos, 
-  photos.length,      // NEW
-  avgContentAR,       // NEW
-  normalizedGap, 
-  tuning
-);
-```
-
----
-
-## Mathematical Verification
-
-For the mockup (square hero + 4 beside + 21 below):
+### Portrait Hero (AR 0.65) with 6 BESIDE photos (avgAR 1.4)
 
 ```text
-Inputs:
-  heroAR = 1.0
-  besideCount = 4, sumBesideAR ≈ 5.8
-  avgContentAR ≈ 1.4
-  belowCount = 21
+minRowsForProminence = ceil(sqrt(1.3 × 1.4 / 0.65)) = ceil(1.67) = 2
+maxRowsForSmallest = floor(sqrt(22 × 1.4 / 0.65)) = floor(6.88) = 6
+Physical limit: min(6, 6) = 6
 
-Calculations:
-  minBesideWidth = 5.8 / 4 = 1.45
-  minHeroRowWidth = 1.0 + 0.03 + 1.45 = 2.48
-  canvasWidth = 2.48 + 0.06 = 2.54
-  
-  requiredTotalHeight = 2.54 / 2.0 = 1.27
-  requiredBelowHeight = 1.27 - 1.0 - 0.03 - 0.06 = 0.18
-  
-  estimatedBelowHeight = √(21 × 1.4 / 2.48) = √11.9 = 3.45
-  
-  3.45 ≥ 0.18 × 0.8 = 0.14 ✓ FEASIBLE
+Valid range: [2, 6] ∩ [1, 6] = [2, 6] → FEASIBLE
 ```
 
-The real BELOW height in the mockup is ~1.2, so this conservative estimate (3.45) correctly allows the configuration through.
+### Landscape Hero (AR 1.5) with same photos
+
+```text
+minRowsForProminence = ceil(sqrt(1.3 × 1.4 / 1.5)) = ceil(1.1) = 2
+maxRowsForSmallest = floor(sqrt(22 × 1.4 / 1.5)) = floor(4.53) = 4
+
+Valid range: [2, 4] → FEASIBLE
+```
+
+### Extreme: Tiny Portrait (AR 0.3) with only 2 wide photos (avgAR 2.0)
+
+```text
+minRowsForProminence = ceil(sqrt(1.3 × 2.0 / 0.3)) = ceil(2.94) = 3
+maxRowsForSmallest = floor(sqrt(22 × 2.0 / 0.3)) = floor(12.1) = 12
+Physical limit: min(2, 6) = 2
+
+Needed: 3+ rows, Available: max 2 rows → INFEASIBLE (correctly rejected)
+```
 
 ---
 
-## Edge Cases
+## File Changes
 
-| Scenario | Before | After |
-|----------|--------|-------|
-| Square hero + many landscape | ❌ Rejected | ✓ Passes |
-| Portrait hero + many content | ❌ Rejected | ✓ Passes if geometry allows |
-| Wide hero row + few BELOW | May pass incorrectly | Correctly rejects if BELOW can't provide height |
-| Landscape hero + any content | ✓ Works | ✓ Unchanged |
+### 1. `src/lib/v3/feasibility.ts`
+
+Replace the existing `canMeetProminence` function with a new `canMeetProminenceConstraints` function:
+
+- Remove the old function that takes `besideRowCount` as a parameter
+- Add new function that calculates valid row range algebraically
+- Returns `{ feasible, minRows, maxRows, reason? }` for better logging
+
+### 2. `src/lib/v3/region-search.ts`
+
+Update the import and caller:
+
+- Change import from `canMeetProminence` to `canMeetProminenceConstraints`
+- Update the early feasibility check at line 97-111 to use the new function
+- Improve logging to show the valid row range when skipping
+
+---
+
+## Edge Cases Handled
+
+| Scenario | Current Behavior | New Behavior |
+|----------|-----------------|--------------|
+| Portrait hero + many landscape | Rejected (1 row fails) | Passes (2+ rows valid) |
+| Landscape hero + landscape | Usually passes | Unchanged |
+| Very portrait + few wide photos | May incorrectly pass | Correctly rejects if no valid range |
+| Square hero + mixed content | Inconsistent | Properly evaluates full range |

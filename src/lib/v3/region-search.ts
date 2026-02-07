@@ -9,7 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
-import { canMeetProminence } from './feasibility';
+import { canMeetProminence, canMeetCanvasAR } from './feasibility';
 
 // ============================================================================
 // Region Search Algorithm
@@ -182,6 +182,18 @@ export function findValidRegionAssignment(
       
       // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
+      
+      // Early canvas AR feasibility check
+      const canvasARFeasibility = canMeetCanvasAR(heroRowWidth, normalizedGap, tuning);
+      if (!canvasARFeasibility.feasible) {
+        devLogger.log('region', 'Skipping (canvas AR infeasible)', {
+          besideCount,
+          besideRowCount,
+          heroRowWidth: heroRowWidth.toFixed(2),
+          reason: canvasARFeasibility.reason,
+        });
+        continue;
+      }
       
       // Calculate optimal row count for BELOW (respecting both min and max AR)
       const belowRowCount = calculateBelowRowCount(

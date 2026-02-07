@@ -222,19 +222,24 @@ export default function V3Test() {
                   logs.map((entry, idx) => {
                     const isReject = entry.level === 'warn' || entry.level === 'error' 
                       || entry.category.includes('reject');
+                    const isFeasibility = entry.category === 'feasibility';
                     
                     return (
                       <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
                         <div className="flex gap-1 min-w-0">
                           <span className={cn(
                             "shrink-0",
-                            isReject ? "text-red-500" : "text-blue-500"
+                            isReject ? "text-red-500" 
+                              : isFeasibility ? "text-amber-500" 
+                              : "text-blue-500"
                           )}>
                             [{entry.category}]
                           </span>
                           <span className={cn(
                             "break-words min-w-0",
-                            isReject ? "text-red-400" : "text-foreground"
+                            isReject ? "text-red-400" 
+                              : isFeasibility ? "text-amber-400" 
+                              : "text-foreground"
                           )}>
                             {entry.label}
                           </span>
@@ -242,7 +247,9 @@ export default function V3Test() {
                         {Object.keys(entry.data).length > 0 && (
                           <span className={cn(
                             "break-all",
-                            isReject ? "text-red-400/70" : "text-muted-foreground"
+                            isReject ? "text-red-400/70" 
+                              : isFeasibility ? "text-amber-400/70" 
+                              : "text-muted-foreground"
                           )}>
                             {formatLogData(entry.data)}
                           </span>

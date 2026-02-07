@@ -14,7 +14,8 @@ import { generateCollageLayoutV2 } from '@/lib/v2';
 import { generateCollageLayoutV3 } from '@/lib/v3';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LayoutTuning, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
+import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -46,7 +47,7 @@ export default function Index() {
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
-  const [layoutTuning, setLayoutTuning] = useState<LayoutTuning>(DEFAULT_TUNING);
+  const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
@@ -65,8 +66,8 @@ export default function Index() {
     cropOverride?: { photoId: string; crop: CropRegion };
     /** Shuffle for variety (refresh button) */
     randomize?: boolean;
-    /** Layout tuning parameters (for immediate changes) */
-    tuning?: LayoutTuning;
+    /** V3 tuning parameters (for immediate changes) */
+    v3Tuning?: V3Tuning;
   }
 
   // Centralized collage regeneration - all triggers use this
@@ -77,7 +78,7 @@ export default function Index() {
       priorityOverride,
       cropOverride,
       randomize = false,
-      tuning = layoutTuning,
+      v3Tuning: tuningOverride = v3Tuning,
     } = options;
     
     // Apply crop override to get correct dimensions immediately (avoids stale state)
@@ -113,6 +114,7 @@ export default function Index() {
         ? generateCollageLayoutV3(photosToUse, settings, { 
             photoWeights,
             randomize,
+            tuning: tuningOverride,
           })
         : algorithmVersion === 'v2'
           ? generateCollageLayoutV2(photosToUse, settings, { 
@@ -122,7 +124,7 @@ export default function Index() {
           : generateCollageLayout(photosToUse, settings, { 
               photoWeights,
               randomize,
-              tuning,
+              tuning: DEFAULT_TUNING,
             });
       
       setDebugLogs(devLogger.getLogs());
@@ -131,7 +133,7 @@ export default function Index() {
       console.error('Layout generation failed:', error);
       // Silent - button remains visible for retry
     }
-  }, [state.settings, setLayout, layoutTuning, algorithmVersion]);
+  }, [state.settings, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -262,13 +264,13 @@ export default function Index() {
     }
   }, [updateSettings, state.layout, state.settings, regenerateCollage]);
 
-  const handleTuningChange = useCallback((key: keyof LayoutTuning, value: number) => {
-    const newTuning = { ...layoutTuning, [key]: value };
-    setLayoutTuning(newTuning);
+  const handleV3TuningChange = useCallback((key: keyof V3Tuning, value: number) => {
+    const newTuning = { ...v3Tuning, [key]: value };
+    setV3Tuning(newTuning);
     if (state.layout) {
-      regenerateCollage({ tuning: newTuning });
+      regenerateCollage({ v3Tuning: newTuning });
     }
-  }, [layoutTuning, state.layout, regenerateCollage]);
+  }, [v3Tuning, state.layout, regenerateCollage]);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (state.layout) {
@@ -484,8 +486,8 @@ export default function Index() {
                   >
                     <DebugPanel 
                       logs={debugLogs} 
-                      tuning={layoutTuning} 
-                      onTuningChange={handleTuningChange}
+                      v3Tuning={v3Tuning} 
+                      onV3TuningChange={handleV3TuningChange}
                       algorithmVersion={algorithmVersion}
                       onAlgorithmVersionChange={setAlgorithmVersion}
                     />

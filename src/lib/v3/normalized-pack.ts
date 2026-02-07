@@ -282,6 +282,15 @@ export function calculateRowCountRange(
  * - hero_maxToSmallest (prevents tiny content cells)
  */
 /**
+ * Result of calculateBelowRowCount containing value and valid range.
+ */
+export interface BelowRowCountResult {
+  value: number;
+  minRows: number;
+  maxRows: number;
+}
+
+/**
  * Calculate optimal row count for BELOW packing given width and photo geometry.
  * Enforces:
  * - canvas_minAR (prevents too-tall canvas)
@@ -289,6 +298,7 @@ export function calculateRowCountRange(
  * - hero_maxToSmallest (prevents tiny content cells)
  * 
  * @param randomize - When true, picks randomly within valid range for variety
+ * @returns Object with selected value and valid range (minRows, maxRows)
  */
 export function calculateBelowRowCount(
   photos: PhotoDimension[],
@@ -297,9 +307,9 @@ export function calculateBelowRowCount(
   heroAR: number,
   tuning: V3Tuning,
   randomize: boolean = false
-): number {
+): BelowRowCountResult {
   const n = photos.length;
-  if (n <= 1) return 1;
+  if (n <= 1) return { value: 1, minRows: 1, maxRows: 1 };
   
   // Photo geometry
   const meanAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0) / n;
@@ -330,10 +340,13 @@ export function calculateBelowRowCount(
   const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
   
   // When randomizing, pick uniformly from valid range for variety
+  let value: number;
   if (randomize && minRows < maxRows) {
-    return minRows + Math.floor(Math.random() * (maxRows - minRows + 1));
+    value = minRows + Math.floor(Math.random() * (maxRows - minRows + 1));
+  } else {
+    // Deterministic: choose middle of valid range for balance
+    value = Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
   }
   
-  // Deterministic: choose middle of valid range for balance
-  return Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
+  return { value, minRows, maxRows };
 }

@@ -194,14 +194,19 @@ export default function Index() {
           width = dimensions.width;
           height = dimensions.height;
           
-          // Create display preview
-          const preview = await createDisplayPreview(photo.blob, 1200);
+          // Create both preview sizes in parallel
+          const [preview, thumbnail] = await Promise.all([
+            createDisplayPreview(photo.blob, 1200),  // For crop editor
+            createDisplayPreview(photo.blob, 480),   // For collage canvas
+          ]);
           
           updatePhoto(photo.id, {
             originalWidth: width,
             originalHeight: height,
             previewUrl: preview.url,
             previewBlob: preview.blob,
+            thumbnailUrl: thumbnail.url,
+            thumbnailBlob: thumbnail.blob,
           });
         }
         

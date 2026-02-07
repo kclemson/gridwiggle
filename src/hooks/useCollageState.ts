@@ -263,9 +263,15 @@ export function useCollageState() {
     setState((prev) => {
       const photo = prev.photos.find((p) => p.id === photoId);
       if (photo) {
-        // Revoke Object URL
+        // Revoke all Object URLs (original, preview, thumbnail)
         URL.revokeObjectURL(photo.objectUrl);
         objectUrlsRef.current.delete(photo.objectUrl);
+        if (photo.previewUrl) {
+          URL.revokeObjectURL(photo.previewUrl);
+        }
+        if (photo.thumbnailUrl) {
+          URL.revokeObjectURL(photo.thumbnailUrl);
+        }
       }
 
       const next = {
@@ -331,10 +337,16 @@ export function useCollageState() {
   }, [debouncedSaveMetadata]);
 
   const clearAll = useCallback(async () => {
-    // Revoke all Object URLs
+    // Revoke all Object URLs (original, preview, thumbnail)
     state.photos.forEach((p) => {
       URL.revokeObjectURL(p.objectUrl);
       objectUrlsRef.current.delete(p.objectUrl);
+      if (p.previewUrl) {
+        URL.revokeObjectURL(p.previewUrl);
+      }
+      if (p.thumbnailUrl) {
+        URL.revokeObjectURL(p.thumbnailUrl);
+      }
     });
 
     setState(defaultState);

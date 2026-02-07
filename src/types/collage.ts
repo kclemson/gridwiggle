@@ -28,8 +28,10 @@ export interface PhotoItem {
   isProcessing: boolean;
   error: string | null;
   priority: PhotoPriority;    // Default: 3 (standard)
-  previewUrl?: string;        // Scaled-down preview for UI rendering (~1200px max)
+  previewUrl?: string;        // Scaled-down preview for crop editor (~1200px max)
   previewBlob?: Blob;         // Preview blob for memory management
+  thumbnailUrl?: string;      // Smaller preview for collage canvas (~480px max)
+  thumbnailBlob?: Blob;       // Thumbnail blob for memory management
 }
 
 /**

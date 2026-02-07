@@ -4,7 +4,8 @@ import { cn } from '@/lib/utils';
 
 interface CroppedImageProps {
   src: string;
-  previewSrc?: string;        // Scaled-down preview for performance
+  previewSrc?: string;        // Scaled-down preview for crop editor (~1200px)
+  thumbnailSrc?: string;      // Smaller preview for collage canvas (~480px)
   crop: CropRegion | null;
   originalWidth: number;
   originalHeight: number;
@@ -23,14 +24,15 @@ interface CroppedImageProps {
 export const CroppedImage = memo(function CroppedImage({
   src,
   previewSrc,
+  thumbnailSrc,
   crop,
   originalWidth,
   originalHeight,
   fit = 'contain',
   className,
 }: CroppedImageProps) {
-  // Use preview for rendering when available (lower memory pressure)
-  const displaySrc = previewSrc ?? src;
+  // Use smallest available preview for rendering (lower memory pressure)
+  const displaySrc = thumbnailSrc ?? previewSrc ?? src;
   // Defensive: if dimensions are missing, render simple image
   if (!originalWidth || !originalHeight) {
     return (

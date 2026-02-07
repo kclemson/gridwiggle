@@ -72,6 +72,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
       <CroppedImage
         src={photo.objectUrl}
         previewSrc={photo.previewUrl}
+        thumbnailSrc={photo.thumbnailUrl}
         crop={crop}
         originalWidth={photo.originalWidth}
         originalHeight={photo.originalHeight}
@@ -281,7 +282,7 @@ export function CollagePreview({
         >
           {photoMap.get(touchDragId) && (
             <img
-              src={photoMap.get(touchDragId)!.objectUrl}
+              src={photoMap.get(touchDragId)!.thumbnailUrl ?? photoMap.get(touchDragId)!.previewUrl ?? photoMap.get(touchDragId)!.objectUrl}
               alt=""
               className="w-full h-full object-cover"
             />

@@ -1,21 +1,16 @@
 import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
-import { Progress } from '@/components/ui/progress';
 import { Loader2, CheckCircle2, AlertCircle, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PhotoProcessingViewProps {
   photos: PhotoItem[];
   currentlyProcessingId: string | null;
-  progress: number;
-  status: string;
 }
 
 export function PhotoProcessingView({
   photos,
   currentlyProcessingId,
-  progress,
-  status,
 }: PhotoProcessingViewProps) {
   const stats = useMemo(() => {
     const completed = photos.filter(p => !p.isProcessing && !p.error).length;
@@ -36,17 +31,6 @@ export function PhotoProcessingView({
           <Wand2 className="h-5 w-5 animate-pulse" />
           <h3 className="text-lg font-medium">Processing Photos</h3>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {stats.completed} of {stats.total} photos processed
-        </p>
-      </div>
-
-      {/* Progress bar */}
-      <div className="space-y-2">
-        <Progress value={progress} className="h-2" />
-        <p className="text-xs text-muted-foreground text-center">
-          {status}
-        </p>
       </div>
 
       {/* Current photo thumbnail */}

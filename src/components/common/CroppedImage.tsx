@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 
 interface CroppedImageProps {
   src: string;
+  previewSrc?: string;        // Scaled-down preview for performance
   crop: CropRegion | null;
   originalWidth: number;
   originalHeight: number;
@@ -21,17 +22,20 @@ interface CroppedImageProps {
  */
 export const CroppedImage = memo(function CroppedImage({
   src,
+  previewSrc,
   crop,
   originalWidth,
   originalHeight,
   fit = 'contain',
   className,
 }: CroppedImageProps) {
+  // Use preview for rendering when available (lower memory pressure)
+  const displaySrc = previewSrc ?? src;
   // Defensive: if dimensions are missing, render simple image
   if (!originalWidth || !originalHeight) {
     return (
       <img
-        src={src}
+        src={displaySrc}
         alt=""
         className={cn(
           'w-full h-full',
@@ -47,7 +51,7 @@ export const CroppedImage = memo(function CroppedImage({
   if (!crop) {
     return (
       <img
-        src={src}
+        src={displaySrc}
         alt=""
         className={cn(
           'w-full h-full',
@@ -63,7 +67,7 @@ export const CroppedImage = memo(function CroppedImage({
   if (crop.width < 50 || crop.height < 50) {
     return (
       <img
-        src={src}
+        src={displaySrc}
         alt=""
         className={cn(
           'w-full h-full',
@@ -91,7 +95,7 @@ export const CroppedImage = memo(function CroppedImage({
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>
       <img
-        src={src}
+        src={displaySrc}
         alt=""
         draggable={false}
         style={{

@@ -71,6 +71,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
     >
       <CroppedImage
         src={photo.objectUrl}
+        previewSrc={photo.previewUrl}
         crop={crop}
         originalWidth={photo.originalWidth}
         originalHeight={photo.originalHeight}

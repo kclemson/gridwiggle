@@ -19,8 +19,8 @@ export type PhotoPriority = 1 | 2 | 3;
 export interface PhotoItem {
   id: string;
   filename?: string;          // Original filename for debugging
-  objectUrl: string;          // For <img src> rendering
-  blob: Blob;                 // For canvas operations
+  objectUrl: string;          // For <img src> rendering (full-res, used for export)
+  blob: Blob;                 // For canvas operations (export)
   originalWidth: number;
   originalHeight: number;
   smartCrop: CropRegion | null;
@@ -28,6 +28,8 @@ export interface PhotoItem {
   isProcessing: boolean;
   error: string | null;
   priority: PhotoPriority;    // Default: 3 (standard)
+  previewUrl?: string;        // Scaled-down preview for UI rendering (~1200px max)
+  previewBlob?: Blob;         // Preview blob for memory management
 }
 
 /**

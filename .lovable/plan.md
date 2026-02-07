@@ -1,50 +1,43 @@
 
-# Quick UX Fixes for V3Test
+# Bump hero_maxToSmallest from 22 to 45
 
-## Changes
+## The Problem
 
-### 1. Default `showRejected` to `true`
+The current threshold of 22 is rejecting layouts that look visually acceptable. Your debug screenshots show ratios of 22.5, 31, 42.7, and 29.8 all being rejected - layouts where the hero-to-smallest ratio is larger than 22 but the visual result is still perfectly good.
 
-**File:** `src/pages/V3Test.tsx` (line 189)
+## The Fix
 
-Change from:
-```tsx
-const [showRejected, setShowRejected] = useState(false);
+Update `src/lib/v3/types.ts` line 61:
+
+```typescript
+// Before
+hero_maxToSmallest: 22,
+
+// After  
+hero_maxToSmallest: 45,
 ```
-To:
-```tsx
-const [showRejected, setShowRejected] = useState(true);
+
+Also update the JSDoc comment on line 47-48 to match:
+
+```typescript
+// Before
+/** Max hero area relative to avg of smallest content photos (15 = hero ≤ 15× smallest) */
+
+// After
+/** Max hero area relative to avg of smallest content photos (45 = hero ≤ 45× smallest) */
 ```
 
-### 2. Remove all `animate-pulse-soft` classes
+## Impact
 
-**File:** `src/pages/V3Test.tsx`
-
-- Line 252: Remove from the header REJECTED badge
-- Line 324: Remove from the canvas ring around rejected layout
-
-### 3. Make "Showing Rejected" button red when viewing a rejected layout
-
-**File:** `src/pages/V3Test.tsx` (lines 259-267)
-
-Change the button to use destructive variant when both `showRejected` is true AND we're viewing a rejected layout (`!layout && rejectedLayout`):
-
-```tsx
-<Button 
-  onClick={() => setShowRejected(s => !s)}
-  variant={showRejected && !layout && rejectedLayout ? "destructive" : showRejected ? "default" : "outline"}
-  size="sm"
-  className="gap-2"
->
-```
+- Layouts with hero-to-smallest ratios between 22 and 45 will now be accepted
+- This is more permissive, allowing greater variation in photo sizes
+- Based on your visual inspection, these ratios still produce acceptable layouts
+- Easy to tune further if 45 proves too loose or too tight
 
 ---
 
-## Summary
+## File Changes
 
-| Change | Location |
-|--------|----------|
-| Default `showRejected` to `true` | Line 189 |
-| Remove pulse from header badge | Line 252 |
-| Remove pulse from canvas ring | Line 324 |
-| Red button when viewing rejection | Lines 259-267 |
+| File | Change |
+|------|--------|
+| `src/lib/v3/types.ts` | Update `hero_maxToSmallest` from 22 to 45, update comment |

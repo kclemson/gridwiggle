@@ -100,12 +100,17 @@ export default function Index() {
     // Apply crop override to get correct dimensions immediately (avoids stale state)
     let photosToUse = photos;
     if (cropOverride) {
-      photosToUse = photos.map(p => 
+      photosToUse = photosToUse.map(p => 
         p.id === cropOverride.photoId 
           ? { ...p, manualCrop: cropOverride.crop }
           : p
       );
     }
+    
+    // Filter out photos that aren't ready (missing dimensions from still-processing uploads)
+    photosToUse = photosToUse.filter(p => 
+      p.originalWidth > 0 && p.originalHeight > 0
+    );
     
     // Need at least 2 photos for a collage
     if (photosToUse.length < 2) {
@@ -276,6 +281,7 @@ export default function Index() {
       regenerateCollage({ 
         priorityOverride: { photoId, priority: newPriority },
         settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+        randomize: true,  // Shuffle for variety - avoids deterministic failures
       });
     }
   }, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);

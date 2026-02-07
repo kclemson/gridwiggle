@@ -31,7 +31,8 @@ export function packToFillHeight(
   targetHeight: number,
   normalizedGap: number,
   rowCount: number,
-  tuning: V3Tuning = DEFAULT_V3_TUNING
+  tuning: V3Tuning = DEFAULT_V3_TUNING,
+  randomize: boolean = false
 ): NormalizedPackResult {
   if (photos.length === 0) {
     return { cells: [], width: 0, height: 0, rowCount: 0 };
@@ -59,7 +60,7 @@ export function packToFillHeight(
   }
   
   // Distribute photos across rows using AR-budget algorithm
-  const rows = distributeByARBudget(photos, rowCount, tuning);
+  const rows = distributeByARBudget(photos, rowCount, tuning, randomize);
   
   // Calculate total gap height between rows
   const totalGapHeight = (rows.length - 1) * normalizedGap;
@@ -161,7 +162,8 @@ export function packToFillWidth(
   targetWidth: number,
   normalizedGap: number,
   rowCount: number,
-  tuning: V3Tuning = DEFAULT_V3_TUNING
+  tuning: V3Tuning = DEFAULT_V3_TUNING,
+  randomize: boolean = false
 ): NormalizedPackResult {
   if (photos.length === 0) {
     return { cells: [], width: 0, height: 0, rowCount: 0 };
@@ -188,7 +190,7 @@ export function packToFillWidth(
   }
   
   // Distribute photos across rows using AR-budget algorithm
-  const rows = distributeByARBudget(photos, rowCount, tuning);
+  const rows = distributeByARBudget(photos, rowCount, tuning, randomize);
   
   // Pack rows
   const cells: NormalizedCell[] = [];

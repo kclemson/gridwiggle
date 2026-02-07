@@ -74,9 +74,10 @@ export function ThumbnailNavigator({
   const isLoading = loadedCount < totalCount;
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
+    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex justify-center">
+      <div className="flex flex-col w-full max-w-lg">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border">
         <div>
           <h2 className="text-lg font-semibold">Select Photo</h2>
           {isLoading && (
@@ -161,17 +162,18 @@ export function ThumbnailNavigator({
         </div>
       </ScrollArea>
 
-      {/* Loading progress bar */}
-      {isLoading && (
-        <div className="p-4 border-t border-border">
-          <div className="h-1 bg-muted rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-primary transition-all duration-300"
-              style={{ width: `${(loadedCount / totalCount) * 100}%` }}
-            />
+        {/* Loading progress bar */}
+        {isLoading && (
+          <div className="p-4 border-t border-border">
+            <div className="h-1 bg-muted rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${(loadedCount / totalCount) * 100}%` }}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

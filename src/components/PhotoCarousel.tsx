@@ -104,8 +104,8 @@ export function PhotoCarousel({
                   key={photo.id}
                   className="flex-[0_0_100%] min-w-0 relative"
                 >
-                  <div 
-                    className="aspect-square bg-muted relative cursor-pointer"
+                <div 
+                    className="aspect-square bg-muted relative cursor-pointer max-w-[180px] mx-auto"
                     onClick={() => onPhotoClick(photo.id)}
                   >
                     {crop ? (
@@ -141,7 +141,7 @@ export function PhotoCarousel({
                   </div>
                   
                   {/* Action buttons below photo */}
-                  <div className="flex justify-center gap-2 mt-3">
+                  <div className="flex justify-center gap-2 mt-3 flex-wrap">
                     <Button
                       variant={photo.priority === 1 ? "default" : "outline"}
                       size="sm"
@@ -155,7 +155,7 @@ export function PhotoCarousel({
                         "h-4 w-4",
                         photo.priority === 1 && "fill-current"
                       )} />
-                      {photo.priority === 1 ? 'Hero' : 'Make Hero'}
+                      {photo.priority === 1 ? 'Hero' : 'Mark as hero (larger)'}
                     </Button>
                     
                     <Button
@@ -181,6 +181,19 @@ export function PhotoCarousel({
                       className="text-destructive hover:text-destructive gap-1.5"
                     >
                       <Trash2 className="h-4 w-4" />
+                    </Button>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewAll();
+                      }}
+                      className="gap-1.5"
+                    >
+                      <Grid3X3 className="h-4 w-4" />
+                      View All
                     </Button>
                   </div>
                 </div>
@@ -220,16 +233,6 @@ export function PhotoCarousel({
           </>
         )}
       </div>
-
-      {/* View All button */}
-      <Button
-        variant="outline"
-        className="w-full gap-2"
-        onClick={onViewAll}
-      >
-        <Grid3X3 className="h-4 w-4" />
-        View All Photos
-      </Button>
     </div>
   );
 }

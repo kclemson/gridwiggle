@@ -1,102 +1,234 @@
 
+# Fix Upload Progress UI Delay
 
-# Streamline Progress Display and Fix Z-Index
+## Problem
+After clicking "Tap to add photos" and selecting files, there's a 3+ second delay before any progress UI appears. During this time, the user sees nothing - the app appears frozen.
 
-## Problems
+## Root Cause
 
-1. **Duplicate progress info**: Progress dots appear both in header AND expanded carousel
-2. **Redundant count**: During processing, showing both "(51)" and "X of 51 ready" is noisy
-3. **Z-index bug**: Error overlay appears behind star buttons
+The current flow is fully sequential and blocking:
+
+```text
+User selects files
+    ↓
+For EACH photo (before calling onPhotosAdded):
+    → Load image to get dimensions
+    → Create display preview (canvas scaling)
+    ↓
+Call onPhotosAdded(photos)
+    ↓
+For EACH photo (in addPhotos):
+    → Save to IndexedDB (sequential await)
+    ↓
+setState (photos now visible)
+    ↓
+Progress UI finally renders
+```
+
+With 50 photos, the user waits several seconds before seeing anything. All the heavy work happens before state updates.
 
 ---
 
-## Design
+## Solution
 
-### Header States
+Show progress UI **immediately** after file selection, then process in the background.
 
-**During processing:**
-```
-PHOTOS  ·  7 of 51 ready  ▼
-```
-- No "(51)" in parentheses - the "of 51" already conveys the total
-- Emerald colored progress text
+### Two-Phase Approach:
 
-**After processing complete:**
-```
-PHOTOS (51)  ▼
-```
-- Normal count in parentheses
-- No progress text
+**Phase 1 - Instant feedback (sync)**
+- Create minimal PhotoItem objects with just file references
+- Mark them as `isProcessing: true`
+- Add to state immediately (triggers progress UI)
+
+**Phase 2 - Background processing (async)**
+- Load dimensions + create previews
+- Persist to IndexedDB
+- Update each photo as it completes
 
 ---
 
 ## Technical Changes
 
-### 1. File: `src/pages/Index.tsx`
+### 1. File: `src/components/PhotoUploader.tsx`
 
-**A. Update header to conditionally show count vs progress (lines 408-423)**
-
-```tsx
-<CollapsibleTrigger asChild>
-  <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
-    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-      {isProcessing ? (
-        // During processing: "PHOTOS · X of Y ready"
-        <>
-          Photos
-          <span className="mx-2 text-muted-foreground/50">·</span>
-          <span className="text-emerald-600 normal-case tracking-normal">
-            {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
-          </span>
-        </>
-      ) : (
-        // After complete: "PHOTOS (Y)"
-        `Photos (${state.photos.length})`
-      )}
-    </h3>
-    
-    {/* Remove the PhotoProgressDots from header entirely */}
-    
-    <ChevronDown ... />
-  </button>
-</CollapsibleTrigger>
-```
-
-**B. Fix error overlay z-index (line 533)**
+Simplify `processFiles` to create minimal placeholder objects instantly:
 
 ```tsx
-// Add z-20 to be above z-10 star buttons
-<div className="absolute inset-0 ... z-20">
+const processFiles = useCallback(async (files: FileList) => {
+  // Create minimal photo objects IMMEDIATELY (no async work)
+  const photos: PhotoItem[] = Array.from(files).map((file) => {
+    const objectUrl = URL.createObjectURL(file);
+    return {
+      id: generateId(),
+      filename: file.name,
+      objectUrl,
+      blob: file,
+      originalWidth: 0,  // Will be populated during processing
+      originalHeight: 0,
+      smartCrop: null,
+      manualCrop: null,
+      isProcessing: true,
+      error: null,
+      priority: 3,
+      previewUrl: objectUrl,  // Use original URL as temporary preview
+      previewBlob: file,
+    };
+  });
+
+  // Call parent immediately - progress UI shows right away
+  onPhotosAdded(photos);
+}, [onPhotosAdded]);
 ```
 
----
+### 2. File: `src/hooks/useCollageState.ts`
 
-### 2. File: `src/components/PhotoProcessingView.tsx`
+Add photos to state immediately, then persist in background:
 
-**Remove the "X ready" stats line** - this info is now in the header
+```tsx
+const addPhotos = useCallback(async (newPhotos: PhotoItem[]): Promise<{ succeeded: PhotoItem[]; failed: PhotoItem[] }> => {
+  // STEP 1: Add to state IMMEDIATELY (shows progress UI)
+  setState((prev) => ({
+    ...prev,
+    photos: [...prev.photos, ...newPhotos],
+  }));
+  
+  // Track URLs
+  newPhotos.forEach(p => objectUrlsRef.current.add(p.objectUrl));
 
-Keep:
-- Current photo thumbnail with spinner
-- Progress dots (centered below thumbnail)
-- Error count only (if any failures)
+  // STEP 2: Persist to IndexedDB in background (non-blocking)
+  const succeeded: PhotoItem[] = [];
+  const failed: PhotoItem[] = [];
 
-Remove:
-- The "X ready" text and its container
+  for (const photo of newPhotos) {
+    try {
+      await savePhoto({
+        id: photo.id,
+        blob: photo.blob,
+        width: photo.originalWidth,
+        height: photo.originalHeight,
+      });
+      succeeded.push(photo);
+    } catch (e) {
+      console.error('Failed to save photo to IndexedDB:', photo.id, e);
+      failed.push(photo);
+      // Remove from state on failure
+      setState((prev) => ({
+        ...prev,
+        photos: prev.photos.filter(p => p.id !== photo.id),
+      }));
+      URL.revokeObjectURL(photo.objectUrl);
+    }
+  }
 
----
+  // Save metadata after all IndexedDB writes complete
+  if (succeeded.length > 0) {
+    debouncedSaveMetadata({
+      ...state,
+      photos: [...state.photos, ...succeeded],
+    });
+  }
 
-## File Summary
+  return { succeeded, failed };
+}, [debouncedSaveMetadata, state]);
+```
 
-| File | Change |
-|------|--------|
-| `src/pages/Index.tsx` | Conditional header text (processing vs complete), remove dots, add z-20 to error overlay |
-| `src/components/PhotoProcessingView.tsx` | Remove "X ready" stats, keep dots and error count |
+### 3. File: `src/pages/Index.tsx`
+
+Move dimension loading and preview creation into the smart crop processing phase:
+
+```tsx
+const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+  // Add to state immediately (triggers progress UI)
+  const { succeeded } = await addPhotos(newPhotos);
+  
+  if (succeeded.length === 0) return;
+
+  const wasLayoutEmpty = state.layout === null;
+
+  // Load dimensions + previews during smart crop phase
+  // (dimensions needed for proper layout anyway)
+  try {
+    await processSmartCrops(succeeded);
+  } catch (error) {
+    console.error('Smart crop processing failed:', error);
+  } finally {
+    regenerateCollage({ randomize: !wasLayoutEmpty });
+  }
+}, [addPhotos, state.layout, processSmartCrops, regenerateCollage]);
+```
+
+### 4. File: `src/pages/Index.tsx` - Update `processSmartCrops`
+
+Add dimension loading at the start of each photo's processing:
+
+```tsx
+const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
+  if (photos.length === 0) return;
+  
+  setIsProcessingSmartCrop(true);
+  setSmartCropProgress(0);
+  
+  let completed = 0;
+  const total = photos.length;
+
+  for (const photo of photos) {
+    setCurrentlyProcessingId(photo.id);
+    
+    try {
+      // Load dimensions if not yet known
+      if (photo.originalWidth === 0 || photo.originalHeight === 0) {
+        const dimensions = await getImageDimensions(photo.objectUrl);
+        // Create display preview
+        const preview = await createDisplayPreview(photo.blob, 1200);
+        
+        updatePhoto(photo.id, {
+          originalWidth: dimensions.width,
+          originalHeight: dimensions.height,
+          previewUrl: preview.url,
+          previewBlob: preview.blob,
+        });
+      }
+      
+      const result = await getSmartCrop(
+        photo.objectUrl,
+        photo.blob,
+        photo.originalWidth || 1, // Use loaded dimensions
+        photo.originalHeight || 1,
+        (status) => setProcessingStatus(status)
+      );
+      
+      const smartCropToApply = result.skipCrop ? null : result.crop;
+      
+      updatePhoto(photo.id, {
+        smartCrop: smartCropToApply,
+        isProcessing: false,
+      });
+    } catch (error) {
+      console.error('Smart crop failed for photo:', photo.id, error);
+      updatePhoto(photo.id, {
+        isProcessing: false,
+        error: error instanceof Error ? error.message : 'Failed to process',
+      });
+    }
+    
+    completed++;
+    setSmartCropProgress((completed / total) * 100);
+  }
+  
+  setCurrentlyProcessingId(null);
+  setIsProcessingSmartCrop(false);
+  setSmartCropProgress(0);
+}, [updatePhoto]);
+```
 
 ---
 
 ## Result
 
-- **Clean header**: Shows progress OR count, never both
-- **No duplication**: Ready count in header only, dots in expanded carousel only
-- **Fixed z-index**: Error overlay properly covers star buttons
+| Before | After |
+|--------|-------|
+| 3+ seconds of blank screen | Progress UI appears instantly |
+| User thinks app is frozen | User sees "0 of X ready" immediately |
+| All work happens before UI update | Work happens while UI shows progress |
 
+The progress UI (header showing "Photos · 0 of X ready") will appear immediately after file selection, then the count will increment as each photo is processed.

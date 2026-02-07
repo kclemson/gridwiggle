@@ -1,250 +1,139 @@
 
-
-## Auto-Capture V3 Layout Metadata (Event Handler Approach)
+## Optimize Corner Position Evaluation (Symmetry Deduplication)
 
 ### Design Intent
-Passively capture structured metadata about every layout generation during V3 testing, with captures triggered directly in event handlers rather than via useEffect. This follows the principle of "event handlers for persistence" and avoids unnecessary effect synchronization.
+Eliminate redundant computation by recognizing that left/right mirror positions (e.g., top-left vs top-right) produce identical region assignments, packing results, and scores. Only the final coordinate mapping differs, which is trivial to compute.
 
 ### User Outcome
-Every shuffle on `/v3-test` automatically logs inputs, outputs, and reason frequency maps to localStorage. A counter shows pending captures, and Export downloads all since last export.
+~50% reduction in layout search logs and computation time for hero layouts. The algorithm evaluates 1-2 unique configurations instead of 4, then applies the winning assignment to a randomly selected (or first) position.
 
 ---
 
-## Architecture
+## Current Flow (Redundant)
 
-### Key Refactor: No useEffect
-
-Instead of:
-```typescript
-// ❌ Side effect watching state
-useEffect(() => {
-  if (logs && layout) saveCapture(...);
-}, [logs, layout]);
+```text
+proposePositions() returns 4 corner proposals:
+  - top-left     → findValidRegionAssignment → pack → score
+  - top-right    → findValidRegionAssignment → pack → score  (SAME result)
+  - bottom-left  → findValidRegionAssignment → pack → score  (SAME result)  
+  - bottom-right → findValidRegionAssignment → pack → score  (SAME result)
 ```
 
-We do:
-```typescript
-// ✅ Direct persistence in event handler
-const handleShuffle = () => {
-  const newSet = generateRandomSet();
-  const result = generateLayoutResult(newSet);
-  setResult(result);
-  saveCapture(buildCapture(newSet, result));
-};
-```
+All 4 calls to `findValidRegionAssignment` return identical results because the region search only depends on:
+- `contentPhotos` (same)
+- `heroAR` (same)
+- `normalizedGap` (same)
+- `tuning` (same)
 
-Layout generation becomes a pure function that returns all needed data (layout, logs, duration), and the event handler orchestrates both state updates and persistence.
+The position string is never used during region search or packing.
 
 ---
 
-## Data Structure
+## Proposed Flow (Optimized)
 
-```typescript
-interface V3LayoutCapture {
-  // Inputs
-  photoCount: number;
-  heroCount: number;
-  heroAR: number | null;
-  avgAR: number;
-  orientationBias: number;
-  seed: number;
-  
-  // Outputs
-  success: boolean;
-  canvasWidth: number | null;
-  canvasHeight: number | null;
-  canvasAR: number | null;
-  cellCount: number | null;
-  
-  // Log metrics with reason breakdowns
-  logCount: number;
-  rejectCount: number;
-  rejectReasons: Record<string, number>;
-  feasibilityCount: number;
-  feasibilityReasons: Record<string, number>;
-  durationMs: number;
-  
-  // Failure info
-  failureReason: string | null;
-  failureDetails: Record<string, unknown> | null;
-  
-  // Metadata
-  capturedAt: string;
-  exported: boolean;
-}
+```text
+1. Compute region assignment ONCE for corner mode
+2. Pack BESIDE and BELOW regions ONCE
+3. Validate constraints ONCE (canvas AR, prominence, etc.)
+4. If valid, pick a position for variety:
+   - When randomize=true: random from [top-left, top-right, bottom-left, bottom-right]
+   - When randomize=false: deterministic (top-left)
+5. Apply position to convertToNormalized()
 ```
 
 ---
 
-## Files to Create/Modify
+## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/v3CaptureStorage.ts` | **New:** Type definition, localStorage helpers (save, export, stats) |
-| `src/pages/V3Test.tsx` | Refactor to event-handler pattern, add capture on shuffle, add Export button |
+| `src/lib/v3/entities/hero.ts` | Simplify `proposePositions` to return 1 corner proposal (canonical) |
+| `src/lib/v3/intersection.ts` | After evaluation, apply random position selection for variety |
 
 ---
 
 ## Technical Details
 
-### New File: `src/lib/v3CaptureStorage.ts`
+### Option A: Reduce Proposals + Add Position Randomization
+
+**hero.ts changes:**
 
 ```typescript
-export interface V3LayoutCapture {
-  // ... full interface as above
-}
+// Before: 4 corner proposals
+proposals.push({ ..., position: 'top-left' });
+proposals.push({ ..., position: 'top-right' });
+proposals.push({ ..., position: 'bottom-left' });
+proposals.push({ ..., position: 'bottom-right' });
 
-const STORAGE_KEY = 'v3-layout-captures';
-
-interface V3CaptureStore {
-  captures: V3LayoutCapture[];
-  lastExportedAt: string | null;
-}
-
-// Load from localStorage
-export function loadCaptures(): V3CaptureStore
-
-// Save a new capture (sets exported: false)
-export function saveCapture(capture: Omit<V3LayoutCapture, 'exported'>): void
-
-// Export pending, mark as exported, return data + filename
-export function exportPendingCaptures(): { data: V3LayoutCapture[]; count: number }
-
-// Get stats for UI badge
-export function getCaptureStats(): { total: number; pending: number }
-
-// Helper: extract reason frequencies from logs
-export function extractReasonFrequencies(logs: LogEntry[]): {
-  rejectReasons: Record<string, number>;
-  feasibilityReasons: Record<string, number>;
-  rejectCount: number;
-  feasibilityCount: number;
-}
+// After: 1 canonical corner proposal
+proposals.push({ ..., position: 'top-left' }); // Canonical
 ```
 
-### V3Test.tsx Refactoring
+**intersection.ts changes:**
 
-**1. Extract pure layout generation function:**
+In `evaluateNormalizedProposal`, after validation passes:
 
 ```typescript
-interface LayoutResult {
-  layout: CollageLayout | null;
-  logs: LogEntry[];
-  durationMs: number;
-}
+// Apply position variety for corner mode
+const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const selectedPosition = randomize 
+  ? positions[Math.floor(Math.random() * positions.length)]
+  : 'top-left';
 
-function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
-  devLogger.clear();
-  const startTime = performance.now();
-  
-  const photoItems = photos.map(toPhotoItem);
-  const settings = { shape: 'auto', gapColor: '#ffffff', gapSize: GAP_SIZE };
-  
-  const photoWeights: Record<string, number> = {};
-  photos.forEach(p => { if (p.priority === 1) photoWeights[p.id] = 2; });
-  
-  const layout = generateCollageLayoutV3(photoItems, settings, { photoWeights });
-  const durationMs = performance.now() - startTime;
-  const logs = devLogger.getLogs();
-  
-  return { layout, logs, durationMs };
-}
+const cells = convertToNormalized(
+  heroPhoto,
+  selectedPosition,  // Use selected position
+  ...
+);
+
+const legacyProposal: HeroProposal = {
+  ...
+  position: selectedPosition,  // Reflect in output
+};
 ```
 
-**2. Consolidated state:**
+### Option B: Keep Proposals, Early-Exit After First Valid
+
+Alternative approach - keep all 4 proposals but exit after finding one valid:
 
 ```typescript
-interface TestState {
-  photoSet: { photos: SyntheticPhoto[]; seed: number };
-  layout: CollageLayout | null;
-  logs: LogEntry[];
-  durationMs: number;
-}
-
-const [state, setState] = useState<TestState>(() => {
-  const photoSet = generateRandomSet();
-  const result = generateLayoutResult(photoSet.photos);
-  return { photoSet, ...result };
-});
-```
-
-**3. Event handler with capture:**
-
-```typescript
-const handleShuffle = useCallback(() => {
-  const photoSet = generateRandomSet();
-  const result = generateLayoutResult(photoSet.photos);
-  
-  setState({ photoSet, ...result });
-  
-  // Capture to localStorage
-  saveCapture(buildCapture(photoSet, result));
-}, []);
-```
-
-**4. Build capture helper:**
-
-```typescript
-function buildCapture(
-  photoSet: { photos: SyntheticPhoto[]; seed: number },
-  result: LayoutResult
-): Omit<V3LayoutCapture, 'exported'> {
-  const { photos, seed } = photoSet;
-  const { layout, logs, durationMs } = result;
-  
-  const heroPhoto = photos.find(p => p.priority === 1);
-  const avgAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
-  const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
-    extractReasonFrequencies(logs);
-  
-  return {
-    photoCount: photos.length,
-    heroCount: heroPhoto ? 1 : 0,
-    heroAR: heroPhoto?.aspectRatio ?? null,
-    avgAR,
-    orientationBias: 0, // Could extract from generator if tracked
-    seed,
-    
-    success: layout !== null,
-    canvasWidth: layout?.width ?? null,
-    canvasHeight: layout?.height ?? null,
-    canvasAR: layout ? layout.width / layout.height : null,
-    cellCount: layout?.cells.length ?? null,
-    
-    logCount: logs.length,
-    rejectCount,
-    rejectReasons,
-    feasibilityCount,
-    feasibilityReasons,
-    durationMs,
-    
-    failureReason: layout ? null : getLastRejection()?.reason ?? 'unknown',
-    failureDetails: layout ? null : getLastRejection()?.details ?? null,
-    
-    capturedAt: new Date().toISOString(),
-  };
+for (const proposal of proposals) {
+  const config = evaluateNormalizedProposal(...);
+  if (config) {
+    // Corner positions are symmetric - first valid is enough
+    if (proposal.mode === 'corner') {
+      // Apply random position for variety
+      config.proposal.position = randomize 
+        ? pickRandomCorner()
+        : proposal.position;
+      return config;
+    }
+    validConfigs.push(config);
+  }
 }
 ```
-
-**5. Header UI:**
-
-```text
-+----------------------------------------------------------+
-| V3 Layout Test                                           |
-|                          [47 pending] [Export] [Shuffle] |
-+----------------------------------------------------------+
-```
-
-- Pending count from `getCaptureStats().pending`
-- Export button calls `exportPendingCaptures()` and triggers download
-- Both update via `useState` for pending count
 
 ---
 
-## Export Behavior
+## Recommendation
 
-1. Click Export → `exportPendingCaptures()` returns pending captures
-2. Download as `v3-captures-2026-02-07T12-30-00.json`
-3. All exported captures marked `exported: true` in localStorage
-4. Pending counter resets to 0
+**Option A** is cleaner - fewer proposals generated means fewer log entries and simpler control flow. The position randomization happens at the final step where it belongs.
 
+---
+
+## Expected Impact
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Corner proposals evaluated | 4 | 1 |
+| `findValidRegionAssignment` calls per layout | 4 | 1 |
+| Total log entries | ~100+ | ~50-60 |
+| Computation time | 10ms | ~5-7ms |
+
+---
+
+## Edge Cases
+
+1. **Edge/Floating modes**: Not affected - these have genuinely different geometry
+2. **Randomize flag**: Position variety preserved via random selection after evaluation
+3. **Deterministic mode**: Always returns `top-left` for reproducibility

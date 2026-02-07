@@ -1,12 +1,21 @@
 
 
-## Add Feasibility Styling to V3Test.tsx
+## Add Log Category Summary Stats to Header
 
 ### Design Intent
-Match the amber styling that DebugPanel.tsx uses for `feasibility` category logs, so they're visually distinct from search logs.
+Provide at-a-glance visibility into how much of the algorithm's work is:
+1. **Reject logs** — Branches that were tried and discarded
+2. **Feasibility logs** — Early pruning checks that skip entire branches
+
+This helps understand the "shape" of the search: lots of rejects = trying many things, lots of feasibility = smart pruning.
 
 ### User Outcome
-Feasibility logs appear in amber instead of blue, making it immediately clear which logs are "early pruning" vs "actual search activity."
+The header stats area will show breakdown counts like:
+```
+47 logs (12 rejects, 8 feasibility) • 3.2ms
+```
+
+Quick visual of where the algorithm spent its effort without scrolling through logs.
 
 ---
 
@@ -14,46 +23,95 @@ Feasibility logs appear in amber instead of blue, making it immediately clear wh
 
 ### File: `src/pages/V3Test.tsx`
 
-Update the log rendering (around lines 222-250) to detect feasibility category:
+**1. Compute summary stats from logs:**
+
+Add a `useMemo` to derive counts from the logs array:
 
 ```typescript
-const isReject = entry.level === 'warn' || entry.level === 'error' 
-  || entry.category.includes('reject');
-const isFeasibility = entry.category === 'feasibility';
-
-return (
-  <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-    <div className="flex gap-1 min-w-0">
-      <span className={cn(
-        "shrink-0",
-        isReject ? "text-red-500" 
-          : isFeasibility ? "text-amber-500" 
-          : "text-blue-500"
-      )}>
-        [{entry.category}]
-      </span>
-      <span className={cn(
-        "break-words min-w-0",
-        isReject ? "text-red-400" 
-          : isFeasibility ? "text-amber-400" 
-          : "text-foreground"
-      )}>
-        {entry.label}
-      </span>
-    </div>
-    {Object.keys(entry.data).length > 0 && (
-      <span className={cn(
-        "break-all",
-        isReject ? "text-red-400/70" 
-          : isFeasibility ? "text-amber-400/70" 
-          : "text-muted-foreground"
-      )}>
-        {formatLogData(entry.data)}
-      </span>
-    )}
-  </div>
-);
+const logStats = useMemo(() => {
+  let rejectCount = 0;
+  let feasibilityCount = 0;
+  
+  for (const entry of logs) {
+    if (entry.level === 'warn' || entry.level === 'error' || entry.category.includes('reject')) {
+      rejectCount++;
+    } else if (entry.category === 'feasibility') {
+      feasibilityCount++;
+    }
+  }
+  
+  return { rejectCount, feasibilityCount };
+}, [logs]);
 ```
+
+**2. Update header display:**
+
+Modify the stats area to include breakdown inline with total count:
+
+```typescript
+<div className="flex items-center gap-3 font-mono text-xs">
+  <LogCountBadge 
+    count={logs.length} 
+    rejectCount={logStats.rejectCount}
+    feasibilityCount={logStats.feasibilityCount}
+  />
+  <DurationBadge durationMs={durationMs} />
+</div>
+```
+
+**3. Update LogCountBadge to show breakdown:**
+
+```typescript
+function LogCountBadge({ 
+  count, 
+  rejectCount, 
+  feasibilityCount 
+}: { 
+  count: number; 
+  rejectCount: number;
+  feasibilityCount: number;
+}) {
+  const color = count <= LOG_THRESHOLDS.good 
+    ? 'text-green-600' 
+    : count <= LOG_THRESHOLDS.warn 
+      ? 'text-amber-600' 
+      : 'text-red-600';
+  
+  return (
+    <span className={cn("tabular-nums", color)}>
+      {count} logs
+      {(rejectCount > 0 || feasibilityCount > 0) && (
+        <span className="text-muted-foreground ml-1">
+          (
+          {rejectCount > 0 && <span className="text-red-500">{rejectCount} rej</span>}
+          {rejectCount > 0 && feasibilityCount > 0 && ', '}
+          {feasibilityCount > 0 && <span className="text-amber-500">{feasibilityCount} feas</span>}
+          )
+        </span>
+      )}
+    </span>
+  );
+}
+```
+
+---
+
+## Visual Result
+
+Before:
+```
+Debug Logs                     47 logs  3.2ms
+```
+
+After:
+```
+Debug Logs                     47 logs (12 rej, 8 feas)  3.2ms
+```
+
+The color coding matches the log colors:
+- Red for reject count
+- Amber for feasibility count
+- Green/amber/red for total based on thresholds
 
 ---
 
@@ -61,5 +119,5 @@ return (
 
 | File | Changes |
 |------|---------|
-| `src/pages/V3Test.tsx` | Add amber styling for `feasibility` category logs |
+| `src/pages/V3Test.tsx` | Add `logStats` memo, update `LogCountBadge` to show breakdown |
 

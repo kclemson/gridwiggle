@@ -536,7 +536,25 @@ function generateSimpleRowsLayout(
   
   // Derive actual canvas dimensions
   const actualCanvasWidth = 1.0 * scaleFactor;
-  const actualCanvasHeight = normalizedResult.height * scaleFactor;
+  
+  // Track which row each cell is in to apply correct gap offset
+  const cells: LayoutCell[] = normalizedResult.cells.map(cell => {
+    // Determine row index from Y position (cells in same row have same Y)
+    const approxRowHeight = normalizedResult.height / rowCount;
+    const rowIndex = Math.round(cell.y / approxRowHeight);
+    
+    return {
+      photoId: cell.photoId,
+      x: cell.x * scaleFactor,
+      y: cell.y * scaleFactor + (rowIndex * gap), // Add gap offset per row
+      width: cell.width * scaleFactor,
+      height: cell.height * scaleFactor,
+    };
+  });
+  
+  // Update canvas height to include gaps
+  const totalGapHeight = (rowCount - 1) * gap;
+  const actualCanvasHeight = normalizedResult.height * scaleFactor + totalGapHeight;
   
   devLogger.log('v3', 'Simple rows: derived canvas dimensions', {
     normalizedHeight: normalizedResult.height.toFixed(2),
@@ -545,14 +563,6 @@ function generateSimpleRowsLayout(
     actualWidth: Math.round(actualCanvasWidth),
     actualHeight: Math.round(actualCanvasHeight),
   });
-  
-  const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
-    photoId: cell.photoId,
-    x: cell.x * scaleFactor,
-    y: cell.y * scaleFactor,
-    width: cell.width * scaleFactor,
-    height: cell.height * scaleFactor,
-  }));
   
   const canvasAR = actualCanvasWidth / actualCanvasHeight;
   

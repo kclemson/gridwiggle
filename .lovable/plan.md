@@ -1,109 +1,76 @@
 
-# Collapsed Photos Section with Progress Dots
 
-## Goal
-Replace the jarring auto-collapse behavior with a better UX: the photos section starts collapsed by default, but shows progress dots in the header so users can see processing status without expanding.
+# Fix Black Background on Collapsible Headers and Empty Uploader
+
+## Problem
+Several UI elements show near-black backgrounds that clash with the charcoal app background (HSL 240, 8%, 18%):
+
+1. **Empty state uploader** (`PhotoUploader.tsx`): Uses `bg-surface` (HSL 240, 8%, 8%)
+2. **Collapsible header rows**: The Photos, Configure, and V3 Tuning headers appear darker than the surrounding UI
 
 ---
 
-## Design
+## Root Cause
 
-### User Experience
-- **Fresh upload**: Photos section stays collapsed, but header shows progress dots filling in
-- **Click to expand**: Full carousel UI with all controls, just like today
-- **Processing visible**: Dots in header turn green as photos complete, one pulses during active processing
-- **No jarring transitions**: Nothing collapses on you unexpectedly
-
-### Header When Collapsed (During Processing)
-```
-PHOTOS (5)  [●●○○○○○○○○]  ▼
-            ↑ green = ready, pulse = processing, gray = pending
-```
+The `--surface` CSS variable is intentionally darker than the app background (8% vs 18% lightness), creating a visible black rectangle. The collapsible triggers don't have explicit backgrounds but may be inheriting or the `hover:bg-muted/50` is creating visual inconsistency.
 
 ---
 
 ## Technical Changes
 
-### 1. Create Progress Dots Component
-**New file: `src/components/PhotoProgressDots.tsx`**
+### 1. File: `src/components/PhotoUploader.tsx`
 
-A small, reusable component showing the dot indicators:
-- Green dot: photo ready (not processing, no error)
-- Pulsing primary dot: currently processing
-- Red dot: error
-- Gray dot: pending
+**Line 94**: Replace the opaque surface background with transparent
 
-This extracts the existing dots logic from `PhotoProcessingView` into a reusable piece.
-
-### 2. Update `src/pages/Index.tsx`
-
-**A. Change default state (line 63-66)**
 ```tsx
-// Before: defaults to true (open)
-return saved !== null ? saved === 'true' : true;
+// Before:
+className="... bg-surface hover:bg-surface-elevated hover:border-primary/50 ..."
 
-// After: defaults to false (collapsed)
-return saved !== null ? saved === 'true' : false;
+// After:
+className="... bg-transparent hover:bg-muted/30 hover:border-primary/50 ..."
 ```
 
-**B. Remove auto-collapse useEffect (lines 341-353)**
-Delete the entire effect that watches `isProcessing` and triggers collapse.
+The dashed border provides sufficient visual definition for the upload zone.
 
-Also remove the `wasProcessingRef` (line 68-69) since it's no longer needed.
+---
 
-**C. Update collapsible trigger to show progress dots (lines 427-440)**
+### 2. File: `src/pages/Index.tsx`
 
-Instead of showing `PhotoProcessingView` separately OR the collapsible, always show the collapsible. The header includes:
-- "PHOTOS (count)" label
-- Progress dots (when photos exist and any are processing)
-- Chevron
+**Line 408**: Ensure the Photos collapsible trigger has no background that could appear dark
 
 ```tsx
-<CollapsibleTrigger asChild>
-  <button className="flex items-center justify-between w-full ...">
-    <h3 className="text-xs font-medium ...">
-      Photos ({state.photos.length})
-    </h3>
-    
-    {/* Show progress dots when processing */}
-    {isProcessing && (
-      <PhotoProgressDots 
-        photos={state.photos}
-        currentlyProcessingId={currentlyProcessingId}
-      />
-    )}
-    
-    <ChevronDown ... />
-  </button>
-</CollapsibleTrigger>
-```
+// Current (should be fine, but verify):
+<button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
 
-**D. Show full UI when expanded during processing**
-
-When expanded (`carouselOpen === true`), show the full `PhotoProcessingView` or carousel inside the content area, just like today.
-
-**E. Remove the hint text (lines 491-493)**
-```tsx
-// Delete this:
-<span className="text-xs text-muted-foreground font-normal italic">
-  Drag to rearrange • Tap ★ to feature
-</span>
+// This is transparent by default - no change needed unless testing reveals an issue
 ```
 
 ---
 
-## File Summary
+### 3. File: `src/components/CollageSettings.tsx`
+
+**Line 38**: Already uses only `hover:bg-muted/50` with no base background - should be transparent
+
+---
+
+### 4. File: `src/components/V3TuningSection.tsx`
+
+**Line 57**: Already uses only `hover:bg-muted/50` with no base background - should be transparent
+
+---
+
+## Summary
+
+The main change is in `PhotoUploader.tsx` where `bg-surface` explicitly sets a near-black background. The collapsible triggers are already transparent - if they still appear dark after the PhotoUploader fix, the issue may be elsewhere (parent containers or other styling).
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoProgressDots.tsx` | **New** - Extracted dots component |
-| `src/pages/Index.tsx` | Default to collapsed, remove auto-collapse, add dots to header, remove hint text |
-| `src/components/PhotoProcessingView.tsx` | Import and use `PhotoProgressDots` (optional refactor) |
+| `src/components/PhotoUploader.tsx` | Replace `bg-surface hover:bg-surface-elevated` with `bg-transparent hover:bg-muted/30` |
 
 ---
 
 ## Result
-- No jarring collapse transition
-- Progress always visible in header dots
-- Expand for full details anytime
-- Cleaner collage section without instruction text
+- Empty uploader shows charcoal background with dashed border (no black fill)
+- All collapsible headers blend seamlessly with the app background
+- Hover states use subtle muted overlay instead of darker surface colors
+

@@ -1,84 +1,96 @@
 
-# Fix Crop Indicators & View All Click Behavior
+# Fix Hero Toggle Failures and Upload Race Condition
 
-## Issues Identified
+## Problem Summary
 
-1. **Crop indicator missing**: The "View All" grid (`ThumbnailNavigator`) has its own rendering logic separate from `PhotoThumbnail`, so it didn't get the crop indicator we added earlier.
+Three related issues with collage generation:
 
-2. **Wrong click behavior**: Clicking a photo in "View All" currently navigates to the carousel. User wants it to open the crop editor instead, since "View All" is for reviewing/managing crops.
+1. **First hero click always fails** - but clicking "Try Again" works
+2. **"Try Again" has a noticeable delay** - this is expected behavior (regeneration), not a bug
+3. **Errors during photo uploads** - collage tries to use photos that aren't ready yet
+
+---
+
+## Root Cause Analysis
+
+### Issue #1 & #2: Hero Toggle Failure
+
+When clicking the hero star, `handleToggleHero` calls `regenerateCollage` **without** `randomize: true`.
+
+The V3 algorithm behaves differently based on `randomize`:
+- `randomize: false`: Sorts photos by aspect ratio, picks deterministic "best" split
+- `randomize: true`: Shuffles photos, picks from any valid split
+
+For certain photo combinations (especially when adding a hero), the deterministic path fails to find a valid configuration. The randomized path explores more options and succeeds.
+
+**Why "Try Again" works**: The retry button explicitly passes `randomize: true` which shuffles and finds a valid layout.
+
+### Issue #3: Upload Race Condition
+
+Photos are created with `originalWidth: 0, originalHeight: 0` before dimensions are loaded. If collage regeneration is triggered while photos are still processing, the algorithm receives photos with `aspectRatio = 0/0 = NaN`, causing failures.
 
 ---
 
 ## Technical Changes
 
-### 1. File: `src/components/ThumbnailNavigator.tsx`
+### 1. File: `src/pages/Index.tsx`
 
-**Add Crop icon import** (line 8):
+**Change A: Add randomize to hero toggle** (around line 276)
+
 ```tsx
-import { X, Star, Crop } from 'lucide-react';
+// Before:
+if (state.layout) {
+  regenerateCollage({ 
+    priorityOverride: { photoId, priority: newPriority },
+    settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+  });
+}
+
+// After:
+if (state.layout) {
+  regenerateCollage({ 
+    priorityOverride: { photoId, priority: newPriority },
+    settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+    randomize: true,  // Shuffle for variety - avoids deterministic failures
+  });
+}
 ```
 
-**Add crop indicator badge** after the hero badge (around line 151):
+**Change B: Filter out unready photos in regenerateCollage** (around line 101)
+
+Add a filter to exclude photos with missing dimensions before generating the layout:
+
 ```tsx
-{/* Crop indicator - shows if photo has any cropping applied */}
-{(photo.smartCrop || photo.manualCrop) && (
-  <div className="absolute bottom-0.5 left-0.5 p-0.5 rounded bg-primary/80 text-white shadow-sm">
-    <Crop className="h-2 w-2" />
-  </div>
-)}
+// After line 108, before "Need at least 2 photos":
+// Filter out photos that aren't ready (missing dimensions)
+photosToUse = photosToUse.filter(p => 
+  p.originalWidth > 0 && p.originalHeight > 0
+);
 ```
 
-This matches the pattern in `PhotoThumbnail` but with slightly smaller sizing (`h-2 w-2` vs `h-2.5 w-2.5`) to fit the compact grid.
+This ensures the layout algorithm only receives valid photos with known dimensions.
 
 ---
 
-### 2. File: `src/pages/Index.tsx`
+## Why These Fixes Work
 
-**Update ThumbnailNavigator callback** to open crop editor instead of carousel:
-
-Current behavior (around line where `ThumbnailNavigator` is rendered):
-```tsx
-onSelect={(photoId) => {
-  const idx = state.photos.findIndex(p => p.id === photoId);
-  if (idx !== -1) setCarouselIndex(idx);
-  setNavigatorOpen(false);
-}}
-```
-
-New behavior:
-```tsx
-onSelect={(photoId) => {
-  // Open crop editor directly - View All is for managing crops
-  setEditingPhotoId(photoId);
-  setNavigatorOpen(false);
-}}
-```
-
-This makes "View All" the crop management view while the carousel remains the quick preview.
+| Issue | Fix | Rationale |
+|-------|-----|-----------|
+| First hero click fails | Add `randomize: true` | Explores more layout options, avoids deterministic dead-ends |
+| Error during uploads | Filter unready photos | Prevents NaN aspect ratios from breaking the algorithm |
 
 ---
 
-## Visual Result
+## User Experience After Fix
 
-**Before**: View All grid shows no crop indicators, clicking navigates to carousel
-
-**After**: 
-- Photos with any crop (auto or manual) show small purple crop icon in bottom-left
-- Clicking any photo opens the crop editor directly
-
-```text
-┌──────────────┐
-│ ⭐           │  ← hero badge (top-left)
-│              │
-│ 🟣       [1] │  ← crop icon (bottom-left), index (bottom-right)
-└──────────────┘
-```
+1. **Hero toggle**: Works on first click reliably
+2. **Photo uploads**: Collage uses only ready photos, updates as more become available
+3. **No more "Try Again" for normal operations** - layout generation is more robust
 
 ---
 
-## Summary
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/ThumbnailNavigator.tsx` | Add Crop icon import, add crop indicator badge |
-| `src/pages/Index.tsx` | Change onSelect to open crop editor instead of carousel |
+| `src/pages/Index.tsx` | Add `randomize: true` to hero toggle; Filter unready photos before layout generation |

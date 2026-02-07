@@ -144,7 +144,8 @@ export function shuffleArray<T>(array: T[]): T[] {
 export function distributeByARBudget(
   photos: PhotoDimension[],
   targetRowCount: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  randomize: boolean = false
 ): PhotoDimension[][] {
   const n = photos.length;
   
@@ -174,7 +175,10 @@ export function distributeByARBudget(
   
   for (const photo of photos) {
     // Calculate jittered target for this decision point
-    const jitterMultiplier = 1 + (Math.random() * 2 - 1) * jitter; // random in [1-jitter, 1+jitter]
+    // Only apply jitter when randomizing for variety
+    const jitterMultiplier = randomize 
+      ? 1 + (Math.random() * 2 - 1) * jitter  // random in [1-jitter, 1+jitter]
+      : 1.0;  // No jitter when deterministic
     const jitteredTarget = baseRowAR * jitterMultiplier;
     
     // Should we start a new row?

@@ -43,7 +43,8 @@ export function findValidConfiguration(
   photos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  tuning: V3Tuning = DEFAULT_V3_TUNING
+  tuning: V3Tuning = DEFAULT_V3_TUNING,
+  randomize: boolean = false
 ): ScoredConfiguration | null {
   // Find hero and content photos
   const heroPhoto = findHeroPhoto(photos);
@@ -76,7 +77,8 @@ export function findValidConfiguration(
       contentPhotos,
       canvasWidth,
       gap,
-      tuning
+      tuning,
+      randomize
     );
     
     if (config) {
@@ -115,7 +117,8 @@ function evaluateNormalizedProposal(
   contentPhotos: PhotoDimension[],
   canvasWidth: number,
   gap: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  randomize: boolean
 ): ScoredConfiguration | null {
   const heroAR = heroPhoto.aspectRatio;
   
@@ -141,7 +144,8 @@ function evaluateNormalizedProposal(
     contentPhotos,
     heroAR,
     normalizedGapForLayout,
-    tuning
+    tuning,
+    randomize
   );
   
   if (!splitResult) {
@@ -297,7 +301,7 @@ function evaluateNormalizedProposal(
   // Cell sizes are now guaranteed valid by construction (we derived scale from them)
   
   // Score the configuration
-  const score = scoreConfiguration(prominence.ratio, pixelCells, tuning);
+  const score = scoreConfiguration(prominence.ratio, pixelCells, tuning, randomize);
   
   // Create legacy-format proposal for ScoredConfiguration compatibility
   const heroCell = pixelCells[0];
@@ -442,7 +446,8 @@ function convertToPixels(
 function scoreConfiguration(
   prominenceRatio: number,
   cells: LayoutCell[],
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  randomize: boolean
 ): number {
   // Base score from prominence (higher prominence = better)
   const prominenceScore = prominenceRatio / tuning.hero_targetProminence;
@@ -451,8 +456,8 @@ function scoreConfiguration(
   const areas = cells.slice(1).map(c => c.width * c.height); // Exclude hero
   const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
   
-  // Random tiebreaker for equally-valid configurations (1% variation)
-  const randomTiebreaker = Math.random() * 0.01;
+  // Random tiebreaker only when shuffling for variety
+  const randomTiebreaker = randomize ? Math.random() * 0.01 : 0;
   
   return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
 }

@@ -52,6 +52,7 @@ export default function Index() {
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
+  const [layoutError, setLayoutError] = useState<string | null>(null);
   
   // Carousel and navigator state
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -143,12 +144,25 @@ export default function Index() {
           });
       
       setDebugLogs(devLogger.getLogs());
-      setLayout(layout);
+      
+      if (layout) {
+        setLayout(layout);
+        setLayoutError(null);  // Clear any previous error
+      } else if (state.layout) {
+        // Generation failed but we have a previous layout - keep it, show error
+        setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+      } else {
+        // No previous layout - nothing to preserve
+        setLayout(null);
+        setLayoutError("Couldn't generate a layout with these photos.");
+      }
     } catch (error) {
       console.error('Layout generation failed:', error);
-      // Silent - button remains visible for retry
+      if (!state.layout) {
+        setLayoutError("Something went wrong. Please try again.");
+      }
     }
-  }, [state.settings, setLayout, v3Tuning, algorithmVersion]);
+  }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -271,6 +285,7 @@ export default function Index() {
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
+    setLayoutError(null);  // Clear error when user adjusts settings
     if (state.layout && ('gapSize' in updates || 'shape' in updates)) {
       const newSettings = { ...state.settings, ...updates };
       regenerateCollage({ settings: newSettings });
@@ -501,7 +516,7 @@ export default function Index() {
                       </p>
                     )}
 
-                    <div className="rounded-xl overflow-hidden border border-border bg-surface p-4">
+                    <div className="relative rounded-xl overflow-hidden border border-border bg-surface p-4">
                       <CollagePreview
                         photos={state.photos}
                         layout={state.layout}
@@ -510,6 +525,26 @@ export default function Index() {
                         onCellClick={setEditingPhotoId}
                         onToggleHero={handleToggleHero}
                       />
+                      
+                      {/* Error overlay - shown when layout generation fails */}
+                      {layoutError && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
+                          <p className="text-sm text-muted-foreground text-center mb-3 px-4">
+                            {layoutError}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setLayoutError(null);
+                              regenerateCollage({ randomize: true });
+                            }}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Try Again
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     
                     {/* Configure - only shown when collage exists */}

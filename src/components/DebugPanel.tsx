@@ -1,16 +1,16 @@
 import { LogEntry } from '@/lib/devLogger';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, X, AlertTriangle, ChevronRight } from 'lucide-react';
-import { LayoutTuning } from '@/types/collage';
-import { TuningSection } from '@/components/TuningSection';
+import { V3Tuning } from '@/lib/v3/types';
+import { V3TuningSection } from '@/components/V3TuningSection';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 export type AlgorithmVersion = 'v1' | 'v2' | 'v3';
 
 interface DebugPanelProps {
   logs: LogEntry[];
-  tuning: LayoutTuning;
-  onTuningChange: (key: keyof LayoutTuning, value: number) => void;
+  v3Tuning: V3Tuning;
+  onV3TuningChange: (key: keyof V3Tuning, value: number) => void;
   algorithmVersion: AlgorithmVersion;
   onAlgorithmVersionChange: (version: AlgorithmVersion) => void;
 }
@@ -95,8 +95,8 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
 
 export function DebugPanel({ 
   logs, 
-  tuning, 
-  onTuningChange,
+  v3Tuning, 
+  onV3TuningChange,
   algorithmVersion,
   onAlgorithmVersionChange,
 }: DebugPanelProps) {
@@ -156,8 +156,8 @@ export function DebugPanel({
           </div>
         </div>
         
-        {/* Tuning controls */}
-        <TuningSection tuning={tuning} onTuningChange={onTuningChange} heroPct={heroPct} />
+        {/* V3 Tuning controls */}
+        <V3TuningSection tuning={v3Tuning} onTuningChange={onV3TuningChange} heroPct={heroPct} />
         
         {/* Log entries - two columns */}
         <ScrollArea className="max-h-[calc(100vh-280px)]">

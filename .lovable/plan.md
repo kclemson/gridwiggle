@@ -1,105 +1,97 @@
 
-# Three Changes: Thumbnail Navigator, Carousel Loop, V3 Default
+# Improve Crop Handle Touch Targets
 
-## Overview
+## Problem
 
-Three targeted changes to improve UX and promote V3 to production.
+When the crop region covers the full image, the corner handles are positioned exactly at the image edges. Since handles are circles centered on the corner point, half of each handle is clipped outside the SVG viewport, making them difficult to select - especially on mobile where touch targets need to be larger.
 
----
+## Solution
 
-## 1. Remove White Outline on Unloaded Thumbnails
+Two improvements to make handles easier to interact with:
 
-**Problem**: In the "View All" navigator, the current carousel position shows a white/purple ring outline even when the thumbnail hasn't loaded yet, appearing as an empty box with just an outline (looks buggy).
+### 1. Add Invisible Hit Area
 
-**Solution**: Only show the ring when the thumbnail is actually loaded.
+Add a larger invisible circle behind each visible handle that acts as the actual touch/click target. This is a common pattern for small interactive elements - the visual stays small and precise, but the clickable area is much larger.
 
-**File**: `src/components/ThumbnailNavigator.tsx`
+- Visible handle: Keep current size (~20px on screen, capped at 5% of image)
+- Hit area: 44px minimum (iOS Human Interface Guidelines recommend 44pt for touch targets)
 
-**Change** (line 119):
+### 2. Offset Handles Inward When at Edges
+
+When a handle is at the image edge (crop.x = 0 or crop.x + crop.width = originalWidth), offset the handle slightly inward so it's fully visible. This way users can see and interact with the complete handle even at full-image crop.
+
+- Offset amount: Half the handle radius, so the full circle is visible
+
+## Technical Changes
+
+**File**: `src/components/CropEditor.tsx`
+
+### Change 1: Calculate Hit Area Size
+Add a larger hit target size (aim for ~44px on screen, but in viewBox units):
+
 ```tsx
-// Before
-isSelected && "ring-2 ring-primary ring-offset-2"
-
-// After - only show ring when both selected AND loaded
-isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+// Minimum touch target of 44px in screen space
+const hitAreaSize = viewScale > 0 ? 44 / viewScale : 44;
 ```
 
----
+### Change 2: Calculate Edge Offsets
+Determine if handle is at edge and needs to be offset inward:
 
-## 2. Enable Carousel Looping
-
-**Problem**: When the user reaches the last photo and clicks the right arrow, nothing happens. They expect it to loop back to the first photo.
-
-**Solution**: Enable Embla's built-in loop option.
-
-**File**: `src/components/PhotoCarousel.tsx`
-
-**Change** (line 38):
 ```tsx
-// Before
-loop: false,
-
-// After
-loop: true,
+// Offset handles inward when at image edges so they're fully visible
+const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
+  const handleRadius = handleSize / 2;
+  let cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+  let cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+  
+  // Offset inward if at image edge
+  if (corner.includes('w') && crop.x <= 0) cx += handleRadius;
+  if (corner.includes('e') && crop.x + crop.width >= photo.originalWidth) cx -= handleRadius;
+  if (corner.includes('n') && crop.y <= 0) cy += handleRadius;
+  if (corner.includes('s') && crop.y + crop.height >= photo.originalHeight) cy -= handleRadius;
+  
+  return { cx, cy };
+};
 ```
 
-This automatically makes the navigation arrows always active and enables infinite scrolling in both directions.
+### Change 3: Render Invisible Hit Area Behind Visible Handle
 
----
-
-## 3. Make V3 the Default Algorithm in Production
-
-**Problem**: V3 is ready for production, but the algorithm selection is tied to the dev-only DebugPanel. Need to ensure V3 is always used regardless of environment.
-
-**Solution**: Change the generateLayout function to always use V3, removing the conditional branch.
-
-**File**: `src/pages/Index.tsx`
-
-**Current** (lines 118-129):
 ```tsx
-// Use v1 or v3 algorithm based on selection
-const layout = algorithmVersion === 'v3'
-  ? generateCollageLayoutV3(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: tuningOverride,
-    })
-  : generateCollageLayout(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: DEFAULT_TUNING,
-    });
+{(['nw', 'ne', 'sw', 'se'] as const).map((corner) => {
+  const { cx, cy } = getHandlePosition(corner);
+  const cursorMap = { ... };
+  
+  return (
+    <g key={corner}>
+      {/* Invisible hit area - larger for easier touch/click */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hitAreaSize / 2}
+        fill="transparent"
+        style={{ cursor: cursorMap[corner] }}
+        onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
+      />
+      {/* Visible handle */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={handleSize / 2}
+        fill="white"
+        stroke="hsl(var(--primary))"
+        strokeWidth={strokeWidth}
+        style={{ cursor: cursorMap[corner], pointerEvents: 'none' }}
+      />
+    </g>
+  );
+})}
 ```
 
-**After**:
-```tsx
-// V3 is the production algorithm
-// In dev mode, algorithmVersion toggle in DebugPanel can override
-const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+## Result
 
-const layout = useV3
-  ? generateCollageLayoutV3(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: tuningOverride,
-    })
-  : generateCollageLayout(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: DEFAULT_TUNING,
-    });
-```
-
-This ensures:
-- **Production**: Always uses V3 (no toggle available)
-- **Development**: Respects the DebugPanel toggle for A/B testing during development
-
----
-
-## Files Summary
-
-| File | Change |
-|------|--------|
-| `src/components/ThumbnailNavigator.tsx` | Show ring only when thumbnail is loaded |
-| `src/components/PhotoCarousel.tsx` | Enable `loop: true` for infinite scrolling |
-| `src/pages/Index.tsx` | Make V3 the default, with dev-only fallback toggle |
+| Scenario | Before | After |
+|----------|--------|-------|
+| Handle at corner | Half clipped, hard to tap | Fully visible, offset inward |
+| Touch target | ~20px visual only | 44px invisible hit area |
+| Mobile usability | Difficult | Easy to tap |
+| Desktop usability | Finicky | Comfortable |

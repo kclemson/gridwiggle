@@ -21,6 +21,11 @@ import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
+import { 
+  saveCapture, 
+  extractReasonFrequencies,
+  getLastRejection,
+} from '@/lib/v3CaptureStorage';
 import { cn } from '@/lib/utils';
 import { 
   Wand2, 
@@ -156,7 +161,7 @@ export default function Index() {
     
     try {
       let layout;
-      let workerResult: { durationMs?: number; usedWorker?: boolean; failure?: { reason: string } } | undefined;
+      let workerResult: { durationMs?: number; usedWorker?: boolean; failure?: { reason: string }; logs?: LogEntry[] } | undefined;
       
       if (useV3) {
         // Worker-based async generation (non-blocking)
@@ -194,7 +199,55 @@ export default function Index() {
         });
       }
       
-      setDebugLogs(devLogger.getLogs());
+      const currentLogs = devLogger.getLogs();
+      setDebugLogs(currentLogs);
+      
+      // Save capture directly (dev only, v3 only)
+      if (import.meta.env.DEV && useV3 && workerResult) {
+        const heroPhoto = photosToUse.find(p => {
+          const dim = dimensions.find(d => d.id === p.id);
+          return dim?.weight === 2.0;
+        });
+        const avgAR = dimensions.length > 0 
+          ? dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length 
+          : 0;
+        const landscapeCount = dimensions.filter(d => d.aspectRatio > 1).length;
+        const orientationBias = dimensions.length > 0 
+          ? (landscapeCount / dimensions.length) * 2 - 1 
+          : 0;
+        
+        const logEntries = workerResult.logs || currentLogs;
+        const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
+          extractReasonFrequencies(logEntries);
+        const lastRejection = getLastRejection(logEntries);
+        
+        saveCapture({
+          photoCount: photosToUse.length,
+          heroCount: heroPhoto ? 1 : 0,
+          heroAR: heroPhoto 
+            ? dimensions.find(d => d.id === heroPhoto.id)?.aspectRatio ?? null 
+            : null,
+          avgAR,
+          orientationBias,
+          seed: requestId,
+          success: layout !== null,
+          canvasWidth: layout?.width ?? null,
+          canvasHeight: layout?.height ?? null,
+          canvasAR: layout 
+            ? layout.width / layout.height 
+            : null,
+          cellCount: layout?.cells.length ?? null,
+          logCount: logEntries.length,
+          rejectCount,
+          rejectReasons,
+          feasibilityCount,
+          feasibilityReasons,
+          durationMs: workerResult.durationMs ?? 0,
+          failureReason: layout ? null : lastRejection?.reason ?? 'unknown',
+          failureDetails: layout ? null : lastRejection?.details ?? null,
+          capturedAt: new Date().toISOString(),
+        });
+      }
       
       if (layout) {
         setLayout(layout);

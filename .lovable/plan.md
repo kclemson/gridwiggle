@@ -1,120 +1,113 @@
 
-# Two-Tier Preview System for Collage Performance
+# Remove Legacy Scale Factor Logic from V3
 
 ## Problem
 
-The collage canvas IS using preview images, but:
-1. Current previews are 1200px (needed for the crop editor which shows detailed crops)
-2. The collage canvas is typically 400-600px wide, making 1200px previews overkill
-3. With 40+ photos, this means ~40 × (1200×800) = ~38 megapixels being decoded for a small canvas
-4. Additionally, the touch drag thumbnail uses full-res images, not previews
+The V3 algorithm has legacy code that doesn't fit the normalized, geometry-first approach:
 
-## User Outcome
+| Legacy Concept | What It Does | Why It's Wrong |
+|----------------|--------------|----------------|
+| `canvasWidth` param | Hints at a target pixel width | Rendering uses percentages, not pixels |
+| `preferredScale` | Tries to hit target width | Output size is irrelevant - CSS handles scaling |
+| `minScale` | Ensures minimum pixel cell sizes | A 2% cell is 2% at any canvas size |
+| `region_minWidth/Height` tuning | Pixel-based minimums | Should be normalized-space or AR-based |
 
-After this change:
-- Collage shuffling/refresh will be noticeably faster
-- Lower memory pressure on mobile devices
-- Reduced risk of iOS Safari page reloads due to memory pressure
+## How Rendering Actually Works
 
-## Technical Approach
+```text
+CollagePreview renders cells as:
+  left: (cell.x / layout.width) × 100%
+  width: (cell.width / layout.width) × 100%
 
-### Add a Second Preview Tier
-
-| Preview Type | Size | Use Case |
-|--------------|------|----------|
-| `previewUrl` (existing) | 1200px | Crop editor (needs detail) |
-| `thumbnailUrl` (new) | 480px | Collage canvas cells |
-
-### Changes Required
-
-#### 1. File: `src/types/collage.ts`
-
-Add new fields to `PhotoItem`:
-```typescript
-export interface PhotoItem {
-  // ... existing fields ...
-  previewUrl?: string;        // 1200px - for crop editor
-  previewBlob?: Blob;
-  thumbnailUrl?: string;      // 480px - for collage canvas (NEW)
-  thumbnailBlob?: Blob;       // (NEW)
-}
+The layout.width/height are just ratio denominators.
+Whether they're 480 or 48000, the percentages are identical.
 ```
 
-#### 2. File: `src/lib/imageUtils.ts`
+## Architectural Fix
 
-No changes needed - `createDisplayPreview` already accepts a size parameter.
+Return the layout **in normalized space** (hero height = 1.0). The consumer divides by `layout.width` and `layout.height` to get percentages anyway.
 
-#### 3. File: `src/pages/Index.tsx`
+## Technical Changes
 
-During photo processing, create both preview sizes:
+### 1. `src/lib/v3/types.ts`
+
+Remove pixel-based tuning parameters:
 ```typescript
-// Create both preview sizes
-const [preview, thumbnail] = await Promise.all([
-  createDisplayPreview(photo.blob, 1200),  // For crop editor
-  createDisplayPreview(photo.blob, 480),   // For collage canvas
-]);
-
-updatePhoto(photo.id, {
-  originalWidth: width,
-  originalHeight: height,
-  previewUrl: preview.url,
-  previewBlob: preview.blob,
-  thumbnailUrl: thumbnail.url,
-  thumbnailBlob: thumbnail.blob,
-});
+// REMOVE:
+region_minWidth: number;   // These are meaningless for %-based rendering
+region_minHeight: number;
 ```
 
-#### 4. File: `src/components/common/CroppedImage.tsx`
+### 2. `src/lib/v3/index.ts`
 
-Add new prop for thumbnail preference:
+Remove `canvasWidth` from the API:
 ```typescript
-interface CroppedImageProps {
-  src: string;
-  previewSrc?: string;
-  thumbnailSrc?: string;      // NEW - smallest preview for collage
-  // ... rest unchanged
-}
-
-// Use smallest available:
-const displaySrc = thumbnailSrc ?? previewSrc ?? src;
-```
-
-#### 5. File: `src/components/CollagePreview.tsx`
-
-Pass thumbnail to CroppedImage:
-```typescript
-<CroppedImage
-  src={photo.objectUrl}
-  previewSrc={photo.previewUrl}
-  thumbnailSrc={photo.thumbnailUrl}  // NEW
+// BEFORE:
+export interface GenerateLayoutV3Options {
+  canvasWidth?: number;  // ← REMOVE
   ...
-/>
+}
+
+// AFTER:
+export interface GenerateLayoutV3Options {
+  photoWeights?: Record<string, number>;
+  tuning?: Partial<V3Tuning>;
+  randomize?: boolean;
+}
 ```
 
-Also fix the touch drag preview to use thumbnails:
+Remove `canvasWidth` from debug logging and the call to `findValidConfiguration`.
+
+### 3. `src/lib/v3/intersection.ts`
+
+**Major simplification** - remove all scale factor logic:
+
 ```typescript
-// Line 284: Use thumbnail instead of full-res
-<img src={photoMap.get(touchDragId)!.thumbnailUrl ?? photoMap.get(touchDragId)!.objectUrl} ... />
+// BEFORE (lines 211-250):
+// ============================================================================
+// Bottom-Up: Derive scale factor from geometry
+// ============================================================================
+const scaleForWidth = ...
+const scaleForHeight = ...
+const minScale = ...
+const preferredScale = canvasWidth / normalizedWidthWithBorder;
+const scaleFactor = Math.max(minScale, preferredScale);
+const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
+const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
+
+// AFTER:
+// Return normalized dimensions directly (no scaling needed)
+const actualCanvasWidth = normalizedWidthWithBorder;
+const actualCanvasHeight = normalizedHeightWithBorder;
 ```
 
-### Memory Management
+Remove the `canvasWidth` parameter from `findValidConfiguration` and `evaluateNormalizedProposal`.
 
-When revoking URLs on cleanup/removal, also revoke `thumbnailUrl` in:
-- `useCollageState.ts` - cleanup on unmount and photo removal
+Remove `region_minWidth` / `region_minHeight` checks entirely.
 
-## Summary
+**Update `convertToPixels` → `convertToNormalized`**:
+
+The function becomes much simpler - just apply border offset and position cells in normalized space (no scaling).
+
+### 4. Same treatment for `generateSimpleRowsLayout`
+
+Remove all scale factor logic from the no-hero path as well.
+
+## What Remains Valid
+
+These constraints still make sense in normalized space:
+
+| Constraint | Why It's Valid |
+|------------|----------------|
+| `canvas_minAR` / `canvas_maxAR` | Ratios work in any unit system |
+| `hero_minProminence` | Area ratio (hero area / avg content area) - scale-invariant |
+| `hero_maxToSmallest` | Area ratio - scale-invariant |
+
+## Summary of Changes
 
 | File | Change |
 |------|--------|
-| `src/types/collage.ts` | Add `thumbnailUrl` and `thumbnailBlob` fields |
-| `src/pages/Index.tsx` | Generate both 1200px and 480px previews in parallel |
-| `src/components/common/CroppedImage.tsx` | Add `thumbnailSrc` prop, prefer it over `previewSrc` |
-| `src/components/CollagePreview.tsx` | Pass `thumbnailUrl`, fix touch drag preview |
-| `src/hooks/useCollageState.ts` | Revoke `thumbnailUrl` on cleanup |
-
-## Performance Impact
-
-With 40 photos:
-- Before: 40 × 1200px = ~960k pixels per image ≈ 38MP total
-- After: 40 × 480px = ~154k pixels per image ≈ 6MP total
-- **~6× reduction** in pixel data for collage rendering
+| `src/lib/v3/types.ts` | Remove `region_minWidth`, `region_minHeight` from tuning |
+| `src/lib/v3/index.ts` | Remove `canvasWidth` option and debug output |
+| `src/lib/v3/intersection.ts` | Remove all scale factor logic, return normalized dimensions |
+| `src/pages/V3Test.tsx` | Remove `canvasWidth` parameter from test calls |

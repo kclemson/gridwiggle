@@ -65,7 +65,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   canvas_maxAR: 2.0,
   row_arBudgetJitter: 0.2,
   row_maxHeightRatio: 1.8,
-  hero_maxToSmallest: 15,
+  hero_maxToSmallest: 22,
 };
 
 // ============================================================================

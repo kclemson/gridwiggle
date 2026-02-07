@@ -156,6 +156,7 @@ export default function Index() {
     
     try {
       let layout;
+      let workerResult: { durationMs?: number; usedWorker?: boolean; failure?: { reason: string } } | undefined;
       
       if (useV3) {
         // Worker-based async generation (non-blocking)
@@ -172,6 +173,7 @@ export default function Index() {
         }
         
         layout = result.layout;
+        workerResult = result;
         
         // Populate debug logs from worker
         if (result.logs) {
@@ -179,12 +181,6 @@ export default function Index() {
             devLogger.log(log.category, log.label, log.data);
           }
         }
-        
-        remoteLogger.info('layout', 'Layout generated', {
-          cells: layout?.cells.length ?? 0,
-          durationMs: result.durationMs,
-          usedWorker: result.usedWorker,
-        });
       } else {
         // V1 fallback (dev-only, synchronous)
         const photoWeights: Record<string, number> = {};
@@ -203,12 +199,23 @@ export default function Index() {
       if (layout) {
         setLayout(layout);
         setLayoutError(null);
-        remoteLogger.info('layout', 'Layout applied', { cells: layout.cells.length });
-      } else if (state.layout) {
-        setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+        remoteLogger.info('layout', 'Layout generated', { 
+          cells: layout.cells.length,
+          durationMs: workerResult?.durationMs,
+          usedWorker: workerResult?.usedWorker ?? false,
+        });
       } else {
-        setLayout(null);
-        setLayoutError("Couldn't generate a layout with these photos.");
+        remoteLogger.info('layout', 'Layout generation failed', {
+          durationMs: workerResult?.durationMs,
+          usedWorker: workerResult?.usedWorker ?? false,
+          reason: workerResult?.failure?.reason ?? 'unknown',
+        });
+        if (state.layout) {
+          setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+        } else {
+          setLayout(null);
+          setLayoutError("Couldn't generate a layout with these photos.");
+        }
       }
     } catch (error) {
       // Check for stale response

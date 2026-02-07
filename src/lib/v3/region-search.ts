@@ -9,6 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
+import { canMeetProminence } from './feasibility';
 
 // ============================================================================
 // Region Search Algorithm
@@ -75,6 +76,28 @@ export function findValidRegionAssignment(
     // Slice from ordered array (shuffled or sorted)
     const besidePhotos = orderedPhotos.slice(0, besideCount);
     const belowPhotos = orderedPhotos.slice(besideCount);
+    
+    // Early feasibility check for beside configurations
+    if (besideCount > 0) {
+      const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
+      
+      // Check if prominence is achievable with 1 row (worst case)
+      const worstCaseFeasibility = canMeetProminence(
+        heroAR,
+        besideCount,
+        1, // worst case: 1 row = largest possible cells
+        avgBesideAR,
+        tuning
+      );
+      
+      if (!worstCaseFeasibility.feasible) {
+        devLogger.log('region', 'Skipping besideCount (prominence infeasible)', {
+          besideCount,
+          estimatedRatio: worstCaseFeasibility.estimatedRatio.toFixed(2),
+        });
+        continue; // Skip entire besideCount iteration
+      }
+    }
     
     // Handle "no BESIDE" case (hero at top, all content below)
     if (besideCount === 0) {
@@ -236,6 +259,19 @@ export function findValidRegionAssignment(
         belowRowCount,
         score,
       });
+      
+      // Early exit for randomize mode - we don't need exhaustive search
+      if (randomize && validRegionAssignments.length >= 8) {
+        devLogger.log('region', 'Early exit (enough candidates for randomize)', {
+          candidates: validRegionAssignments.length,
+        });
+        break;
+      }
+    }
+    
+    // Check if we should exit outer loop too
+    if (randomize && validRegionAssignments.length >= 8) {
+      break;
     }
   }
   

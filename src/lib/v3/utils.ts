@@ -172,13 +172,7 @@ export function distributeByARBudget(
   const totalAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0);
   const baseRowAR = totalAR / targetRowCount;
   
-  devLogger.log('row-pack', 'Starting AR-budget distribution', {
-    photoCount: n,
-    targetRowCount,
-    totalAR: totalAR.toFixed(2),
-    baseRowAR: baseRowAR.toFixed(2),
-    jitter,
-  });
+  // Log removed: Starting AR-budget distribution - input params visible in region-level logs
   
   // Step 2: Greedy pack with jitter
   const rows: PhotoDimension[][] = [];
@@ -211,19 +205,12 @@ export function distributeByARBudget(
     rows.push(currentRow);
   }
   
-  devLogger.log('row-pack', 'After greedy packing', {
-    rowCount: rows.length,
-    rowSizes: rows.map(r => r.length),
-    rowARs: rows.map(r => r.reduce((s, p) => s + p.aspectRatio, 0).toFixed(2)),
-  });
+  // Log removed: After greedy packing - intermediate state, covered by final
   
   // Step 3: Validate row heights and redistribute if needed
   const validatedRows = validateAndRedistribute(rows, maxHeightRatio);
   
-  devLogger.log('row-pack', 'Final distribution', {
-    rowCount: validatedRows.length,
-    rowSizes: validatedRows.map(r => r.length),
-  });
+  // Log removed: Final distribution - not needed for failure debugging
   
   return validatedRows;
 }
@@ -247,11 +234,7 @@ function validateAndRedistribute(
   const avgRowAR = rowARs.reduce((s, ar) => s + ar, 0) / rowARs.length;
   const minAllowedAR = avgRowAR / maxHeightRatio;
   
-  devLogger.log('row-pack', 'Height validation', {
-    avgRowAR: avgRowAR.toFixed(2),
-    minAllowedAR: minAllowedAR.toFixed(2),
-    maxHeightRatio,
-  });
+  // Log removed: Height validation - intermediate validation step
   
   // Find rows that are too small (would be too tall)
   let needsRedistribution = true;
@@ -281,10 +264,7 @@ function validateAndRedistribute(
           result.splice(i, 1);
           needsRedistribution = true;
           
-          devLogger.log('row-pack', 'Merged row with previous', {
-            mergedIndex: i,
-            newRowSize: result[i - 1].length,
-          });
+          // Log removed: Merged row with previous - low-level detail
           break;
         } else if (i < result.length - 1) {
           // Merge with next row
@@ -292,10 +272,7 @@ function validateAndRedistribute(
           result.splice(i + 1, 1);
           needsRedistribution = true;
           
-          devLogger.log('row-pack', 'Merged row with next', {
-            mergedIndex: i,
-            newRowSize: result[i].length,
-          });
+          // Log removed: Merged row with next - low-level detail
           break;
         }
       }

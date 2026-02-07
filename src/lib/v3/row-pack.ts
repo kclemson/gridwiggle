@@ -282,12 +282,7 @@ function pickRandomRowCount(
   
   const chosen = randomInt(minRows, maxRows);
   
-  devLogger.log('layout', 'Row count selection', {
-    n,
-    minRows,
-    maxRows,
-    chosen,
-  });
+  // Log removed: Row count selection - rarely needed for debugging failures
   
   return chosen;
 }

@@ -15,6 +15,7 @@ import { devLogger, LogEntry } from '@/lib/devLogger';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings } from '@/types/collage';
 import { Shuffle, Star, Image } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
@@ -177,19 +178,37 @@ export default function V3Test() {
                 {logs.length === 0 ? (
                   <div className="text-muted-foreground">No logs yet</div>
                 ) : (
-                  logs.map((entry, idx) => (
-                    <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-                      <div className="flex gap-1 min-w-0">
-                        <span className="text-blue-500 shrink-0">[{entry.category}]</span>
-                        <span className="text-foreground break-words min-w-0">{entry.label}</span>
+                  logs.map((entry, idx) => {
+                    const isReject = entry.level === 'warn' || entry.level === 'error' 
+                      || entry.category.includes('reject');
+                    
+                    return (
+                      <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
+                        <div className="flex gap-1 min-w-0">
+                          <span className={cn(
+                            "shrink-0",
+                            isReject ? "text-red-500" : "text-blue-500"
+                          )}>
+                            [{entry.category}]
+                          </span>
+                          <span className={cn(
+                            "break-words min-w-0",
+                            isReject ? "text-red-400" : "text-foreground"
+                          )}>
+                            {entry.label}
+                          </span>
+                        </div>
+                        {Object.keys(entry.data).length > 0 && (
+                          <span className={cn(
+                            "break-all",
+                            isReject ? "text-red-400/70" : "text-muted-foreground"
+                          )}>
+                            {formatLogData(entry.data)}
+                          </span>
+                        )}
                       </div>
-                      {Object.keys(entry.data).length > 0 && (
-                        <span className="text-muted-foreground break-all">
-                          {formatLogData(entry.data)}
-                        </span>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>

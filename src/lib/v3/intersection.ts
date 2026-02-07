@@ -104,7 +104,7 @@ export function findValidConfiguration(
   
   // Return null if no valid configurations (no silent fallback)
   if (validConfigs.length === 0) {
-    devLogger.log('layout', 'No valid configurations found');
+    devLogger.warn('layout-reject', 'No valid configurations found');
     return null;
   }
   
@@ -160,7 +160,7 @@ function evaluateNormalizedProposal(
   );
   
   if (!regionAssignment) {
-    devLogger.log('layout', 'No valid region assignment found for proposal', {
+    devLogger.warn('layout-reject', 'No valid region assignment', {
       mode: proposal.mode,
       position: proposal.position,
     });
@@ -237,7 +237,7 @@ function evaluateNormalizedProposal(
   // Validate canvas AR (with epsilon tolerance for floating-point precision)
   const AR_EPSILON = 0.01;
   if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
-    devLogger.log('layout', 'Canvas too tall', {
+    devLogger.warn('layout-reject', 'Canvas too tall', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
     });
@@ -246,7 +246,7 @@ function evaluateNormalizedProposal(
   }
   
   if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-    devLogger.log('layout', 'Canvas too wide', {
+    devLogger.warn('layout-reject', 'Canvas too wide', {
       canvasAR: canvasAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,
     });
@@ -260,7 +260,7 @@ function evaluateNormalizedProposal(
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
-    devLogger.log('layout', 'Prominence too low', {
+    devLogger.warn('layout-reject', 'Prominence too low', {
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
     });
@@ -272,7 +272,7 @@ function evaluateNormalizedProposal(
   const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, tuning);
   
   if (!smallestCheck.valid) {
-    devLogger.log('layout', 'Hero too large vs smallest cells', {
+    devLogger.warn('layout-reject', 'Hero too large vs smallest cells', {
       ratio: smallestCheck.ratio.toFixed(1),
       maxAllowed: tuning.hero_maxToSmallest,
     });

@@ -103,12 +103,21 @@ export function exportPendingCaptures(): { data: V3LayoutCapture[]; count: numbe
 }
 
 /**
- * Get capture stats for UI badge.
+ * Get capture stats for UI badge (includes success count for pending).
  */
-export function getCaptureStats(): { total: number; pending: number } {
+export function getCaptureStats(): { 
+  total: number; 
+  pending: number; 
+  pendingSuccessCount: number;
+} {
   const store = loadCaptures();
-  const pending = store.captures.filter(c => !c.exported).length;
-  return { total: store.captures.length, pending };
+  const pendingCaptures = store.captures.filter(c => !c.exported);
+  const pendingSuccessCount = pendingCaptures.filter(c => c.success).length;
+  return { 
+    total: store.captures.length, 
+    pending: pendingCaptures.length,
+    pendingSuccessCount,
+  };
 }
 
 /**

@@ -8,8 +8,8 @@
 
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
+import { CaptureControls } from '@/components/debug/CaptureControls';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
@@ -26,7 +26,7 @@ import {
 } from '@/lib/v3CaptureStorage';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
-import { Shuffle, Star, Image, Download, Trash2 } from 'lucide-react';
+import { Shuffle, Star, Image } from 'lucide-react';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
@@ -167,8 +167,8 @@ export default function V3Test() {
     return { photoSet, ...result };
   });
   
-  // Pending capture count (refreshed on shuffle/export)
-  const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
+  // Capture stats (refreshed on shuffle/export/reset)
+  const [captureStats, setCaptureStats] = useState(() => getCaptureStats());
   
   // Shuffle: generate new set, run layout, capture to storage
   const handleShuffle = useCallback(() => {
@@ -179,7 +179,7 @@ export default function V3Test() {
     
     // Capture to localStorage
     saveCapture(buildCapture(photoSet, result));
-    setPendingCount(getCaptureStats().pending);
+    setCaptureStats(getCaptureStats());
   }, []);
   
   // Export pending captures
@@ -189,13 +189,13 @@ export default function V3Test() {
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     downloadJson(data, `v3-captures-${timestamp}.json`);
-    setPendingCount(0);
+    setCaptureStats(getCaptureStats());
   }, []);
   
   // Reset all captures
   const handleReset = useCallback(() => {
     clearCaptures();
-    setPendingCount(0);
+    setCaptureStats({ total: 0, pending: 0, pendingSuccessCount: 0 });
   }, []);
   
   // Destructure state for rendering
@@ -212,31 +212,13 @@ export default function V3Test() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">V3 Layout Test</h1>
           <div className="flex items-center gap-2">
-            {pendingCount > 0 && (
-              <Badge variant="secondary" className="tabular-nums">
-                {pendingCount} pending
-              </Badge>
-            )}
-            <Button 
-              onClick={handleReset}
-              variant="ghost"
-              size="sm"
-              disabled={pendingCount === 0}
-              className="gap-1.5 text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-              Reset
-            </Button>
-            <Button 
-              onClick={handleExport} 
-              variant="outline" 
-              size="sm"
-              disabled={pendingCount === 0}
-              className="gap-1.5"
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
+            <CaptureControls
+              pendingCount={captureStats.pending}
+              successCount={captureStats.pendingSuccessCount}
+              onExport={handleExport}
+              onReset={handleReset}
+              variant="full"
+            />
             <Button onClick={handleShuffle} variant="outline" className="gap-2">
               <Shuffle className="h-4 w-4" />
               Shuffle

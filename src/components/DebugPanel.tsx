@@ -8,9 +8,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { LogEntry } from '@/lib/devLogger';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Download, Trash2 } from 'lucide-react';
+import { CaptureControls } from '@/components/debug/CaptureControls';
 import { 
   getCaptureStats, 
   exportPendingCaptures, 
@@ -27,12 +25,12 @@ export function DebugPanel({
   logs, 
   durationMs,
 }: DebugPanelProps) {
-  // Track pending count in state so reset triggers re-render
-  const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
+  // Track pending count and success count in state so reset triggers re-render
+  const [stats, setStats] = useState(() => getCaptureStats());
 
-  // Sync pending count when logs change (after each generation)
+  // Sync stats when logs change (after each generation)
   useEffect(() => {
-    setPendingCount(getCaptureStats().pending);
+    setStats(getCaptureStats());
   }, [logs]);
 
   const handleExport = useCallback(() => {
@@ -41,42 +39,22 @@ export function DebugPanel({
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     downloadJson(data, `v3-captures-${timestamp}.json`);
-    setPendingCount(0);  // Update state to trigger re-render
+    setStats(getCaptureStats());
   }, []);
 
   const handleReset = useCallback(() => {
     clearCaptures();
-    setPendingCount(0);  // Update state to trigger re-render
+    setStats({ total: 0, pending: 0, pendingSuccessCount: 0 });
   }, []);
 
   const headerRight = (
-    <div className="flex items-center gap-2">
-      {pendingCount > 0 && (
-        <Badge variant="secondary" className="tabular-nums text-xs">
-          {pendingCount} pending
-        </Badge>
-      )}
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        onClick={handleReset}
-        disabled={pendingCount === 0}
-        className="h-6 w-6 p-0"
-        title="Clear all captures"
-      >
-        <Trash2 className="h-3 w-3" />
-      </Button>
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        onClick={handleExport}
-        disabled={pendingCount === 0}
-        className="h-6 w-6 p-0"
-        title="Export captures as JSON"
-      >
-        <Download className="h-3 w-3" />
-      </Button>
-    </div>
+    <CaptureControls
+      pendingCount={stats.pending}
+      successCount={stats.pendingSuccessCount}
+      onExport={handleExport}
+      onReset={handleReset}
+      variant="compact"
+    />
   );
 
   return (

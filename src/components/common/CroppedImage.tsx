@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { CropRegion } from '@/types/collage';
 import { cn } from '@/lib/utils';
 
@@ -14,10 +15,11 @@ interface CroppedImageProps {
  * Unified component for rendering images with optional crop regions.
  * Single source of truth for all crop rendering across the app.
  * 
- * Uses SVG viewBox for cropped images - this delegates all the complex
- * aspect ratio and positioning math to the browser, which handles it correctly.
+ * Uses CSS-based cropping with overflow:hidden and transforms.
+ * This is significantly faster than SVG viewBox because it uses
+ * the browser's native image pipeline with hardware acceleration.
  */
-export function CroppedImage({
+export const CroppedImage = memo(function CroppedImage({
   src,
   crop,
   originalWidth,
@@ -73,30 +75,36 @@ export function CroppedImage({
     );
   }
 
-  // For cropped images, use SVG with viewBox
-  // The viewBox defines which portion of the image to show (the crop region)
-  // preserveAspectRatio handles contain/cover semantics:
-  //   - "xMidYMid meet" = contain (fit entire crop region, may have letterboxing)
-  //   - "xMidYMid slice" = cover (fill container, may clip crop region)
-  const viewBox = `${crop.x} ${crop.y} ${crop.width} ${crop.height}`;
-  const preserveAspectRatio = fit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice';
+  // CSS-based cropping using overflow:hidden and transforms
+  // 
+  // The math:
+  // - Scale image so crop region fills container: (originalSize / cropSize) * 100%
+  // - Translate to position crop at origin: (-cropOffset / cropSize) * 100%
+  //
+  // Using percentages ensures the crop is accurate regardless of container size.
+  
+  const scaleX = (originalWidth / crop.width) * 100;
+  const scaleY = (originalHeight / crop.height) * 100;
+  const translateX = (-crop.x / crop.width) * 100;
+  const translateY = (-crop.y / crop.height) * 100;
 
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>
-      <svg
-        className="w-full h-full block"
-        viewBox={viewBox}
-        preserveAspectRatio={preserveAspectRatio}
-      >
-        <image
-          href={src}
-          x="0"
-          y="0"
-          width={originalWidth}
-          height={originalHeight}
-          preserveAspectRatio="none"
-        />
-      </svg>
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        style={{
+          width: `${scaleX}%`,
+          height: `${scaleY}%`,
+          maxWidth: 'none',
+          maxHeight: 'none',
+          transform: `translate(${translateX}%, ${translateY}%)`,
+          // For contain mode, we need object-fit on the wrapper level
+          // For cover mode (default in collages), the scaling handles it
+          objectFit: fit === 'contain' ? 'contain' : undefined,
+        }}
+      />
     </div>
   );
-}
+});

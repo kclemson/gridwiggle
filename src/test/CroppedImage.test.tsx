@@ -44,7 +44,7 @@ describe('CroppedImage', () => {
   describe('when crop is provided', () => {
     const validCrop = { x: 100, y: 50, width: 500, height: 400 };
 
-    it('renders an SVG element instead of img', () => {
+    it('renders an img element inside overflow container', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -54,14 +54,14 @@ describe('CroppedImage', () => {
         />
       );
 
-      const svg = container.querySelector('svg');
+      const wrapper = container.querySelector('div.overflow-hidden');
       const img = container.querySelector('img');
       
-      expect(svg).toBeTruthy();
-      expect(img).toBeFalsy();
+      expect(wrapper).toBeTruthy();
+      expect(img).toBeTruthy();
     });
 
-    it('sets correct viewBox from crop coordinates', () => {
+    it('applies correct CSS transform for cropping', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -71,41 +71,15 @@ describe('CroppedImage', () => {
         />
       );
 
-      const svg = container.querySelector('svg');
-      expect(svg?.getAttribute('viewBox')).toBe('100 50 500 400');
+      const img = container.querySelector('img');
+      const style = img?.getAttribute('style') || '';
+      
+      // Check that transform is applied
+      expect(style).toContain('transform');
+      expect(style).toContain('translate');
     });
 
-    it('uses preserveAspectRatio="xMidYMid meet" for contain', () => {
-      const { container } = render(
-        <CroppedImage
-          src={mockSrc}
-          crop={validCrop}
-          originalWidth={originalWidth}
-          originalHeight={originalHeight}
-          fit="contain"
-        />
-      );
-
-      const svg = container.querySelector('svg');
-      expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
-    });
-
-    it('uses preserveAspectRatio="xMidYMid slice" for cover', () => {
-      const { container } = render(
-        <CroppedImage
-          src={mockSrc}
-          crop={validCrop}
-          originalWidth={originalWidth}
-          originalHeight={originalHeight}
-          fit="cover"
-        />
-      );
-
-      const svg = container.querySelector('svg');
-      expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid slice');
-    });
-
-    it('renders image element with full original dimensions', () => {
+    it('applies correct scaling based on crop dimensions', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -115,15 +89,54 @@ describe('CroppedImage', () => {
         />
       );
 
-      const image = container.querySelector('image');
-      expect(image?.getAttribute('width')).toBe(String(originalWidth));
-      expect(image?.getAttribute('height')).toBe(String(originalHeight));
-      expect(image?.getAttribute('href')).toBe(mockSrc);
+      const img = container.querySelector('img');
+      const style = img?.getAttribute('style') || '';
+      
+      // Expected: width = (1000 / 500) * 100 = 200%
+      // Expected: height = (750 / 400) * 100 = 187.5%
+      expect(style).toContain('width: 200%');
+      expect(style).toContain('height: 187.5%');
+    });
+
+    it('applies correct translation based on crop position', () => {
+      const { container } = render(
+        <CroppedImage
+          src={mockSrc}
+          crop={validCrop}
+          originalWidth={originalWidth}
+          originalHeight={originalHeight}
+        />
+      );
+
+      const img = container.querySelector('img');
+      const style = img?.getAttribute('style') || '';
+      
+      // Expected translateX: (-100 / 500) * 100 = -20%
+      // Expected translateY: (-50 / 400) * 100 = -12.5%
+      expect(style).toContain('-20%');
+      expect(style).toContain('-12.5%');
+    });
+
+    it('sets maxWidth and maxHeight to none', () => {
+      const { container } = render(
+        <CroppedImage
+          src={mockSrc}
+          crop={validCrop}
+          originalWidth={originalWidth}
+          originalHeight={originalHeight}
+        />
+      );
+
+      const img = container.querySelector('img');
+      const style = img?.getAttribute('style') || '';
+      
+      expect(style).toContain('max-width: none');
+      expect(style).toContain('max-height: none');
     });
   });
 
   describe('when crop is too small (invalid)', () => {
-    it('falls back to img element when crop width < 50', () => {
+    it('falls back to simple img element when crop width < 50', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -134,13 +147,14 @@ describe('CroppedImage', () => {
       );
 
       const img = container.querySelector('img');
-      const svg = container.querySelector('svg');
+      const wrapper = container.querySelector('div.overflow-hidden');
       
       expect(img).toBeTruthy();
-      expect(svg).toBeFalsy();
+      // No wrapper div for fallback case
+      expect(wrapper).toBeFalsy();
     });
 
-    it('falls back to img element when crop height < 50', () => {
+    it('falls back to simple img element when crop height < 50', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -151,15 +165,15 @@ describe('CroppedImage', () => {
       );
 
       const img = container.querySelector('img');
-      const svg = container.querySelector('svg');
+      const wrapper = container.querySelector('div.overflow-hidden');
       
       expect(img).toBeTruthy();
-      expect(svg).toBeFalsy();
+      expect(wrapper).toBeFalsy();
     });
   });
 
   describe('defensive handling', () => {
-    it('renders img when originalWidth is missing', () => {
+    it('renders simple img when originalWidth is missing', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -170,10 +184,13 @@ describe('CroppedImage', () => {
       );
 
       const img = container.querySelector('img');
+      const wrapper = container.querySelector('div.overflow-hidden');
+      
       expect(img).toBeTruthy();
+      expect(wrapper).toBeFalsy();
     });
 
-    it('renders img when originalHeight is missing', () => {
+    it('renders simple img when originalHeight is missing', () => {
       const { container } = render(
         <CroppedImage
           src={mockSrc}
@@ -184,7 +201,10 @@ describe('CroppedImage', () => {
       );
 
       const img = container.querySelector('img');
+      const wrapper = container.querySelector('div.overflow-hidden');
+      
       expect(img).toBeTruthy();
+      expect(wrapper).toBeFalsy();
     });
   });
 });

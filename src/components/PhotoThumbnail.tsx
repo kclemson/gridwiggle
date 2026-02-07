@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { X, Loader2, AlertCircle, Star } from 'lucide-react';
 import { PhotoItem } from '@/types/collage';
 import { CroppedImage } from '@/components/common/CroppedImage';
@@ -13,7 +14,7 @@ interface PhotoThumbnailProps {
   className?: string;
 }
 
-export function PhotoThumbnail({ 
+export const PhotoThumbnail = memo(function PhotoThumbnail({ 
   photo, 
   onRemove, 
   onClick, 
@@ -93,4 +94,4 @@ export function PhotoThumbnail({
       </button>
     </div>
   );
-}
+});

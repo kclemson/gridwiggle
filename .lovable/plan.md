@@ -1,71 +1,197 @@
 
-# Fix CSS Crop Math in CroppedImage Component
+# Crop Dialog UX Improvements
 
-## Problem
+## Overview
 
-The crop selected in the "Adjust Crop" dialog isn't being displayed correctly in the carousel thumbnail or collage preview. The user sets a square crop focused on the flower, but the full image (including the stem) is visible instead.
+Three UX improvements to the Adjust Crop dialog and photo carousel:
 
-## Root Cause
+1. **Add Delete button to the Adjust Crop dialog** - Enables collapsing the carousel
+2. **Disable Save button when nothing has changed** - Clearer UI state
+3. **Add button press feedback** - Satisfying click interaction
 
-The CSS transform translation calculation in `CroppedImage.tsx` is incorrect. The current math computes the translation relative to the crop dimensions:
+---
+
+## 1. Add Delete Button to Crop Editor
+
+### User Outcome
+Once the delete functionality is in the Adjust Crop dialog, all photo management can be done via the collage preview. This allows the carousel to be collapsed by default, reducing visual clutter.
+
+### Implementation
+
+**File**: `src/components/CropEditor.tsx`
+
+Add a Delete button in the footer, left-aligned as a destructive action:
 
 ```tsx
-const translateX = (-crop.x / crop.width) * 100;  // Wrong basis
-const translateY = (-crop.y / crop.height) * 100; // Wrong basis
+// Add onDelete prop
+interface CropEditorProps {
+  photo: PhotoItem;
+  onClose: () => void;
+  onSave: (photoId: string, crop: CropRegion, priority: PhotoPriority) => void;
+  onDelete: (photoId: string) => void;  // NEW
+}
+
+// In DialogFooter, add delete button on the left
+<DialogFooter className="...">
+  <Button 
+    variant="ghost" 
+    onClick={() => onDelete(photo.id)}
+    className="text-destructive hover:text-destructive mr-auto"
+  >
+    <Trash2 className="h-4 w-4 mr-1.5" />
+    Delete Photo
+  </Button>
+  
+  {/* Existing hero checkbox and save/cancel... */}
+</DialogFooter>
 ```
 
-**Problem**: CSS `translate()` percentages are relative to the **element's own size** (the scaled image), not the container or crop dimensions.
+**File**: `src/pages/Index.tsx`
 
-### Math Breakdown
+Pass the delete handler to CropEditor:
 
-For an image 1000×750 with crop at (100, 50, 500, 400):
-
-| Step | Current (Wrong) | Correct |
-|------|-----------------|---------|
-| Scale image width | 200% (1000/500) | 200% |
-| Scale image height | 187.5% (750/400) | 187.5% |
-| Scaled image size (100×80 container) | 200px × 150px | 200px × 150px |
-| translateX calculation | -100/500 = -20% | -100/1000 = -10% |
-| translateY calculation | -50/400 = -12.5% | -50/750 = -6.67% |
-| **Actual pixel translation** | -20% × 200px = **-40px** | -10% × 200px = **-20px** |
-| **Needed translation** | (scale × crop.x) | **-20px** |
-
-The current formula over-translates by `originalSize / cropSize` factor.
-
-## Solution
-
-Change the translation basis from crop dimensions to original image dimensions:
-
-**File**: `src/components/common/CroppedImage.tsx`
-
-**Current** (lines 88-89):
 ```tsx
-const translateX = (-crop.x / crop.width) * 100;
-const translateY = (-crop.y / crop.height) * 100;
+<CropEditor
+  photo={editingPhoto}
+  onClose={() => setEditingPhotoId(null)}
+  onSave={handleSaveCrop}
+  onDelete={(photoId) => {
+    handleRemovePhoto(photoId);
+    setEditingPhotoId(null);
+  }}
+/>
 ```
 
-**Fixed**:
+---
+
+## 2. Disable Save When No Changes
+
+### User Outcome
+The Save button is disabled and styled differently when the user hasn't made any edits, making it clear there's nothing to save.
+
+### Design
+- Compare current crop position/size against initial values
+- Compare hero toggle state against initial value
+- If both are unchanged, disable the Save button
+
+### Implementation
+
+**File**: `src/components/CropEditor.tsx`
+
+Add change detection:
+
 ```tsx
-const translateX = (-crop.x / originalWidth) * 100;
-const translateY = (-crop.y / originalHeight) * 100;
+// Store initial values for comparison
+const initialCrop = useRef<CropRegion>(getEditorInitialCrop(photo));
+const initialIsHero = useRef(photo.priority === 1);
+
+// Detect if any changes were made
+const hasChanges = useMemo(() => {
+  const cropChanged = 
+    crop.x !== initialCrop.current.x ||
+    crop.y !== initialCrop.current.y ||
+    crop.width !== initialCrop.current.width ||
+    crop.height !== initialCrop.current.height;
+  
+  const heroChanged = isHero !== initialIsHero.current;
+  
+  return cropChanged || heroChanged;
+}, [crop, isHero]);
+
+// Disable save button when no changes
+<Button 
+  onClick={handleSave} 
+  disabled={!hasChanges}
+>
+  Save
+</Button>
 ```
 
-### Why This Works
+---
 
-CSS `translate(X%, Y%)` moves by percentage of **element dimensions**.
+## 3. Add Button Press Feedback
 
-- Scaled image size: `(originalWidth / crop.width)` of container = `scaleX%`
-- In container pixels: if container is `C` wide, scaled image is `C × scaleX/100` wide
-- To shift crop.x pixels in source coords to origin: translate by `-crop.x` source pixels
-- At scale, that's `-(crop.x / originalWidth) × 100%` of the scaled image
+### User Outcome
+When clicking Save or any action button, users get immediate tactile feedback:
+- Visual "pressed" state (scale down briefly)
+- Button text changes or shows loading state
+- Dialog closes faster or shows transition
 
-This formula correctly positions the crop region at the container's origin.
+### Design Pattern
+Use the "active" CSS pseudo-state for instant press feedback, plus a brief loading state:
 
-## Verification
+```css
+/* In button component - already has this via Tailwind */
+.button:active {
+  transform: scale(0.97);
+}
+```
 
-Using the test case (1000×750 image, crop at x=100, y=50, 500×400):
-- scaleX = 200%, scaleY = 187.5% (unchanged)
-- translateX = -100/1000 × 100 = **-10%**
-- translateY = -50/750 × 100 = **-6.67%**
-- In a 100×80 container: image is 200×150, translate is -20px, -10px
-- This correctly shows the crop region (100→600, 50→450) at the container origin
+However, the current issue is the delay between click and dialog close. The fix:
+
+1. **Optimistic close**: Close dialog immediately, don't wait for state updates
+2. **Visual feedback**: Show a brief pressed/saving state
+
+### Implementation
+
+**File**: `src/components/CropEditor.tsx`
+
+Add immediate visual feedback:
+
+```tsx
+const [isSaving, setIsSaving] = useState(false);
+
+const handleSave = () => {
+  setIsSaving(true);
+  const priority: PhotoPriority = isHero ? 1 : 3;
+  
+  // Close immediately for responsiveness
+  onClose();
+  
+  // State update happens after close - user doesn't see the delay
+  onSave(photo.id, crop, priority);
+};
+
+// Button shows saving state briefly
+<Button 
+  onClick={handleSave} 
+  disabled={!hasChanges || isSaving}
+  className="active:scale-95 transition-transform"
+>
+  {isSaving ? 'Saving...' : 'Save'}
+</Button>
+```
+
+**File**: `src/components/ui/button.tsx`
+
+Add active state to the base button for tactile feedback:
+
+```tsx
+const buttonVariants = cva(
+  "inline-flex items-center justify-center ... active:scale-[0.98] transition-transform duration-75",
+  // ... rest of variants
+);
+```
+
+---
+
+## Collapsible Carousel (Follow-up)
+
+Once the delete button is in the crop editor, the carousel becomes optional. A follow-up could:
+
+- Add a "Photos" collapsible section header
+- Default to collapsed when a collage layout exists
+- Use Radix Collapsible component (already installed)
+
+This keeps the carousel available for users who want it, but removes visual clutter for those who interact via the collage.
+
+---
+
+## Summary of Changes
+
+| File | Change |
+|------|--------|
+| `src/components/CropEditor.tsx` | Add `onDelete` prop, delete button, change detection, save feedback |
+| `src/pages/Index.tsx` | Pass `onDelete` handler to CropEditor |
+| `src/components/ui/button.tsx` | Add `active:scale-[0.98]` for tactile press feedback |
+

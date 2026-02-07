@@ -236,3 +236,26 @@ export interface ScoredConfiguration {
   /** Overall score for ranking */
   score: number;
 }
+
+// ============================================================================
+// Rejected Layout Types (for debugging)
+// ============================================================================
+
+/**
+ * A layout that was rejected during validation.
+ * Stores cell geometry so rejected layouts can be visualized for debugging.
+ */
+export interface RejectedLayout {
+  /** Cell coordinates (null if rejection happened before packing) */
+  cells: LayoutCell[] | null;
+  /** Canvas width in normalized space */
+  canvasWidth: number | null;
+  /** Canvas height in normalized space */
+  canvasHeight: number | null;
+  /** Rejection reason identifier */
+  reason: string;
+  /** Detailed metrics that triggered rejection */
+  details: Record<string, unknown>;
+  /** Timestamp for correlation with logs */
+  timestamp: number;
+}

@@ -43,6 +43,26 @@ export function clearRejections() {
 }
 
 // ============================================================================
+// Rejected Layout Storage (for debugging visualization)
+// ============================================================================
+
+import type { RejectedLayout } from './types';
+
+let lastRejectedLayout: RejectedLayout | null = null;
+
+export function setRejectedLayout(layout: RejectedLayout) {
+  lastRejectedLayout = layout;
+}
+
+export function getLastRejectedLayout(): RejectedLayout | null {
+  return lastRejectedLayout;
+}
+
+export function clearRejectedLayout() {
+  lastRejectedLayout = null;
+}
+
+// ============================================================================
 // Main Intersection Algorithm
 // ============================================================================
 
@@ -226,7 +246,29 @@ function evaluateNormalizedProposal(
   
   // Validate canvas AR (with epsilon tolerance for floating-point precision)
   const AR_EPSILON = 0.01;
+  
+  // Helper to compute cells for rejected layout capture (uses top-left as default position)
+  const computeRejectedCells = () => convertToNormalized(
+    heroPhoto,
+    'top-left', // Default position for rejected layouts
+    heroAR,
+    besideResult.cells,
+    belowResult.cells,
+    belowResult.height,
+    normalizedGap,
+    normalizedWidth
+  );
+  
   if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
+    const rejectedCells = computeRejectedCells();
+    setRejectedLayout({
+      cells: rejectedCells,
+      canvasWidth,
+      canvasHeight,
+      reason: 'canvas_too_tall',
+      details: { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR },
+      timestamp: Date.now(),
+    });
     devLogger.warn('layout-reject', 'Canvas too tall', {
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
@@ -236,6 +278,15 @@ function evaluateNormalizedProposal(
   }
   
   if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+    const rejectedCells = computeRejectedCells();
+    setRejectedLayout({
+      cells: rejectedCells,
+      canvasWidth,
+      canvasHeight,
+      reason: 'canvas_too_wide',
+      details: { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR },
+      timestamp: Date.now(),
+    });
     devLogger.warn('layout-reject', 'Canvas too wide', {
       canvasAR: canvasAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,
@@ -254,6 +305,15 @@ function evaluateNormalizedProposal(
   const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
+    const rejectedCells = computeRejectedCells();
+    setRejectedLayout({
+      cells: rejectedCells,
+      canvasWidth,
+      canvasHeight,
+      reason: 'prominence_too_low',
+      details: { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence },
+      timestamp: Date.now(),
+    });
     devLogger.warn('layout-reject', 'Prominence too low', {
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
@@ -266,6 +326,23 @@ function evaluateNormalizedProposal(
   const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, tuning);
   
   if (!smallestCheck.valid) {
+    const rejectedCells = computeRejectedCells();
+    // Include smallest 3 areas for debugging
+    const sortedAreas = contentAreas.sort((a, b) => a - b);
+    const smallestAreas = sortedAreas.slice(0, 3).map(a => +a.toFixed(4));
+    setRejectedLayout({
+      cells: rejectedCells,
+      canvasWidth,
+      canvasHeight,
+      reason: 'hero_too_large_vs_smallest_cells',
+      details: { 
+        ratio: +smallestCheck.ratio.toFixed(1), 
+        maxAllowed: tuning.hero_maxToSmallest,
+        heroArea: +heroArea.toFixed(3),
+        smallestAreas,
+      },
+      timestamp: Date.now(),
+    });
     devLogger.warn('layout-reject', 'Hero too large vs smallest cells', {
       ratio: smallestCheck.ratio.toFixed(1),
       maxAllowed: tuning.hero_maxToSmallest,

@@ -35,6 +35,17 @@ export interface V3LayoutCapture {
   failureReason: string | null;
   failureDetails: Record<string, unknown> | null;
   
+  // Rejected layout geometry (for visualization/debugging)
+  rejectedCells: Array<{
+    photoId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> | null;
+  rejectedCanvasWidth: number | null;
+  rejectedCanvasHeight: number | null;
+  
   // Metadata
   capturedAt: string;
   exported: boolean;

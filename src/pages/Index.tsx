@@ -223,6 +223,10 @@ export default function Index() {
           durationMs: result.durationMs ?? 0,
           failureReason: layout ? null : lastRejection?.reason ?? 'unknown',
           failureDetails: layout ? null : lastRejection?.details ?? null,
+          // Rejected layout geometry not captured in production
+          rejectedCells: null,
+          rejectedCanvasWidth: null,
+          rejectedCanvasHeight: null,
           capturedAt: new Date().toISOString(),
         });
       }

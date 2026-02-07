@@ -1,105 +1,133 @@
 
+# Fix Edge Gap Issues: Algorithm-First Border Padding
 
-# Fix Spacing Slider: Direct Normalized Gap Control
+## Understanding the Two Issues
 
-## The Root Issue
+### Issue 1: 1px gap on right edge when slider = 0
+When the slider is at minimum, `normalizedGap = 0`, so gaps should be zero everywhere. The slim 1px line is a **rounding artifact**: when converting normalized coordinates to pixel percentages in CollagePreview, floating-point precision combined with `Math.round()` can cause the sum of cell widths to be 1px less than the container width.
 
-The slider controls `gapSize` (0-100) which gets converted to `pixelGap` (0-32px). But the normalized packing algorithm uses a **hardcoded** `normalizedGap = 0.02` and completely ignores `pixelGap`.
+### Issue 2: No border around canvas edges
+The slider controls gaps BETWEEN photos (via the normalized packing algorithm), but there's no padding at the canvas EDGES. The previous "presentation layer fix" tried adding CSS padding, but passed the wrong value - it used the raw slider (0-100) instead of actual pixel spacing.
 
-Then a wrong fix tried to add row gaps during pixel conversion, creating double gaps on Y but nothing on X.
+---
 
-## Your Correct Mental Model
+## The Correct Architectural Solution
 
-The slider should directly control the normalized gap value:
-- Slider left (0) → `normalizedGap = 0` (photos touch)
-- Slider middle (~50) → `normalizedGap = 0.02` (current default)  
-- Slider right (100) → `normalizedGap = 0.04` (maximum spacing)
+**Include border padding in the normalized space algorithm itself.**
 
-The pixel gaps emerge naturally when the normalized layout gets scaled to fit the canvas.
+This means:
+- Photos start at position `(normalizedGap, normalizedGap)` instead of `(0, 0)`
+- Canvas dimensions grow by `2 * normalizedGap` in both directions
+- The layout coordinates already include borders - no presentation layer adjustment needed
+- Export will automatically include the correct border
+
+This is cleaner than a presentation-layer fix because:
+1. Single source of truth (the algorithm)
+2. Export uses the same layout, so borders will be correct in exported images
+3. No disconnect between what the algorithm produces and what's displayed
 
 ---
 
 ## Technical Changes
 
-### File 1: `src/lib/v3/index.ts`
+### File 1: `src/lib/v3/intersection.ts`
 
-**Change line 98**: Convert slider to normalized gap instead of pixel gap
+**In `generateSimpleRowsLayout` (~lines 523-529):**
+
+Offset all cell positions by the normalized gap (border padding), and expand canvas dimensions:
+
+```typescript
+// Convert cells to pixels - offset by gap for border padding
+const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
+  photoId: cell.photoId,
+  x: (cell.x + normalizedGap) * scaleFactor,  // Add left border
+  y: (cell.y + normalizedGap) * scaleFactor,  // Add top border
+  width: cell.width * scaleFactor,
+  height: cell.height * scaleFactor,
+}));
+
+// Canvas includes border on all sides
+const actualCanvasWidth = (1.0 + 2 * normalizedGap) * scaleFactor;
+const actualCanvasHeight = (normalizedResult.height + 2 * normalizedGap) * scaleFactor;
+```
+
+**In `convertToPixels` (for hero layouts):**
+
+Apply the same offset to all cells - hero, BESIDE, and BELOW all shift by `normalizedGap * scaleFactor` in both X and Y.
+
+**In `evaluateNormalizedProposal` canvas dimension calculation:**
+
+```typescript
+// Include border in normalized canvas dimensions
+const normalizedWidthWithBorder = normalizedWidth + 2 * normalizedGap;
+const normalizedHeightWithBorder = normalizedHeight + 2 * normalizedGap;
+
+// Scale to pixels
+const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
+const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
+```
+
+### File 2: `src/components/CollagePreview.tsx`
+
+**Remove the CSS padding (~line 243):**
+
+Since the layout now includes border padding in its coordinates, remove the `padding: gap` style - it's no longer needed.
 
 ```typescript
 // Before:
-const pixelGap = Math.round((settings.gapSize / 100) * 32);
+style={{
+  // ...
+  padding: gap,
+}}
 
-// After:
-// Map slider (0-100) directly to normalized gap (0 to 0.04)
-// Middle of slider (~50) produces ~0.02, matching current default
-const normalizedGap = (settings.gapSize / 100) * 0.04;
+// After - no padding, layout handles it:
+style={{
+  // ...
+  // padding removed - layout includes border
+}}
 ```
 
-**Change line 127**: Pass normalized gap, not pixel gap
+**Also update the dimension calculations (~lines 221-226):**
+
+Remove the `+ (2 * gap)` from paddedWidth/paddedHeight since the layout dimensions now already include borders.
 
 ```typescript
 // Before:
-const config = findValidConfiguration(dimensions, canvasWidth, pixelGap, tuning, randomize);
+const paddedWidth = layout.width + (2 * gap);
+const paddedHeight = layout.height + (2 * gap);
 
-// After:
-const config = findValidConfiguration(dimensions, canvasWidth, normalizedGap, tuning, randomize);
+// After - layout already includes padding:
+const paddedWidth = layout.width;
+const paddedHeight = layout.height;
+// (or just remove these variables and use layout.width/height directly)
 ```
-
-### File 2: `src/lib/v3/intersection.ts`
-
-**Change function signature** (~line 42-48): Rename `gap` to `normalizedGap` to clarify it's already normalized
-
-```typescript
-export function findValidConfiguration(
-  photos: PhotoDimension[],
-  canvasWidth: number,
-  normalizedGap: number,  // Already in normalized space (0-0.04)
-  tuning: V3Tuning = DEFAULT_V3_TUNING,
-  randomize: boolean = false
-): ScoredConfiguration | null {
-```
-
-**Remove hardcoded gaps**: Use the passed-in `normalizedGap` everywhere instead of `0.02`
-
-- Line 128: `const normalizedGapForLayout = 0.02;` → use parameter instead
-- Line 496: `const estimatedNormalizedGap = 0.02;` → use parameter instead
-
-**Remove broken pixel-layer offsets** (~lines 549, 556-557):
-
-```typescript
-// Line 549 - remove the added row gap:
-// Before: y: cell.y * scaleFactor + (rowIndex * gap),
-// After:  y: cell.y * scaleFactor,
-
-// Lines 556-557 - remove extra height:
-// Before:
-const totalGapHeight = (rowCount - 1) * gap;
-const actualCanvasHeight = normalizedResult.height * scaleFactor + totalGapHeight;
-
-// After:
-const actualCanvasHeight = normalizedResult.height * scaleFactor;
-```
-
-**Remove `pixelGap` from `convertToPixels`**: The function currently takes `pixelGap` and adds it at region boundaries. Since gaps are now handled entirely in normalized space, remove all `+ pixelGap` additions and simplify the function signature.
 
 ---
 
-## Summary
+## Edge Case: Slider at 0
+
+When `normalizedGap = 0`:
+- All cell positions stay at their original coordinates (no offset)
+- Canvas dimensions equal the photo area exactly
+- No visible border (photos touch canvas edge)
+- This is the expected behavior
+
+---
+
+## Summary of Changes
 
 | Location | Change |
 |----------|--------|
-| `index.ts` line 98 | `normalizedGap = (gapSize / 100) * 0.04` instead of pixel conversion |
-| `index.ts` line 127 | Pass `normalizedGap` to `findValidConfiguration` |
-| `intersection.ts` signature | Clarify parameter is already normalized |
-| `intersection.ts` ~128, ~496 | Use passed `normalizedGap` instead of hardcoded `0.02` |
-| `intersection.ts` ~549 | Remove `+ (rowIndex * gap)` from Y coordinates |
-| `intersection.ts` ~556-557 | Remove `totalGapHeight` from canvas height |
-| `intersection.ts` `convertToPixels` | Remove all `+ pixelGap` additions |
+| `intersection.ts` `generateSimpleRowsLayout` | Add `+ normalizedGap` to cell x/y positions |
+| `intersection.ts` `generateSimpleRowsLayout` | Add `+ 2 * normalizedGap` to canvas width/height |
+| `intersection.ts` `convertToPixels` | Add border offset to all cell positions |
+| `intersection.ts` `evaluateNormalizedProposal` | Include border in canvas dimensions |
+| `CollagePreview.tsx` | Remove CSS `padding: gap` |
+| `CollagePreview.tsx` | Remove manual padding from dimension calculations |
 
 ## Result
 
-- Slider at 0 → photos touch on all sides
-- Slider at 50 → ~0.02 normalized gap (current behavior)
-- Slider at 100 → 0.04 normalized gap (double current spacing)
-- Gaps are uniform in both X and Y (no double-application)
-
+- Slider at 0: Photos touch each other AND the canvas edges (no gaps anywhere)
+- Slider at 50: Uniform gaps between photos AND around canvas border
+- Export matches preview exactly (same layout coordinates)
+- Single source of truth in the algorithm

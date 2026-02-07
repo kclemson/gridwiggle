@@ -1,79 +1,71 @@
 
 
-# Plan: Inline BesideCount Range with BesideRowCount
+# Plan: Add Search Space Values to Prominence Rejection
 
 ## What We're Changing
 
-Instead of adding a separate `besideRange` field, format the `besideRowCount` value to include the search range inline:
+Add `besideCount` (with photo count range) and `besideRowCount` (with row count range) to the "prominence too low" rejection details.
 
-**Before:**
+## Current State (from screenshot)
+
 ```
-besideRowCount: 4
+REJECTED: prominence too low
+ratio: 0.54
+required: 1.3
 ```
 
-**After:**
+## After Change
+
 ```
-besideRowCount: "4 (0-15)"
+REJECTED: prominence too low
+ratio: 0.54
+required: 1.3
+besideCount: 8 (0-15)
+besideRowCount: 4 (2-6)
 ```
 
 ## File to Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/v3/region-search.ts` | Update 4 rejection points to format `besideRowCount` with range |
+| `src/lib/v3/region-search.ts` | Update 2 prominence rejection points to include both ranges correctly |
 
 ## Changes
 
-### Line ~180 (canvas AR rejection, no BESIDE)
+### Line ~200 (prominence too low, no BESIDE)
 ```typescript
 details: { 
-  canvasAR: +canvasAR.toFixed(2), 
-  besideCount: 0, 
-  besideRowCount: `0 (${minBeside}-${maxBeside})`,  // Include range
-  belowRowCount,
+  prominenceRatio: +prominenceRatioNoAside.toFixed(2), 
+  required: tuning.hero_minProminence, 
+  besideCount: `0 (${minBeside}-${maxBeside})`,
+  besideRowCount: `0`,  // No row range when besideCount=0
 },
 ```
 
-### Line ~203 (prominence too low, no BESIDE)
+### Line ~310 (prominence too low, with BESIDE)
 ```typescript
 details: { 
   prominenceRatio: +prominenceRatio.toFixed(2), 
   required: tuning.hero_minProminence, 
-  besideCount: 0,
-  besideRowCount: `0 (${minBeside}-${maxBeside})`,  // Include range
+  besideCount: `${besideCount} (${minBeside}-${maxBeside})`,
+  besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`,  // Use actual row range
 },
 ```
 
-### Line ~286 (canvas AR rejection, with BESIDE)
-```typescript
-details: { 
-  canvasAR: +canvasAR.toFixed(2), 
-  besideCount, 
-  besideRowCount: `${besideRowCount} (${minBeside}-${maxBeside})`,  // Include range
-  belowRowCount,
-},
-```
+## Also Fix: Correct the besideRowCount Range
 
-### Line ~313 (prominence too low, with BESIDE)
+The last edit incorrectly used `minBeside-maxBeside` for `besideRowCount`. This should use `minRows-maxRows` (the row count range calculated on line ~227). I'll fix this in both canvas AR rejections too:
+
+### Line ~283 (canvas AR rejection, with BESIDE)
 ```typescript
-details: { 
-  prominenceRatio: +prominenceRatio.toFixed(2), 
-  required: tuning.hero_minProminence, 
-  besideCount, 
-  besideRowCount: `${besideRowCount} (${minBeside}-${maxBeside})`,  // Include range
-},
+besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`,  // Fix: use row range, not photo range
 ```
 
 ## Expected Result
 
-The rejection badge will display:
-```
-REJECTED: canvas too tall
-canvasAR: 0.53
-besideCount: 8
-besideRowCount: 4 (0-15)
-belowRowCount: 3
-```
+All prominence rejections will show the full search context:
+- Which `besideCount` was tried and what range was explored
+- Which `besideRowCount` was tried and what row range was valid
 
-This compact format shows both the actual row count used and the search space explored.
+This helps diagnose whether prominence failures are happening at the edges of the search space or in the middle.
 

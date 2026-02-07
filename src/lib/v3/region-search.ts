@@ -9,7 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
-import { canMeetProminence, canBesideCountMeetCanvasAR } from './feasibility';
+import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR } from './feasibility';
 
 // ============================================================================
 // Region Search Algorithm
@@ -93,19 +93,19 @@ export function findValidRegionAssignment(
       
       const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
       
-      // Check if prominence is achievable with 1 row (worst case)
-      const worstCaseFeasibility = canMeetProminence(
+      // Check if ANY row count can satisfy both prominence constraints
+      const prominenceFeasibility = canMeetProminenceConstraints(
         heroAR,
         besideCount,
-        1, // worst case: 1 row = largest possible cells
         avgBesideAR,
         tuning
       );
       
-      if (!worstCaseFeasibility.feasible) {
-        devLogger.log('region', 'Skipping besideCount (prominence infeasible)', {
+      if (!prominenceFeasibility.feasible) {
+        devLogger.log('region', 'Skipping besideCount (prominence constraints unsatisfiable)', {
           besideCount,
-          estimatedRatio: worstCaseFeasibility.estimatedRatio.toFixed(2),
+          validRowRange: `[${prominenceFeasibility.minRows}, ${prominenceFeasibility.maxRows}]`,
+          reason: prominenceFeasibility.reason,
         });
         continue; // Skip entire besideCount iteration
       }

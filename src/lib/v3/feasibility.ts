@@ -10,60 +10,80 @@ import { PhotoDimension, V3Tuning } from './types';
 import { devLogger } from '@/lib/devLogger';
 
 /**
- * Check if prominence can possibly be achieved for a given beside count.
+ * Check if ANY row configuration can satisfy BOTH prominence constraints.
  * 
- * Algebraic estimate:
- * - Hero area = heroAR × 1.0 (fixed in normalized space)
- * - Max beside cell area ≈ (besideWidth / besideCount) × (1 / besideRowCount)
- * - For few photos in 1 row, each photo is ~50% of hero row height
+ * Two constraints form a valid range:
+ * 1. hero_minProminence: needs MORE rows (smaller cells)
+ *    R ≥ sqrt(minProminence × avgBesideAR / heroAR)
  * 
- * This is conservative (optimistic) - allows some failures through
- * but never rejects valid configurations.
+ * 2. hero_maxToSmallest: needs FEWER rows (larger cells)
+ *    R ≤ sqrt(maxToSmallest × avgBesideAR / heroAR)
+ * 
+ * If the ranges overlap with physical limits [1, min(besideCount, 6)],
+ * some row count is feasible.
+ * 
+ * This is an O(1) algebraic check — no packing involved.
  */
-export function canMeetProminence(
+export function canMeetProminenceConstraints(
   heroAR: number,
   besideCount: number,
-  besideRowCount: number,
   avgBesideAR: number,
   tuning: V3Tuning
-): { feasible: boolean; estimatedRatio: number } {
+): { feasible: boolean; minRows: number; maxRows: number; reason?: string } {
   // No beside photos = prominence will be determined by BELOW
   // We can't predict that here, so allow it
   if (besideCount === 0) {
-    return { feasible: true, estimatedRatio: Infinity };
+    return { feasible: true, minRows: 0, maxRows: 0 };
   }
   
-  const heroArea = heroAR * 1.0;
+  // Geometric formulas derived from:
+  // cellArea ≈ avgBesideAR / R² (where R = row count)
+  // prominenceRatio = heroAR / cellArea = heroAR × R² / avgBesideAR
   
-  // Estimate: each beside photo gets roughly equal share of the region
-  // Region height = 1.0 (hero height), split into besideRowCount rows
-  // Region width = sum of all beside ARs × row height
-  const rowHeight = 1.0 / besideRowCount;
+  // Constraint 1: Minimum prominence
+  // heroAR × R² / avgBesideAR >= minProminence
+  // R >= sqrt(minProminence × avgBesideAR / heroAR)
+  const minRowsForProminence = Math.ceil(
+    Math.sqrt((tuning.hero_minProminence * avgBesideAR) / heroAR)
+  );
   
-  // The largest beside cell is likely the one with the highest AR
-  // But we use average as a conservative estimate
-  const estimatedCellWidth = avgBesideAR * rowHeight;
-  const estimatedCellArea = estimatedCellWidth * rowHeight;
+  // Constraint 2: Maximum prominence (smallest cells)
+  // heroAR × R² / avgBesideAR <= maxToSmallest
+  // R <= sqrt(maxToSmallest × avgBesideAR / heroAR)
+  const maxRowsForSmallest = Math.floor(
+    Math.sqrt((tuning.hero_maxToSmallest * avgBesideAR) / heroAR)
+  );
   
-  // This is the estimated largest cell area
-  // Reality may be different due to row distribution
-  const estimatedRatio = heroArea / estimatedCellArea;
+  // Physical limits
+  const maxPhysicalRows = Math.min(besideCount, 6); // Reasonable cap
   
-  // Use 80% of required threshold as feasibility gate
-  // This is conservative - allows marginal cases through for exact check
-  const feasibilityThreshold = tuning.hero_minProminence * 0.8;
-  const feasible = estimatedRatio >= feasibilityThreshold;
+  // Intersect ranges: [minRowsForProminence, maxRowsForSmallest] ∩ [1, maxPhysicalRows]
+  const minRows = Math.max(1, minRowsForProminence);
+  const maxRows = Math.min(maxPhysicalRows, maxRowsForSmallest);
+  
+  const feasible = minRows <= maxRows;
   
   if (!feasible) {
-    devLogger.log('feasibility', 'Prominence unlikely', {
+    const reason = minRowsForProminence > maxPhysicalRows 
+      ? 'need_more_rows_than_available'
+      : minRowsForProminence > maxRowsForSmallest 
+        ? 'prominence_range_empty' 
+        : undefined;
+    
+    devLogger.log('feasibility', 'Prominence constraints unsatisfiable', {
+      heroAR: heroAR.toFixed(2),
       besideCount,
-      besideRowCount,
-      estimatedRatio: estimatedRatio.toFixed(2),
-      threshold: feasibilityThreshold.toFixed(2),
+      avgBesideAR: avgBesideAR.toFixed(2),
+      minRowsForProminence,
+      maxRowsForSmallest,
+      maxPhysicalRows,
+      reason,
     });
+    
+    return { feasible, minRows, maxRows, reason };
   }
   
-  return { feasible, estimatedRatio };
+  return { feasible, minRows, maxRows };
 }
 
 /**

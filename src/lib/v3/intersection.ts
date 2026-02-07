@@ -25,6 +25,24 @@ import { proposePositions, validateProminence, validateSmallestCellRatio, findHe
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
+// Rejection Tracking (for production logging)
+// ============================================================================
+
+let lastRejection: { reason: string; details: Record<string, unknown> } | null = null;
+
+export function setRejection(reason: string, details: Record<string, unknown>) {
+  lastRejection = { reason, details };
+}
+
+export function getLastRejection() {
+  return lastRejection;
+}
+
+export function clearRejections() {
+  lastRejection = null;
+}
+
+// ============================================================================
 // Main Intersection Algorithm
 // ============================================================================
 
@@ -265,6 +283,7 @@ function evaluateNormalizedProposal(
       canvasAR: canvasAR.toFixed(2),
       minAR: tuning.canvas_minAR,
     });
+    setRejection('Canvas too tall', { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR });
     return null;
   }
   
@@ -273,6 +292,7 @@ function evaluateNormalizedProposal(
       canvasAR: canvasAR.toFixed(2),
       maxAR: tuning.canvas_maxAR,
     });
+    setRejection('Canvas too wide', { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR });
     return null;
   }
   
@@ -286,6 +306,7 @@ function evaluateNormalizedProposal(
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
     });
+    setRejection('Prominence too low', { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence });
     return null;
   }
   
@@ -297,6 +318,7 @@ function evaluateNormalizedProposal(
       ratio: smallestCheck.ratio.toFixed(1),
       maxAllowed: tuning.hero_maxToSmallest,
     });
+    setRejection('Hero too large vs smallest cells', { ratio: +smallestCheck.ratio.toFixed(1), maxAllowed: tuning.hero_maxToSmallest });
     return null;
   }
   

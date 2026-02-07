@@ -1,68 +1,38 @@
 
 # Add Rejected Layout Visualization with Real Photos
 
-## The Goal
+## Status: ✅ COMPLETE
 
-When layout generation fails in the main app, show the rejected layout using actual uploaded photos (not just CSS mockups). This enables subjective evaluation of why a layout was rejected and helps identify algorithm issues.
+The rejected layout visualization is now fully implemented. When layout generation fails, the main app shows:
+- The rejected layout rendered with **actual uploaded photos**
+- A destructive ring around the preview indicating rejection
+- A `RejectionBadge` showing the reason and metrics
+- A "Try Again" button to regenerate
 
-## Current Flow
+## What Was Implemented
 
-```text
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│   Index.tsx      │     │  Worker Thread   │     │   intersection   │
-│                  │     │                  │     │                  │
-│ regenerate() ────┼────►│ generateLayout() ├────►│ setRejected..()  │
-│                  │     │                  │     │ (module scope)   │
-│ receives result  │◄────┤ postMessage()    │     │                  │
-│ (no rejected     │     │ (no rejected     │     │ getLastRejected  │
-│  layout data)    │     │  layout data)    │     │ Layout() exists  │
-└──────────────────┘     └──────────────────┘     └──────────────────┘
-```
+### Step 1: Worker Returns Rejected Layout Data ✅
+- Updated `LayoutResponse` interface with optional `rejectedLayout` field
+- Worker captures data from `getLastRejectedLayout()` and includes in response
+- Clears rejected layout at start of each generation
 
-**Problem**: The rejected layout data is stored in module scope on the worker thread, but never sent back to the main thread.
+### Step 2: Service Returns Rejected Layout ✅
+- Updated `LayoutGenerationResult` interface with `rejectedLayout` field
+- Service passes through rejected layout from worker response
 
-## The Fix
+### Step 3: Main App Stores and Displays Rejected Layout ✅
+- Added `rejectedLayout` state in Index.tsx
+- Scales normalized coordinates to pixel space (base 1000)
+- Renders rejected layouts using `CollagePreview` with real photos
+- Shows `RejectionBadge` with failure reason and metrics
+- Clears rejected layout on successful generation or retry
 
-### Step 1: Worker Returns Rejected Layout Data
+## What This Enables
 
-Update `LayoutResponse` interface and worker logic to capture and return rejected layout geometry.
-
-**File:** `src/workers/layoutWorker.ts`
-
-```typescript
-export interface LayoutResponse {
-  // ... existing fields
-  rejectedLayout?: {
-    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    canvasWidth: number;
-    canvasHeight: number;
-    reason: string;
-    details: Record<string, unknown>;
-  };
-}
-```
-
-In the message handler, after `generateLayout()`:
-```typescript
-if (!layout) {
-  const rejected = getLastRejectedLayout();
-  if (rejected?.cells) {
-    response.rejectedLayout = {
-      cells: rejected.cells,
-      canvasWidth: rejected.canvasWidth!,
-      canvasHeight: rejected.canvasHeight!,
-      reason: rejected.reason,
-      details: rejected.details,
-    };
-  }
-}
-```
-
-### Step 2: Service Returns Rejected Layout
-
-**File:** `src/services/layoutGenerationService.ts`
-
-Update `LayoutGenerationResult` to include rejected layout:
+- See rejected layouts with **actual uploaded photos** (not CSS mockups)
+- Compare visual output with debug log metrics
+- Identify cases where synthetic test photos don't match real-world inputs
+- Subjective evaluation: "This looks fine, why was it rejected?"
 
 ```typescript
 export interface LayoutGenerationResult {

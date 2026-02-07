@@ -1,71 +1,48 @@
 
-# Fix Spacing: Add Edge Padding via CSS
+# Simplify Processing & Collage Generation UI
 
-## What You'll Experience After This Fix
+## What's Changing
 
-1. **Zero gap works**: When slider is at 0, photos touch each other AND touch the edges
-2. **Edge padding matches inter-photo gap**: The background color appears around all edges at the same width as between photos
+1. **Remove "Processing Photos" header** - The purple wand icon + "Processing Photos" text is redundant since the spinning thumbnail and progress dots already communicate processing status clearly
+
+2. **Remove "Generate Collage" button** - Collage auto-generates after photos finish processing. If generation fails with no existing layout, we'll show a simpler inline retry prompt instead of a full-width button
 
 ---
 
-## The Simple Approach
+## Technical Details
 
-Instead of modifying the layout algorithm's coordinate math, we just wrap the collage in a container with CSS padding. The layout algorithm outputs cells starting at (0,0) - we add the edge padding purely in the presentation layer.
+### File 1: `src/components/PhotoProcessingView.tsx`
 
-## Technical Changes
+**Remove the header section** (lines 28-34):
 
-### File 1: `src/components/CollagePreview.tsx`
-
-**Add `gap` prop** (line 115-122):
-```typescript
-interface CollagePreviewProps {
-  photos: PhotoItem[];
-  layout: CollageLayout;
-  gapColor: string;
-  gap: number;  // NEW: pixel gap for edge padding
-  onSwapPhotos: (photoId1: string, photoId2: string) => void;
-  onCellClick?: (photoId: string) => void;
-  onToggleHero?: (photoId: string) => void;
-}
-```
-
-**Add padding to container** (lines 230-239):
-
-The container needs padding, and the aspect ratio needs to account for the padding-expanded dimensions:
-
-```typescript
-// Compute padded dimensions for aspect ratio
-const paddedWidth = layout.width + (2 * gap);
-const paddedHeight = layout.height + (2 * gap);
-
-<div
-  ref={collageRef}
-  className="relative mx-auto"
-  style={{
-    maxWidth: effectiveMaxWidth + (2 * gap),  // Expand max for padding
-    width: '100%',
-    aspectRatio: `${paddedWidth} / ${paddedHeight}`,
-    backgroundColor: gapColor,
-    padding: gap,  // Edge padding = inter-photo gap
-  }}
->
-```
+Delete the "Processing Photos" title and wand icon. Keep just:
+- Current photo thumbnail with spinner
+- Stats row ("X ready", "Y failed")
+- Processing queue dots
 
 ### File 2: `src/pages/Index.tsx`
 
-**Pass `gap` to CollagePreview** (lines 520-527):
+**Replace Generate button with inline error state** (lines 465-473):
 
-```typescript
-<CollagePreview
-  photos={state.photos}
-  layout={state.layout}
-  gapColor={state.settings.gapColor}
-  gap={state.settings.gapSize}  // NEW
-  onSwapPhotos={handleSwapPhotos}
-  onCellClick={setEditingPhotoId}
-  onToggleHero={handleToggleHero}
-/>
+When there's no layout yet but 2+ photos, show:
+- If no error: nothing (auto-generation will trigger)
+- If error occurred: show a centered retry prompt with refresh icon (similar to existing error overlay style but for the "no layout yet" case)
+
+Currently the flow is:
 ```
+!state.layout ? <Button>Generate Collage</Button> : <CollagePreview />
+```
+
+Change to:
+```
+!state.layout ? (
+  layoutError ? <RetryPrompt /> : null
+) : (
+  <CollagePreview />
+)
+```
+
+This means after photos finish processing, if layout generation succeeds → collage appears. If it fails → error message with retry button appears.
 
 ---
 
@@ -73,10 +50,5 @@ const paddedHeight = layout.height + (2 * gap);
 
 | File | Change |
 |------|--------|
-| `CollagePreview.tsx` line 118 | Add `gap: number` to props interface |
-| `CollagePreview.tsx` line 129 | Destructure `gap` from props |
-| `CollagePreview.tsx` lines 217-221 | Compute padded dimensions for aspect ratio |
-| `CollagePreview.tsx` lines 233-238 | Add `padding: gap` and use padded aspect ratio |
-| `Index.tsx` line 523 | Pass `gap={state.settings.gapSize}` |
-
-This is a presentation-layer-only fix - no changes to the layout algorithm needed.
+| `PhotoProcessingView.tsx` lines 28-34 | Delete "Processing Photos" header block |
+| `Index.tsx` lines 465-473 | Replace Generate button with conditional error prompt |

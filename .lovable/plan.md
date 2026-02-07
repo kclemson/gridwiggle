@@ -1,85 +1,44 @@
 
-# Fix Thumbnail Grid Size & Selection Ring Clipping
 
-## What You'll Experience After This Fix
+# Fix Thumbnail Selection Ring Clipping
 
-1. **Larger thumbnails in View All**: Photos will be 85px instead of 56px - easier to see and select
-2. **Mobile-friendly layout**: Grid will adapt gracefully to smaller screens (fewer columns, appropriate padding)
-3. **Selection ring visible**: The purple border around the current photo won't be cut off anymore
+## Problem
+The selection ring (`ring-2 ring-primary ring-offset-2`) extends **outside** the button element's bounds. While we removed `overflow-hidden` from the button, the ring is still being clipped by the **grid container** at its edges - specifically for thumbnails in the first column (left edge) and first row (top edge).
 
----
+## Root Cause
+- `ring-offset-2` creates 2 units (8px) of offset around the ring
+- The ring itself adds additional pixels outside the element
+- The grid starts right at the edge of its padding area
+- Items at the edges have their rings clipped by the container boundaries
+
+## Solution
+Add padding to the grid wrapper to accommodate the ring-offset space. This ensures the ring can render fully even for edge thumbnails.
 
 ## Technical Changes
 
 ### File: `src/components/ThumbnailNavigator.tsx`
 
-**Change 1: Increase thumbnail size**
-```typescript
-// Line 19: Change from 56 to 85
-const THUMBNAIL_SIZE = 85; // px
-```
+**Change: Add padding to the grid container**
 
-**Change 2: Fix ring clipping issue**
-
-The problem is that `overflow-hidden` on the button clips the `ring` and `ring-offset` which render *outside* the element bounds. The fix is to:
-- Remove `overflow-hidden` from the button (which was there to clip the image)
-- Instead, add `overflow-hidden` and `rounded` to the image container inside
+The grid itself needs padding so the ring-offset has room to render for edge items:
 
 ```typescript
-// Line 116-124: Update button and image wrapper
-<button
-  key={photo.id}
-  onClick={() => handleSelect(photo.id)}
-  className={cn(
-    "relative aspect-square transition-all",
-    "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-    isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
-  )}
-  style={{ 
-    minHeight: THUMBNAIL_SIZE,
-    minWidth: THUMBNAIL_SIZE,
-  }}
->
-  {isLoaded ? (
-    <div className="w-full h-full rounded overflow-hidden">
-      {crop ? (
-        <CroppedImage ... />
-      ) : (
-        <img ... />
-      )}
-    </div>
-    ...
-  )}
-</button>
-```
-
-**Change 3: Better mobile responsiveness**
-
-Add responsive padding and ensure grid works on narrow viewports:
-```typescript
-// Line 99-104: Update grid container
+// Line 100-104: Add padding to the grid div
 <div 
-  className="grid gap-3"
+  className="grid gap-3 p-2"  // ADD p-2 for ring-offset space
   style={{
     gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))`,
   }}
 >
 ```
 
-Also update the container max-width to be responsive:
-```typescript
-// Line 78: Make container more responsive
-<div className="flex flex-col w-full max-w-lg sm:max-w-xl md:max-w-2xl">
-```
+The `p-2` (8px) matches the `ring-offset-2` size, giving the ring room to render on all edges.
 
 ---
 
-## Summary of Changes
+## Summary
 
 | Location | Change |
 |----------|--------|
-| Line 19 | `THUMBNAIL_SIZE = 85` (was 56) |
-| Line 78 | Add responsive max-width classes |
-| Line 101 | Increase gap from `gap-2` to `gap-3` |
-| Line 117 | Remove `rounded overflow-hidden` from button |
-| Line 127-142 | Wrap image content in `<div className="w-full h-full rounded overflow-hidden">` |
+| Line 101 | Add `p-2` to grid container className: `"grid gap-3 p-2"` |
+

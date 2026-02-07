@@ -1,40 +1,95 @@
 
+# Fix Hero Not Rendering in Rejected Layouts
 
-# Remove Balance Score from Region Assignment Scoring
+## Problem
 
-## What We're Changing
+When a layout is rejected, the hero photo appears as a black rectangle instead of showing the actual image. This makes it hard to evaluate whether the rejection was valid.
 
-Remove the 50/50 balance bias from `scoreRegionAssignment()` in `src/lib/v3/region-search.ts`.
+## Root Cause
 
-## The Change
+In `buildRejectedCells()` (region-search.ts), the hero cell is created with a hardcoded `photoId: 'hero'`:
 
-**Before:**
 ```typescript
-return (balanceScore * 0.3) + (uniformityScore * 0.3) + (prominenceScore * 0.4);
+cells.push({
+  photoId: 'hero',  // BUG: Hardcoded string instead of actual photo ID
+  x: borderOffset,
+  y: borderOffset,
+  width: heroAR,
+  height: 1.0,
+});
 ```
 
-**After:**
+When `CollagePreview` tries to render this cell, it looks for a photo with `id === 'hero'`. Since no such photo exists (actual heroes have IDs like `"photo-1"`), the cell is skipped entirely, leaving a black gap.
+
+## Solution
+
+Pass the actual hero photo ID through the function chain so `buildRejectedCells()` can use it.
+
+## Changes Required
+
+### 1. Update `findValidRegionAssignment()` signature
+
+Add `heroPhotoId: string` as a parameter (after `heroAR`):
+
 ```typescript
-// Removed balanceScore - was pushing BELOW region to match hero height,
-// causing large cells that threatened prominence
-return (uniformityScore * 0.5) + (prominenceScore * 0.5);
+export function findValidRegionAssignment(
+  photos: PhotoDimension[],
+  heroAR: number,
+  heroPhotoId: string,  // NEW: actual hero photo ID
+  normalizedGap: number,
+  tuning: V3Tuning,
+  randomize: boolean = false
+): RegionSearchResult {
 ```
 
-We'll also remove the now-unused `heroRowRatio` and `balanceScore` calculations (lines 461-464) and update the function's docstring.
+### 2. Update all `buildRejectedCells()` calls
 
-## Technical Details
+Pass `heroPhotoId` to each call (4 locations in the function).
 
-**File:** `src/lib/v3/region-search.ts`
+### 3. Update `buildRejectedCells()` signature and implementation
 
-**Lines to modify:** 442-481
+```typescript
+function buildRejectedCells(
+  heroAR: number,
+  heroPhotoId: string,  // NEW
+  besideResult: { ... } | null,
+  belowResult: { ... },
+  normalizedGap: number
+): LayoutCell[] {
+  // ...
+  cells.push({
+    photoId: heroPhotoId,  // Use actual ID instead of 'hero'
+    x: borderOffset,
+    y: borderOffset,
+    width: heroAR,
+    height: 1.0,
+  });
+  // ...
+}
+```
 
-1. Update docstring to remove "Balance" criterion
-2. Delete lines calculating `heroRowRatio` and `balanceScore`
-3. Reweight remaining scores: 50% uniformity, 50% prominence
+### 4. Update call site in `intersection.ts`
 
-## Expected Behavior
+Pass `heroPhoto.id` when calling `findValidRegionAssignment()`:
 
-- Assignments will now be ranked purely by cell uniformity and prominence safety
-- BELOW region no longer pressured toward height = 1.0
-- Should reduce prominence failures from tall portrait cells in BELOW
+```typescript
+const regionResult = findValidRegionAssignment(
+  contentPhotos,
+  heroAR,
+  heroPhoto.id,  // NEW
+  normalizedGap,
+  tuning,
+  randomize
+);
+```
 
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `src/lib/v3/region-search.ts` | Add `heroPhotoId` param, update 4 call sites and implementation |
+| `src/lib/v3/intersection.ts` | Pass `heroPhoto.id` to `findValidRegionAssignment()` |
+
+## Testing
+
+After this fix, rejected layouts will display the hero photo instead of a black rectangle, making it easier to visually evaluate whether the rejection was appropriate.

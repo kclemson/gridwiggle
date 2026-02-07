@@ -1,110 +1,155 @@
 
-# Fix: Range-Based Early Prominence Feasibility Check
+# Add Success Rate to Pending Captures Badge
 
 ## Design Intent
 
-The early feasibility check exists to prune the search space before expensive packing operations. The current implementation incorrectly uses a single row count (1) as a "worst case", which backwards-rejects portrait heroes that would succeed with more rows.
-
-The fix changes the question from "does 1 row work?" to "does ANY row count in the valid range satisfy BOTH prominence constraints?"
+Provide an at-a-glance view of algorithm success rate directly in the debug UI. When you see "47 pending (78%)", you immediately know how well the algorithm is performing without needing to export and analyze.
 
 ## User Outcome
 
-- Portrait heroes with many content photos will be properly evaluated instead of immediately rejected
-- Layouts like the mockup (AR ~0.65 hero with 6 rows beside) will pass feasibility and get packed
-- No performance regression — still O(1) algebraic check with no packing
+- Both V3Test page and main app DebugPanel show success rate alongside pending count
+- Badge displays as: "47 pending (78%)" with color coding (green > 80%, amber 50-80%, red < 50%)
+- Single source of truth - logic lives in the shared capture storage module
 
 ---
 
 ## Technical Approach
 
-### The Geometry
+### Current State
 
-In normalized space (hero height = 1.0):
+Two separate UIs manage pending capture display:
 
-```text
-heroArea = heroAR × 1.0 = heroAR
+1. **V3Test** (line 215-219): Renders its own badge in the header + separate export/reset buttons
+2. **DebugPanel** (line 52-80): Renders badge + buttons as `headerRight` passed to `DebugLogPanel`
 
-For BESIDE with R rows:
-  rowHeight = 1.0 / R
-  cellArea ≈ avgBesideAR × rowHeight² = avgBesideAR / R²
+Both call `getCaptureStats()` which only returns `{ total, pending }`.
 
-Prominence ratio = heroArea / cellArea = heroAR × R² / avgBesideAR
-```
+### Solution
 
-### Two Competing Constraints
-
-1. **Minimum Prominence** (`hero_minProminence = 1.3`): Hero must be ≥1.3× the largest content cell
-   - Needs MORE rows (smaller cells)
-   - `R ≥ sqrt(minProminence × avgBesideAR / heroAR)`
-
-2. **Maximum Prominence** (`hero_maxToSmallest = 22`): Hero must be ≤22× the smallest content cell  
-   - Needs FEWER rows (larger cells)
-   - `R ≤ sqrt(maxToSmallest × avgBesideAR / heroAR)`
-
-### Feasibility = Range Intersection
-
-If `[minRowsForProminence, maxRowsForSmallest]` overlaps with physical limits `[1, min(besideCount, 6)]`, a valid configuration exists.
-
----
-
-## Verification
-
-### Portrait Hero (AR 0.65) with 6 BESIDE photos (avgAR 1.4)
-
-```text
-minRowsForProminence = ceil(sqrt(1.3 × 1.4 / 0.65)) = ceil(1.67) = 2
-maxRowsForSmallest = floor(sqrt(22 × 1.4 / 0.65)) = floor(6.88) = 6
-Physical limit: min(6, 6) = 6
-
-Valid range: [2, 6] ∩ [1, 6] = [2, 6] → FEASIBLE
-```
-
-### Landscape Hero (AR 1.5) with same photos
-
-```text
-minRowsForProminence = ceil(sqrt(1.3 × 1.4 / 1.5)) = ceil(1.1) = 2
-maxRowsForSmallest = floor(sqrt(22 × 1.4 / 1.5)) = floor(4.53) = 4
-
-Valid range: [2, 4] → FEASIBLE
-```
-
-### Extreme: Tiny Portrait (AR 0.3) with only 2 wide photos (avgAR 2.0)
-
-```text
-minRowsForProminence = ceil(sqrt(1.3 × 2.0 / 0.3)) = ceil(2.94) = 3
-maxRowsForSmallest = floor(sqrt(22 × 2.0 / 0.3)) = floor(12.1) = 12
-Physical limit: min(2, 6) = 2
-
-Needed: 3+ rows, Available: max 2 rows → INFEASIBLE (correctly rejected)
-```
+Consolidate the "pending badge + controls" into a reusable component that:
+1. Extends `getCaptureStats()` to also return `successCount` for pending captures
+2. Creates a `CaptureControls` component with the badge showing count + percentage
+3. Uses `CaptureControls` in both locations
 
 ---
 
 ## File Changes
 
-### 1. `src/lib/v3/feasibility.ts`
+### 1. `src/lib/v3CaptureStorage.ts`
 
-Replace the existing `canMeetProminence` function with a new `canMeetProminenceConstraints` function:
+Extend `getCaptureStats()` to include success rate for pending captures:
 
-- Remove the old function that takes `besideRowCount` as a parameter
-- Add new function that calculates valid row range algebraically
-- Returns `{ feasible, minRows, maxRows, reason? }` for better logging
+```typescript
+export function getCaptureStats(): { 
+  total: number; 
+  pending: number; 
+  pendingSuccessCount: number;
+} {
+  const store = loadCaptures();
+  const pendingCaptures = store.captures.filter(c => !c.exported);
+  const pendingSuccessCount = pendingCaptures.filter(c => c.success).length;
+  return { 
+    total: store.captures.length, 
+    pending: pendingCaptures.length,
+    pendingSuccessCount,
+  };
+}
+```
 
-### 2. `src/lib/v3/region-search.ts`
+### 2. `src/components/debug/CaptureControls.tsx` (new file)
 
-Update the import and caller:
+Create a shared component for the pending badge + export/reset controls:
 
-- Change import from `canMeetProminence` to `canMeetProminenceConstraints`
-- Update the early feasibility check at line 97-111 to use the new function
-- Improve logging to show the valid row range when skipping
+```typescript
+/**
+ * Capture Controls Component
+ * 
+ * Displays pending capture count with success rate, plus export/reset buttons.
+ * Used by both V3Test header and DebugPanel.
+ */
+
+interface CaptureControlsProps {
+  pendingCount: number;
+  successCount: number;
+  onExport: () => void;
+  onReset: () => void;
+  variant?: 'compact' | 'full'; // compact for DebugPanel header, full for V3Test
+}
+
+export function CaptureControls({ ... }) {
+  const successRate = pendingCount > 0 
+    ? Math.round((successCount / pendingCount) * 100) 
+    : 0;
+  
+  // Color: green > 80%, amber 50-80%, red < 50%
+  const rateColor = successRate >= 80 
+    ? 'text-green-600' 
+    : successRate >= 50 
+      ? 'text-amber-600' 
+      : 'text-red-600';
+  
+  return (
+    <div className="flex items-center gap-2">
+      {pendingCount > 0 && (
+        <Badge variant="secondary" className="tabular-nums text-xs">
+          {pendingCount} pending 
+          <span className={cn("ml-1", rateColor)}>({successRate}%)</span>
+        </Badge>
+      )}
+      {/* Export/Reset buttons */}
+    </div>
+  );
+}
+```
+
+### 3. `src/components/DebugPanel.tsx`
+
+Update to use the new shared component:
+
+- Import `CaptureControls` and `getCaptureStats`
+- Track both `pendingCount` and `successCount` in state
+- Pass `CaptureControls` as `headerRight` to `DebugLogPanel`
+
+### 4. `src/pages/V3Test.tsx`
+
+Update to use the new shared component:
+
+- Replace the inline badge + buttons in header with `CaptureControls`
+- Update state to track both pending and success counts
+- Use `variant="full"` for slightly larger buttons in the header
 
 ---
 
-## Edge Cases Handled
+## Visual Result
 
-| Scenario | Current Behavior | New Behavior |
-|----------|-----------------|--------------|
-| Portrait hero + many landscape | Rejected (1 row fails) | Passes (2+ rows valid) |
-| Landscape hero + landscape | Usually passes | Unchanged |
-| Very portrait + few wide photos | May incorrectly pass | Correctly rejects if no valid range |
-| Square hero + mixed content | Inconsistent | Properly evaluates full range |
+**Before:**
+```
+47 pending  [Reset] [Export]
+```
+
+**After:**
+```
+47 pending (78%)  [Reset] [Export]
+```
+
+With color coding:
+- 78%+ = green (healthy)
+- 50-78% = amber (concerning)  
+- <50% = red (needs investigation)
+
+---
+
+## Component Hierarchy
+
+```text
+V3Test (header)
+└── CaptureControls (variant="full")
+    └── Badge with count + success rate
+    └── Reset/Export buttons
+
+DebugPanel
+└── DebugLogPanel
+    └── headerRight: CaptureControls (variant="compact")
+        └── Badge with count + success rate  
+        └── Smaller Reset/Export buttons
+```

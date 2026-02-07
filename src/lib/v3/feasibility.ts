@@ -82,6 +82,8 @@ export function canMeetProminence(
 export function canBesideCountMeetCanvasAR(
   heroAR: number,
   besidePhotos: PhotoDimension[],
+  totalContentCount: number,
+  avgContentAR: number,
   normalizedGap: number,
   tuning: V3Tuning
 ): { feasible: boolean; minHeroRowWidth: number } {
@@ -89,18 +91,43 @@ export function canBesideCountMeetCanvasAR(
     return { feasible: true, minHeroRowWidth: heroAR };
   }
   
-  // Minimum besideWidth occurs at maximum row count (most vertical stacking)
+  // Calculate hero row width (minimum besideWidth at max row count)
   const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
   const maxRows = Math.min(besidePhotos.length, 4);
   const minBesideWidth = sumBesideAR / maxRows;
-  
   const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
-  
-  // Best-case canvas AR (minimum width / maximum height)
-  const minCanvasHeight = 1.0 + 2 * normalizedGap;
   const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
-  const bestCaseAR = canvasWidth / minCanvasHeight;
   
+  // Calculate required BELOW height to meet canvas_maxAR
+  // heroRowHeight = 1.0, plus gap below hero, plus top/bottom borders
+  const heroRowHeightWithGaps = 1.0 + normalizedGap + 2 * normalizedGap;
+  const requiredTotalHeight = canvasWidth / tuning.canvas_maxAR;
+  const requiredBelowHeight = Math.max(0, requiredTotalHeight - heroRowHeightWithGaps);
+  
+  // Estimate achievable BELOW height from remaining photos
+  const belowCount = totalContentCount - besidePhotos.length;
+  if (belowCount > 0 && requiredBelowHeight > 0) {
+    // Geometric estimate: height ≈ √(n × avgAR / width)
+    // This is conservative (underestimates) as it assumes optimal packing
+    const estimatedBelowHeight = Math.sqrt(belowCount * avgContentAR / minHeroRowWidth);
+    
+    // Feasible if we can achieve ≥80% of required height (conservative margin)
+    const feasible = estimatedBelowHeight >= requiredBelowHeight * 0.8;
+    
+    if (!feasible) {
+      devLogger.log('feasibility', 'Canvas AR infeasible (BELOW too short)', {
+        besideCount: besidePhotos.length,
+        belowCount,
+        requiredBelowHeight: requiredBelowHeight.toFixed(2),
+        estimatedBelowHeight: estimatedBelowHeight.toFixed(2),
+      });
+    }
+    
+    return { feasible, minHeroRowWidth };
+  }
+  
+  // No BELOW photos or no height needed → use original check
+  const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
   const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
   
   if (!feasible) {

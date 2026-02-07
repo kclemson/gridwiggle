@@ -1,234 +1,116 @@
 
-# Add Rejected Layout Cells to JSON Export
+# Make Rejected State Visually Obvious
 
 ## Design Intent
 
-Extend the existing capture system to include the actual cell coordinates of rejected layouts. This enables:
-1. **Visual reconstruction** - Display rejected layouts in V3Test with a toggle
-2. **Batch analysis** - Export rejected layout geometry for pattern detection across many failures
-3. **Threshold calibration** - See exactly what "hero_too_large_vs_smallest_cells" looks like at ratio 28× vs 22×
+When a layout is rejected, you need to know immediately without hunting for it. Currently the rejection badge is tucked below the canvas, far from your eye focus near the shuffle button.
 
-## User Outcomes
+## User Outcome
 
-- "Show Rejected" toggle in V3Test displays failed layouts with a red border
-- Rejection badge shows the failure reason and key metrics
-- Exported JSON now includes cell geometry for failed layouts, enabling offline analysis
-- Works for ANY rejection type (canvas_too_tall, prominence_too_low, hero_too_large, etc.)
+- **Instant visual feedback** at the point of attention (near the shuffle button)
+- **Can't-miss status indicator** that screams "REJECTED" when a layout fails
+- **Preserved detail view** - the full rejection badge still shows below canvas for debugging
+
+---
+
+## Visual Changes
+
+### 1. Status Banner in Header (Primary Alert)
+
+Add a prominent status indicator right next to the Shuffle button:
+
+```text
+Before (rejected):
+┌──────────────────────────────────────────────────────────┐
+│  V3 Layout Test          [Show Rejected] [Export] [Shuffle] │
+└──────────────────────────────────────────────────────────┘
+
+After (rejected):
+┌──────────────────────────────────────────────────────────┐
+│  V3 Layout Test    ⚠️ REJECTED: hero too large    [Shuffle] │
+│                    └──── pulsing red background ────┘        │
+└──────────────────────────────────────────────────────────┘
+```
+
+This puts the rejection status exactly where your eye already is.
+
+### 2. Full-Width Flash Banner (Optional - for maximum impact)
+
+Add a colored bar above the canvas that flashes briefly on rejection:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│  ⚠️ LAYOUT REJECTED: hero_too_large_vs_smallest_cells    │  ← red background
+└──────────────────────────────────────────────────────────┘
+│  [Canvas visualization below...]                          │
+```
+
+### 3. Canvas Border Color Change
+
+The canvas already has `ring-destructive` on rejection, but it's subtle. Make it:
+- Thicker ring (ring-4 instead of ring-2)
+- Add a subtle pulsing animation
+- Red background tint on the entire card
 
 ---
 
 ## Technical Approach
 
-### The Key Insight
+### File: `src/pages/V3Test.tsx`
 
-Currently, when validation fails in `evaluateNormalizedProposal`, we call `setRejection()` with reason/details but discard the layout. However, at the point of failure (lines 256-275 in intersection.ts), we already have:
-- `besideResult.cells` and `belowResult.cells` (packed content)
-- `heroArea`, `normalizedWidth`, `normalizedHeight` (canvas geometry)
-- All data needed to call `convertToNormalized()` and build valid cells
+**Add inline status indicator in header:**
 
-**Solution**: Before returning `null`, compute cells and store them alongside the rejection metadata.
-
----
-
-## File Changes
-
-### 1. `src/lib/v3/types.ts`
-
-Add a new type for rejected layout data:
-
-```typescript
-/**
- * A layout that was rejected during validation.
- * Stores cell geometry so rejected layouts can be visualized for debugging.
- */
-export interface RejectedLayout {
-  /** Cell coordinates (null if rejection happened before packing) */
-  cells: LayoutCell[] | null;
-  /** Canvas width in normalized space */
-  canvasWidth: number | null;
-  /** Canvas height in normalized space */
-  canvasHeight: number | null;
-  /** Rejection reason identifier */
-  reason: string;
-  /** Detailed metrics that triggered rejection */
-  details: Record<string, unknown>;
-  /** Timestamp for correlation with logs */
-  timestamp: number;
-}
-```
-
-### 2. `src/lib/v3/intersection.ts`
-
-Add rejected layout storage alongside existing rejection tracking:
-
-```typescript
-// After line 31 (existing lastRejection)
-let lastRejectedLayout: RejectedLayout | null = null;
-
-export function setRejectedLayout(layout: RejectedLayout) {
-  lastRejectedLayout = layout;
-}
-
-export function getLastRejectedLayout(): RejectedLayout | null {
-  return lastRejectedLayout;
-}
-
-export function clearRejectedLayout() {
-  lastRejectedLayout = null;
-}
-```
-
-Modify each rejection point in `evaluateNormalizedProposal` to compute and store cells before returning null:
-
-**At canvas AR rejection (lines 229-245)**:
-```typescript
-if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
-  // Compute cells for visualization even though layout is rejected
-  const cells = convertToNormalized(...);
-  setRejectedLayout({
-    cells,
-    canvasWidth, canvasHeight,
-    reason: 'canvas_too_tall',
-    details: { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR },
-    timestamp: Date.now(),
-  });
-  // ... existing logging and return null
-}
-```
-
-Same pattern for `canvas_too_wide`, `prominence_too_low`, and `hero_too_large_vs_smallest_cells`.
-
-### 3. `src/lib/v3CaptureStorage.ts`
-
-Extend `V3LayoutCapture` to include rejected layout cells:
-
-```typescript
-export interface V3LayoutCapture {
-  // ... existing fields ...
-  
-  // NEW: Rejected layout geometry (for visualization)
-  rejectedCells: Array<{
-    photoId: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }> | null;
-  rejectedCanvasWidth: number | null;
-  rejectedCanvasHeight: number | null;
-}
-```
-
-### 4. `src/pages/V3Test.tsx`
-
-Update `buildCapture()` to include rejected layout data:
-
-```typescript
-import { getLastRejectedLayout } from '@/lib/v3/intersection';
-
-function buildCapture(...): Omit<V3LayoutCapture, 'exported'> {
-  const rejectedLayout = getLastRejectedLayout();
-  
-  return {
-    // ... existing fields ...
-    
-    // Rejected layout geometry
-    rejectedCells: rejectedLayout?.cells ?? null,
-    rejectedCanvasWidth: rejectedLayout?.canvasWidth ?? null,
-    rejectedCanvasHeight: rejectedLayout?.canvasHeight ?? null,
-  };
-}
-```
-
-Add toggle state and display logic:
-
-```typescript
-const [showRejected, setShowRejected] = useState(false);
-
-// In header - new toggle button
-<Button 
-  onClick={() => setShowRejected(s => !s)}
-  variant={showRejected ? "default" : "outline"}
-  size="sm"
->
-  {showRejected ? "Showing Rejected" : "Show Rejected"}
-</Button>
-
-// In canvas area - show rejected layout when toggle is on
-{layout ? (
-  <LayoutVisualization layout={layout} photos={photoSet.photos} />
-) : showRejected && rejectedLayout?.cells ? (
-  <div className="ring-2 ring-red-500 rounded-lg overflow-hidden">
-    <LayoutVisualization 
-      layout={scaleRejectedLayout(rejectedLayout)} 
-      photos={photoSet.photos} 
-    />
-    <RejectionBadge reason={rejectedLayout.reason} details={rejectedLayout.details} />
+```tsx
+// In header, after the title but before the buttons
+{!layout && rejectedLayout && (
+  <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md animate-pulse">
+    <AlertTriangle className="h-4 w-4" />
+    <span className="font-medium">REJECTED: {rejectedLayout.reason.replace(/_/g, ' ')}</span>
   </div>
-) : (
-  <div>Layout generation failed</div>
 )}
 ```
 
-### 5. New Component: `src/components/debug/RejectionBadge.tsx`
+**Make the canvas card background red on rejection:**
 
-Display rejection reason with expandable metrics:
-
-```typescript
-interface RejectionBadgeProps {
-  reason: string;
-  details: Record<string, unknown>;
-}
-
-export function RejectionBadge({ reason, details }: RejectionBadgeProps) {
-  return (
-    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-      <div className="flex items-center gap-2 text-red-700 font-medium">
-        <AlertTriangle className="h-4 w-4" />
-        Rejected: {reason.replace(/_/g, ' ')}
-      </div>
-      <div className="mt-1 text-sm text-red-600 font-mono">
-        {Object.entries(details).map(([k, v]) => (
-          <div key={k}>{k}: {JSON.stringify(v)}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
+```tsx
+// Change canvas card container
+<div className={cn(
+  "border rounded-lg p-4 order-1 lg:order-2",
+  layout ? "bg-card" : "bg-destructive/5 border-destructive"
+)}>
 ```
 
-### 6. `src/components/debug/index.ts`
+**Enhance the ring around rejected layout visualization:**
 
-Export the new component.
+```tsx
+// Change from ring-2 to ring-4 with animation
+<div className="ring-4 ring-destructive rounded-lg overflow-hidden animate-pulse">
+```
+
+### File: `src/components/debug/RejectionBadge.tsx`
+
+Make the badge more prominent:
+
+```tsx
+<div className="mt-3 p-4 bg-destructive/20 border-2 border-destructive rounded-lg">
+  <div className="flex items-center gap-2 text-destructive font-bold text-lg">
+    <AlertTriangle className="h-5 w-5" />
+    REJECTED: {reason.replace(/_/g, ' ')}
+  </div>
+  ...
+</div>
+```
 
 ---
 
-## JSON Export Format
+## Visual Hierarchy
 
-After implementation, the exported JSON for a failed layout will include:
-
-```json
-{
-  "photoCount": 32,
-  "heroCount": 1,
-  "heroAR": 1.45,
-  "success": false,
-  "failureReason": "hero_too_large_vs_smallest_cells",
-  "failureDetails": {
-    "ratio": 28.3,
-    "maxAllowed": 22
-  },
-  "rejectedCells": [
-    { "photoId": "hero", "x": 0.02, "y": 0.02, "width": 1.45, "height": 1.0 },
-    { "photoId": "p1", "x": 1.49, "y": 0.02, "width": 0.35, "height": 0.48 },
-    ...
-  ],
-  "rejectedCanvasWidth": 2.12,
-  "rejectedCanvasHeight": 1.85
-}
-```
-
-This enables batch analysis: filter failures by reason, visualize cell distributions, identify patterns.
+| Element | Purpose | Visibility |
+|---------|---------|------------|
+| Header status badge | Catch attention immediately | Pulsing red, right where you look |
+| Canvas card tint | Indicate problem zone | Subtle red background |
+| Canvas ring | Highlight the visualization | Thick red border with pulse |
+| Rejection badge | Show detailed metrics | Below canvas for deep debugging |
 
 ---
 
@@ -236,9 +118,5 @@ This enables batch analysis: filter failures by reason, visualize cell distribut
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/types.ts` | Add `RejectedLayout` type |
-| `src/lib/v3/intersection.ts` | Add rejected layout capture at each validation point |
-| `src/lib/v3CaptureStorage.ts` | Extend `V3LayoutCapture` with rejected cell fields |
-| `src/pages/V3Test.tsx` | Add toggle + rejected layout display + capture integration |
-| `src/components/debug/RejectionBadge.tsx` | New component for rejection metadata display |
-| `src/components/debug/index.ts` | Export new component |
+| `src/pages/V3Test.tsx` | Add header status badge, enhance canvas styling on rejection |
+| `src/components/debug/RejectionBadge.tsx` | Increase visual prominence |

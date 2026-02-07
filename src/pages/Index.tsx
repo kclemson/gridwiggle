@@ -56,6 +56,7 @@ export default function Index() {
   const [isProcessingSmartCrop, setIsProcessingSmartCrop] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
+  const [lastDurationMs, setLastDurationMs] = useState<number | undefined>(undefined);
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -177,6 +178,7 @@ export default function Index() {
       
       const currentLogs = devLogger.getLogs();
       setDebugLogs(currentLogs);
+      setLastDurationMs(result.durationMs);
       
       // Save capture directly (dev only)
       if (import.meta.env.DEV) {
@@ -747,6 +749,7 @@ export default function Index() {
                   >
                     <DebugPanel 
                       logs={debugLogs}
+                      durationMs={lastDurationMs}
                     />
                   </div>
                 )}

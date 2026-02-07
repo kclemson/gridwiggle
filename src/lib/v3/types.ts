@@ -201,9 +201,11 @@ export interface NormalizedHeroProposal {
 }
 
 /**
- * Result of the BESIDE/BELOW split search.
+ * Result of region assignment search.
+ * Currently supports 2 regions (beside/below) for corner mode.
+ * Will extend to 3 regions (above/beside/below) for edge mode.
  */
-export interface SplitResult {
+export interface RegionAssignment {
   besidePhotos: PhotoDimension[];
   belowPhotos: PhotoDimension[];
   besideRowCount: number;

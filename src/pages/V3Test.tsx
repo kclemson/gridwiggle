@@ -21,11 +21,12 @@ import {
   extractReasonFrequencies,
   getLastRejection,
   downloadJson,
+  clearCaptures,
   V3LayoutCapture,
 } from '@/lib/v3CaptureStorage';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
-import { Shuffle, Star, Image, Download } from 'lucide-react';
+import { Shuffle, Star, Image, Download, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
@@ -277,6 +278,12 @@ export default function V3Test() {
     setPendingCount(0);
   }, []);
   
+  // Reset all captures
+  const handleReset = useCallback(() => {
+    clearCaptures();
+    setPendingCount(0);
+  }, []);
+  
   // Destructure state for rendering
   const { photoSet, layout, logs, durationMs } = state;
   
@@ -299,6 +306,16 @@ export default function V3Test() {
                 {pendingCount} pending
               </Badge>
             )}
+            <Button 
+              onClick={handleReset}
+              variant="ghost"
+              size="sm"
+              disabled={pendingCount === 0}
+              className="gap-1.5 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              Reset
+            </Button>
             <Button 
               onClick={handleExport} 
               variant="outline" 

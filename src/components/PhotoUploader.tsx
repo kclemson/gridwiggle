@@ -65,10 +65,11 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
         <Button
           onClick={handleClick}
           variant="outline"
-          className="touch-target gap-2"
+          size="sm"
+          className="gap-1.5"
         >
-          <Plus className="h-5 w-5" />
-          Add More Photos
+          <Plus className="h-4 w-4" />
+          Add Photos
         </Button>
       </>
     );

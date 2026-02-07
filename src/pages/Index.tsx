@@ -392,15 +392,21 @@ export default function Index() {
             </h1>
 
             {state.photos.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={clearAll}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Clear All
-              </Button>
+              <div className="flex items-center gap-2">
+                <PhotoUploader 
+                  onPhotosAdded={handlePhotosAdded}
+                  hasPhotos={true}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={clearAll}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Clear All
+                </Button>
+              </div>
             )}
           </div>
         </header>
@@ -417,14 +423,6 @@ export default function Index() {
         {/* Review UI when photos exist */}
         {state.photos.length > 0 && (
           <div className="space-y-4">
-            {/* Add more photos button */}
-            <div className="flex justify-center">
-              <PhotoUploader 
-                onPhotosAdded={handlePhotosAdded}
-                hasPhotos={true}
-              />
-            </div>
-
             {/* Collapsible Photo carousel with progress dots in header */}
             <Collapsible open={carouselOpen} onOpenChange={handleCarouselOpenChange}>
               <CollapsibleTrigger asChild>

@@ -20,7 +20,7 @@ import {
 } from './types';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findBestSplit } from './split-search';
-import { calculateContentStats } from './utils';
+import { calculateContentStats, coefficientOfVariation } from './utils';
 import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
 
@@ -436,16 +436,6 @@ function scoreConfiguration(
   return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
 }
 
-/**
- * Calculate coefficient of variation (std dev / mean).
- */
-function coefficientOfVariation(values: number[]): number {
-  if (values.length < 2) return 0;
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
-  if (avg === 0) return 0;
-  const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
-  return Math.sqrt(variance) / avg;
-}
 
 // ============================================================================
 // Hero-less Layout Generation

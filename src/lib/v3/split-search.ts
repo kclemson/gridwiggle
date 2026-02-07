@@ -8,7 +8,7 @@
 import { PhotoDimension, SplitResult, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray } from './utils';
+import { shuffleArray, coefficientOfVariation } from './utils';
 
 // ============================================================================
 // Split Search Algorithm
@@ -305,13 +305,3 @@ function scoreSplit(
   return (balanceScore * 0.3) + (uniformityScore * 0.3) + (prominenceScore * 0.4);
 }
 
-/**
- * Calculate coefficient of variation (std dev / mean).
- */
-function coefficientOfVariation(values: number[]): number {
-  if (values.length < 2) return 0;
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
-  if (avg === 0) return 0;
-  const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
-  return Math.sqrt(variance) / avg;
-}

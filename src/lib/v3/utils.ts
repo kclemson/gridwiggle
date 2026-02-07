@@ -30,6 +30,18 @@ export function variance(values: number[]): number {
 }
 
 /**
+ * Calculate coefficient of variation (std dev / mean).
+ * Measures relative variability - useful for comparing uniformity across different scales.
+ */
+export function coefficientOfVariation(values: number[]): number {
+  if (values.length < 2) return 0;
+  const avg = values.reduce((s, v) => s + v, 0) / values.length;
+  if (avg === 0) return 0;
+  const v = values.reduce((s, val) => s + (val - avg) ** 2, 0) / values.length;
+  return Math.sqrt(v) / avg;
+}
+
+/**
  * Calculate content statistics from photo dimensions.
  */
 export function calculateContentStats(photos: PhotoDimension[]): ContentStats {

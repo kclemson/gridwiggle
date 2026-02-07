@@ -91,7 +91,7 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
       />
       <button
         onClick={handleClick}
-        className="flex flex-col items-center justify-center w-full max-w-md aspect-video rounded-xl border-2 border-dashed border-border bg-surface hover:bg-surface-elevated hover:border-primary/50 transition-all duration-200 cursor-pointer touch-target"
+        className="flex flex-col items-center justify-center w-full max-w-md aspect-video rounded-xl border-2 border-dashed border-border bg-transparent hover:bg-muted/30 hover:border-primary/50 transition-all duration-200 cursor-pointer touch-target"
       >
         <div className="flex flex-col items-center gap-4 p-8">
           <div className="rounded-full bg-primary/10 p-4">

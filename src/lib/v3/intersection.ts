@@ -3,7 +3,7 @@
  * 
  * Orchestrates the normalized space layout algorithm:
  * 1. Hero proposes positions (normalized)
- * 2. Find best BESIDE/BELOW split
+ * 2. Find valid region assignment
  * 3. Pack both regions in normalized space
  * 4. Scale to pixels
  * 5. Validate constraints
@@ -19,7 +19,7 @@ import {
   DEFAULT_V3_TUNING
 } from './types';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
-import { findBestSplit } from './split-search';
+import { findValidRegionAssignment } from './region-search';
 import { calculateContentStats, coefficientOfVariation } from './utils';
 import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
@@ -150,8 +150,8 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  // Find best BESIDE/BELOW split
-  const splitResult = findBestSplit(
+  // Find valid region assignment
+  const regionAssignment = findValidRegionAssignment(
     contentPhotos,
     heroAR,
     normalizedGap,
@@ -159,8 +159,8 @@ function evaluateNormalizedProposal(
     randomize
   );
   
-  if (!splitResult) {
-    devLogger.log('layout', 'No valid split found for proposal', {
+  if (!regionAssignment) {
+    devLogger.log('layout', 'No valid region assignment found for proposal', {
       mode: proposal.mode,
       position: proposal.position,
     });
@@ -171,29 +171,29 @@ function evaluateNormalizedProposal(
   let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };
   let heroRowWidth: number;
   
-  if (splitResult.besidePhotos.length === 0) {
+  if (regionAssignment.besidePhotos.length === 0) {
     // No BESIDE region - hero takes full width
     besideResult = { cells: [], width: 0, height: 1.0 };
     heroRowWidth = heroAR;
   } else {
     // Pack BESIDE at height = 1
     besideResult = packToFillHeight(
-      splitResult.besidePhotos,
+      regionAssignment.besidePhotos,
       1.0,
       normalizedGap,
-      splitResult.besideRowCount,
+      regionAssignment.besideRowCount,
       tuning,
       randomize
     );
     heroRowWidth = heroAR + normalizedGap + besideResult.width;
   }
   
-  // Use the belowRowCount that was validated during split search
-  const belowRowCount = splitResult.belowRowCount;
+  // Use the belowRowCount that was validated during region search
+  const belowRowCount = regionAssignment.belowRowCount;
   
   // Pack BELOW at hero row width
   const belowResult = packToFillWidth(
-    splitResult.belowPhotos,
+    regionAssignment.belowPhotos,
     heroRowWidth,
     normalizedGap,
     belowRowCount,
@@ -303,8 +303,8 @@ function evaluateNormalizedProposal(
     proposal: legacyProposal,
     distribution: { 
       assignments: new Map([
-        [0, splitResult.besidePhotos.map(p => p.id)],
-        [1, splitResult.belowPhotos.map(p => p.id)],
+        [0, regionAssignment.besidePhotos.map(p => p.id)],
+        [1, regionAssignment.belowPhotos.map(p => p.id)],
       ]), 
       totalAssigned: contentPhotos.length 
     },

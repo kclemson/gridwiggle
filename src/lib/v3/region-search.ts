@@ -1,42 +1,42 @@
 /**
- * Split Search
+ * Region Search
  * 
- * Finds the optimal distribution of photos between BESIDE and BELOW regions.
- * Uses normalized space packing to evaluate candidate splits.
+ * Finds valid distributions of photos across content regions.
+ * Uses normalized space packing to evaluate candidate assignments.
  */
 
-import { PhotoDimension, SplitResult, V3Tuning } from './types';
+import { PhotoDimension, RegionAssignment, V3Tuning } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, coefficientOfVariation } from './utils';
 
 // ============================================================================
-// Split Search Algorithm
+// Region Search Algorithm
 // ============================================================================
 
 /**
- * Find the optimal split between BESIDE and BELOW photos.
+ * Find a valid region assignment for photos.
  * 
  * Strategy:
  * 1. Sort photos by AR (narrower photos pack taller → better for BESIDE)
- * 2. Try different beside counts (1 to min(6, n-1))
- * 3. For each split, try different row counts for BESIDE
+ * 2. Try different beside counts (0 to min(12, n))
+ * 3. For each assignment, try different row counts for BESIDE
  * 4. Score by layout balance and uniformity
- * 5. Return the best valid split
+ * 5. Return a valid assignment (random or best)
  * 
  * @param photos - Content photos (excluding hero)
  * @param heroAR - Hero aspect ratio (hero width in normalized space)
  * @param normalizedGap - Gap as fraction of hero height
  * @param tuning - Tuning parameters
- * @returns Best split result, or null if no valid split found
+ * @returns Valid region assignment, or null if none found
  */
-export function findBestSplit(
+export function findValidRegionAssignment(
   photos: PhotoDimension[],
   heroAR: number,
   normalizedGap: number,
   tuning: V3Tuning,
   randomize: boolean = false
-): SplitResult | null {
+): RegionAssignment | null {
   if (photos.length === 0) {
     return null;
   }
@@ -57,12 +57,12 @@ export function findBestSplit(
     ? shuffleArray(photos)
     : [...photos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
-  // Search parameters - canvas AR constraint naturally limits valid splits
+  // Search parameters - canvas AR constraint naturally limits valid assignments
   const minBesidePhotos = 0;  // Allow "hero at top, all below"
   const maxBesidePhotos = Math.min(photos.length, 12); // Reasonable upper bound for search
   
-  // Collect all valid splits instead of tracking best
-  const validSplits: SplitResult[] = [];
+  // Collect all valid assignments instead of tracking best
+  const validRegionAssignments: RegionAssignment[] = [];
   
   devLogger.log('region', 'Starting region assignment search', {
     photoCount: photos.length,
@@ -125,9 +125,9 @@ export function findBestSplit(
         continue;
       }
       
-      // Score this split (empty BESIDE result)
+      // Score this assignment (empty BESIDE result)
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
-      const score = scoreSplit(heroAR, emptyBesideResult, belowResult, normalizedGap, tuning);
+      const score = scoreRegionAssignment(heroAR, emptyBesideResult, belowResult, normalizedGap, tuning);
       
       devLogger.log('region', 'Valid assignment candidate (no BESIDE)', {
         besideCount: 0,
@@ -138,7 +138,7 @@ export function findBestSplit(
         score: score.toFixed(3),
       });
       
-      validSplits.push({
+      validRegionAssignments.push({
         besidePhotos: [],
         belowPhotos,
         besideRowCount: 0,
@@ -210,8 +210,8 @@ export function findBestSplit(
         continue;
       }
       
-      // Score this split
-      const score = scoreSplit(
+      // Score this assignment
+      const score = scoreRegionAssignment(
         heroAR,
         besideResult,
         belowResult,
@@ -229,7 +229,7 @@ export function findBestSplit(
         score: score.toFixed(3),
       });
       
-      validSplits.push({
+      validRegionAssignments.push({
         besidePhotos,
         belowPhotos,
         besideRowCount,
@@ -239,14 +239,14 @@ export function findBestSplit(
     }
   }
   
-  if (validSplits.length > 0) {
+  if (validRegionAssignments.length > 0) {
     // Pick randomly for variety OR pick best score for determinism
     const selected = randomize
-      ? validSplits[Math.floor(Math.random() * validSplits.length)]
-      : validSplits.reduce((best, current) => current.score > best.score ? current : best);
+      ? validRegionAssignments[Math.floor(Math.random() * validRegionAssignments.length)]
+      : validRegionAssignments.reduce((best, current) => current.score > best.score ? current : best);
     
     devLogger.log('region', `Assignment selected ${randomize ? 'randomly' : 'by best score'}`, {
-      totalCandidates: validSplits.length,
+      totalCandidates: validRegionAssignments.length,
       besideCount: selected.besidePhotos.length,
       belowCount: selected.belowPhotos.length,
       besideRowCount: selected.besideRowCount,
@@ -260,11 +260,11 @@ export function findBestSplit(
 }
 
 // ============================================================================
-// Split Scoring
+// Region Assignment Scoring
 // ============================================================================
 
 /**
- * Score a split configuration.
+ * Score a region assignment configuration.
  * Higher is better.
  * 
  * Criteria:
@@ -272,7 +272,7 @@ export function findBestSplit(
  * 2. Uniformity: cell areas should be similar
  * 3. Compactness: prefer layouts that don't waste space
  */
-function scoreSplit(
+function scoreRegionAssignment(
   heroAR: number,
   besideResult: { cells: { width: number; height: number }[]; width: number; height: number },
   belowResult: { cells: { width: number; height: number }[]; width: number; height: number },

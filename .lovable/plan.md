@@ -1,94 +1,105 @@
 
+# Move "Add Photos" Button to Header
 
-# Restore Smartcrop Count Display
-
-## Design
-
-### Completed State
+## Current Layout
 
 ```
-PHOTOS (44) · 38 auto-cropped
-         ↑       ↑
-     total   smartcrop count
+┌─────────────────────────────────────────┐
+│  gridwiggle                 [Clear All] │  ← header
+├─────────────────────────────────────────┤
+│         [+ Add More Photos]             │  ← standalone row
+│  PHOTOS (44) · 38 auto-cropped      ▼  │
+│  ...                                    │
+└─────────────────────────────────────────┘
 ```
 
-### Processing State
+## Proposed Layout
 
 ```
-PHOTOS · 6 of 44 ready · 4 auto-cropped
-                  ↑           ↑
-          ready count   smartcrop count
+┌─────────────────────────────────────────┐
+│  gridwiggle    [+ Add Photos] [Clear All] │  ← header with both buttons
+├─────────────────────────────────────────┤
+│  PHOTOS (44) · 38 auto-cropped      ▼  │
+│  ...                                    │
+└─────────────────────────────────────────┘
 ```
-
-The smartcrop count trails behind the ready count, showing real progress of both phases.
 
 ---
 
 ## Technical Changes
 
-### File: `src/pages/Index.tsx`
+### 1. File: `src/components/PhotoUploader.tsx`
 
-**Lines 432-443**: Update the header text
+**Lines 65-72**: Update the button text from "Add More Photos" to "Add Photos"
 
 ```tsx
-<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-  {isProcessing ? (
-    <>
-      Photos
-      <span className="mx-2 text-muted-foreground/50">·</span>
-      <span className="text-emerald-600 normal-case tracking-normal">
-        {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
-      </span>
-      {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
-        <>
-          <span className="mx-2 text-muted-foreground/50">·</span>
-          <span className="text-primary/80 normal-case tracking-normal">
-            {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
-          </span>
-        </>
-      )}
-    </>
-  ) : (
-    <>
-      Photos ({state.photos.length})
-      {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
-        <>
-          <span className="mx-2 text-muted-foreground/50 normal-case">·</span>
-          <span className="text-primary/80 normal-case font-normal tracking-normal">
-            {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
-          </span>
-        </>
-      )}
-    </>
-  )}
-</h3>
+<Button
+  onClick={handleClick}
+  variant="outline"
+  className="touch-target gap-2"
+>
+  <Plus className="h-5 w-5" />
+  Add Photos
+</Button>
 ```
+
+### 2. File: `src/pages/Index.tsx`
+
+**Lines 394-404**: Add the PhotoUploader next to Clear All in the header
+
+```tsx
+{state.photos.length > 0 && (
+  <div className="flex items-center gap-2">
+    <PhotoUploader 
+      onPhotosAdded={handlePhotosAdded}
+      hasPhotos={true}
+    />
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-destructive hover:text-destructive"
+      onClick={clearAll}
+    >
+      <Trash2 className="h-4 w-4 mr-1" />
+      Clear All
+    </Button>
+  </div>
+)}
+```
+
+**Lines 420-426**: Remove the standalone "Add more photos" row
+
+Delete:
+```tsx
+{/* Add more photos button */}
+<div className="flex justify-center">
+  <PhotoUploader 
+    onPhotosAdded={handlePhotosAdded}
+    hasPhotos={true}
+  />
+</div>
+```
+
+### 3. File: `src/components/PhotoUploader.tsx`
+
+**Lines 65-72**: Adjust button sizing to match header style
+
+```tsx
+<Button
+  onClick={handleClick}
+  variant="outline"
+  size="sm"
+  className="gap-1.5"
+>
+  <Plus className="h-4 w-4" />
+  Add Photos
+</Button>
+```
+
+Using `size="sm"` and smaller icon (`h-4 w-4`) to match the header's compact style.
 
 ---
 
-## Visual Examples
+## Result
 
-**During processing:**
-```
-PHOTOS · 6 of 44 ready · 4 auto-cropped    ▼
-         └── green ───┘   └── purple ────┘
-```
-
-**After complete:**
-```
-PHOTOS (44) · 38 auto-cropped    ▼
-```
-
-**No smartcrops applied:**
-```
-PHOTOS (44)    ▼
-```
-
----
-
-## Summary
-
-| File | Change |
-|------|--------|
-| `src/pages/Index.tsx` | Add "auto-cropped" count to header in both processing and completed states |
-
+The header will now contain both action buttons side by side, saving vertical space and keeping all controls in one place. The button text is shortened from "Add More Photos" to "Add Photos" for a cleaner look.

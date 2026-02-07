@@ -1,44 +1,38 @@
 
 
-# Change App Background to Dark Charcoal
+# Remove Decorative Collage Wrapper
 
-## Goal
-Make the default black (`#000000`) collage background visible against the app background by changing the app from near-black to a lighter dark charcoal.
+## Investigation Result
 
-## Current State
-- **App background**: `hsl(240, 10%, 10%)` - very dark blue-gray (~10% lightness)
-- **Collage default**: `#000000` (pure black, 0% lightness)
+The wrapper `div` in `Index.tsx` line 528 is **purely decorative**. It does NOT affect:
 
-The contrast between 10% and 0% lightness is minimal - they look nearly identical.
+- **PNG Export**: Creates its own canvas from `layout` data - never touches the DOM
+- **Collage Preview**: Self-contained component with its own `gapColor` background
+- **Drag & drop**: All handled internally by `CollagePreview`
 
-## Solution
-Increase the app background lightness to ~18-20% to create visible contrast with the black collage.
+The wrapper only adds visual styling (`bg-surface`, `p-4`, borders) that's now creating a confusing black layer between the app background and the collage.
 
 ---
 
-## Technical Changes
+## Technical Change
 
-### File: `src/index.css`
+### File: `src/pages/Index.tsx`
 
-Update the `--background` CSS variable in both `:root` and `.dark` sections:
+**Line 528**: Simplify the wrapper to just provide overflow clipping
 
-```css
-/* Line 9 (in :root) */
---background: 240 10% 10%;
-/* Change to: */
---background: 240 8% 18%;
+```tsx
+// Before:
+<div className="relative rounded-xl overflow-hidden border border-border bg-surface p-4">
 
-/* Line 56 (in .dark) */  
---background: 240 10% 10%;
-/* Change to: */
---background: 240 8% 18%;
+// After:
+<div className="relative overflow-hidden">
 ```
 
-This changes the background from ~10% lightness to ~18% lightness, creating a visible dark charcoal that contrasts well with pure black.
-
 ---
 
-## Visual Result
-- **Before**: App background and collage background both appear nearly black
-- **After**: App is a visible charcoal gray, collage stands out as distinctly darker/black
+## Result
+
+- The collage's `gapColor` (black by default) displays directly against the dark charcoal app background
+- No intermediate black rectangle
+- Export unchanged (it never used this wrapper)
 

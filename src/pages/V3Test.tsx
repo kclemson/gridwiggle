@@ -91,9 +91,42 @@ function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
   return { photos, seed };
 }
 
+// Thresholds for efficiency indicators
+const LOG_THRESHOLDS = { good: 30, warn: 80 };
+const DURATION_THRESHOLDS = { good: 10, warn: 50 };
+
+function LogCountBadge({ count }: { count: number }) {
+  const color = count <= LOG_THRESHOLDS.good 
+    ? 'text-green-600' 
+    : count <= LOG_THRESHOLDS.warn 
+      ? 'text-amber-600' 
+      : 'text-red-600';
+  
+  return (
+    <span className={cn("tabular-nums", color)}>
+      {count} logs
+    </span>
+  );
+}
+
+function DurationBadge({ durationMs }: { durationMs: number }) {
+  const color = durationMs <= DURATION_THRESHOLDS.good 
+    ? 'text-green-600' 
+    : durationMs <= DURATION_THRESHOLDS.warn 
+      ? 'text-amber-600' 
+      : 'text-red-600';
+  
+  return (
+    <span className={cn("tabular-nums", color)}>
+      {durationMs.toFixed(1)}ms
+    </span>
+  );
+}
+
 export default function V3Test() {
   const [photoSet, setPhotoSet] = useState(() => generateRandomSet());
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [durationMs, setDurationMs] = useState(0);
   
   // Shuffle and regenerate
   const handleShuffle = useCallback(() => {
@@ -103,9 +136,10 @@ export default function V3Test() {
     // Logs will be captured after layout generation
   }, []);
   
-  // Generate layout
+  // Generate layout with timing
   const layout = useMemo(() => {
     devLogger.clear();
+    const startTime = performance.now();
     
     const photoItems = photoSet.photos.map(toPhotoItem);
     const settings: CollageSettings = {
@@ -126,8 +160,11 @@ export default function V3Test() {
       photoWeights,
     });
     
-    // Capture logs after generation
+    const elapsed = performance.now() - startTime;
+    
+    // Capture logs and timing after generation
     setLogs(devLogger.getLogs());
+    setDurationMs(elapsed);
     
     return result;
   }, [photoSet]);
@@ -170,8 +207,12 @@ export default function V3Test() {
         <div className="grid grid-cols-1 lg:grid-cols-[670px_1fr] gap-6">
           {/* Left: Debug Logs */}
           <div className="border rounded-lg bg-card overflow-hidden order-2 lg:order-1">
-            <div className="p-3 border-b font-medium text-sm">
-              Debug Logs ({logs.length})
+            <div className="p-3 border-b font-medium text-sm flex items-center justify-between">
+              <span>Debug Logs</span>
+              <div className="flex items-center gap-3 font-mono text-xs">
+                <LogCountBadge count={logs.length} />
+                <DurationBadge durationMs={durationMs} />
+              </div>
             </div>
             <ScrollArea className="h-[70vh]">
               <div className="p-3 font-mono text-xs space-y-1">

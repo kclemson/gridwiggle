@@ -1,76 +1,102 @@
 
 
-# Fix Black Background on Collapsible Headers and Empty Uploader
+# Streamline Progress Display and Fix Z-Index
 
-## Problem
-Several UI elements show near-black backgrounds that clash with the charcoal app background (HSL 240, 8%, 18%):
+## Problems
 
-1. **Empty state uploader** (`PhotoUploader.tsx`): Uses `bg-surface` (HSL 240, 8%, 8%)
-2. **Collapsible header rows**: The Photos, Configure, and V3 Tuning headers appear darker than the surrounding UI
+1. **Duplicate progress info**: Progress dots appear both in header AND expanded carousel
+2. **Redundant count**: During processing, showing both "(51)" and "X of 51 ready" is noisy
+3. **Z-index bug**: Error overlay appears behind star buttons
 
 ---
 
-## Root Cause
+## Design
 
-The `--surface` CSS variable is intentionally darker than the app background (8% vs 18% lightness), creating a visible black rectangle. The collapsible triggers don't have explicit backgrounds but may be inheriting or the `hover:bg-muted/50` is creating visual inconsistency.
+### Header States
+
+**During processing:**
+```
+PHOTOS  ·  7 of 51 ready  ▼
+```
+- No "(51)" in parentheses - the "of 51" already conveys the total
+- Emerald colored progress text
+
+**After processing complete:**
+```
+PHOTOS (51)  ▼
+```
+- Normal count in parentheses
+- No progress text
 
 ---
 
 ## Technical Changes
 
-### 1. File: `src/components/PhotoUploader.tsx`
+### 1. File: `src/pages/Index.tsx`
 
-**Line 94**: Replace the opaque surface background with transparent
-
-```tsx
-// Before:
-className="... bg-surface hover:bg-surface-elevated hover:border-primary/50 ..."
-
-// After:
-className="... bg-transparent hover:bg-muted/30 hover:border-primary/50 ..."
-```
-
-The dashed border provides sufficient visual definition for the upload zone.
-
----
-
-### 2. File: `src/pages/Index.tsx`
-
-**Line 408**: Ensure the Photos collapsible trigger has no background that could appear dark
+**A. Update header to conditionally show count vs progress (lines 408-423)**
 
 ```tsx
-// Current (should be fine, but verify):
-<button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
+<CollapsibleTrigger asChild>
+  <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
+    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      {isProcessing ? (
+        // During processing: "PHOTOS · X of Y ready"
+        <>
+          Photos
+          <span className="mx-2 text-muted-foreground/50">·</span>
+          <span className="text-emerald-600 normal-case tracking-normal">
+            {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
+          </span>
+        </>
+      ) : (
+        // After complete: "PHOTOS (Y)"
+        `Photos (${state.photos.length})`
+      )}
+    </h3>
+    
+    {/* Remove the PhotoProgressDots from header entirely */}
+    
+    <ChevronDown ... />
+  </button>
+</CollapsibleTrigger>
+```
 
-// This is transparent by default - no change needed unless testing reveals an issue
+**B. Fix error overlay z-index (line 533)**
+
+```tsx
+// Add z-20 to be above z-10 star buttons
+<div className="absolute inset-0 ... z-20">
 ```
 
 ---
 
-### 3. File: `src/components/CollageSettings.tsx`
+### 2. File: `src/components/PhotoProcessingView.tsx`
 
-**Line 38**: Already uses only `hover:bg-muted/50` with no base background - should be transparent
+**Remove the "X ready" stats line** - this info is now in the header
+
+Keep:
+- Current photo thumbnail with spinner
+- Progress dots (centered below thumbnail)
+- Error count only (if any failures)
+
+Remove:
+- The "X ready" text and its container
 
 ---
 
-### 4. File: `src/components/V3TuningSection.tsx`
-
-**Line 57**: Already uses only `hover:bg-muted/50` with no base background - should be transparent
-
----
-
-## Summary
-
-The main change is in `PhotoUploader.tsx` where `bg-surface` explicitly sets a near-black background. The collapsible triggers are already transparent - if they still appear dark after the PhotoUploader fix, the issue may be elsewhere (parent containers or other styling).
+## File Summary
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoUploader.tsx` | Replace `bg-surface hover:bg-surface-elevated` with `bg-transparent hover:bg-muted/30` |
+| `src/pages/Index.tsx` | Conditional header text (processing vs complete), remove dots, add z-20 to error overlay |
+| `src/components/PhotoProcessingView.tsx` | Remove "X ready" stats, keep dots and error count |
 
 ---
 
 ## Result
-- Empty uploader shows charcoal background with dashed border (no black fill)
-- All collapsible headers blend seamlessly with the app background
-- Hover states use subtle muted overlay instead of darker surface colors
+
+- **Clean header**: Shows progress OR count, never both
+- **No duplication**: Ready count in header only, dots in expanded carousel only
+- **Fixed z-index**: Error overlay properly covers star buttons
 

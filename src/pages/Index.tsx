@@ -179,7 +179,7 @@ export default function Index() {
       } finally {
         setIsGenerating(false);
       }
-    }, 0);
+    }, 50);  // Allow 2-3 animation frames before blocking work
   }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler

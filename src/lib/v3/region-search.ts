@@ -102,7 +102,7 @@ export function findValidRegionAssignment(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        devLogger.log('region', 'Assignment rejected (no BESIDE): canvas AR out of range', {
+        devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
           allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
@@ -117,7 +117,7 @@ export function findValidRegionAssignment(
       const prominenceRatioNoAside = maxContentAreaNoAside > 0 ? heroAreaNoAside / maxContentAreaNoAside : Infinity;
       
       if (prominenceRatioNoAside < tuning.hero_minProminence) {
-        devLogger.log('region', 'Assignment rejected (no BESIDE): prominence too low', {
+        devLogger.warn('region-reject', 'Prominence too low (no BESIDE)', {
           besideCount: 0,
           prominenceRatio: prominenceRatioNoAside.toFixed(2),
           required: tuning.hero_minProminence,
@@ -182,7 +182,7 @@ export function findValidRegionAssignment(
       
       const AR_EPSILON = 0.01;
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        devLogger.log('region', 'Assignment rejected: canvas AR out of range', {
+        devLogger.warn('region-reject', 'Canvas AR out of range', {
           besideCount,
           besideRowCount,
           canvasAR: canvasAR.toFixed(2),
@@ -201,7 +201,7 @@ export function findValidRegionAssignment(
       const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
       
       if (prominenceRatio < tuning.hero_minProminence) {
-        devLogger.log('region', 'Assignment rejected: prominence too low', {
+        devLogger.warn('region-reject', 'Prominence too low', {
           besideCount,
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),
@@ -255,7 +255,7 @@ export function findValidRegionAssignment(
     return selected;
   }
   
-  devLogger.log('region', 'No valid assignment found');
+  devLogger.warn('region-reject', 'No valid assignment found');
   return null;
 }
 

@@ -16,16 +16,29 @@ export interface LogEntry {
   category: string;
   label: string;
   data: Record<string, unknown>;
+  level?: 'info' | 'warn' | 'error';
 }
 
 const isDev = import.meta.env.DEV;
 let logs: LogEntry[] = [];
 
 export const devLogger = {
-  log(category: string, label: string, data: Record<string, unknown> = {}) {
+  log(category: string, label: string, data: Record<string, unknown> = {}, level: 'info' | 'warn' | 'error' = 'info') {
     if (!isDev) return;
-    console.log(`[${category}] ${label}`, data);
-    logs.push({ timestamp: Date.now(), category, label, data });
+    
+    // Use appropriate console method based on level
+    const consoleMethod = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+    consoleMethod(`[${category}] ${label}`, data);
+    
+    logs.push({ timestamp: Date.now(), category, label, data, level });
+  },
+
+  warn(category: string, label: string, data: Record<string, unknown> = {}) {
+    this.log(category, label, data, 'warn');
+  },
+
+  error(category: string, label: string, data: Record<string, unknown> = {}) {
+    this.log(category, label, data, 'error');
   },
 
   clear() {

@@ -1,89 +1,102 @@
 
-# Add Crop Indicator to Photo Thumbnails
+# Inline Settings Row
 
-## What Users Will See
+## What Changes
 
-In the "View all" grid, photos that have any cropping applied (auto-crop or manual) will show a subtle visual indicator—matching the purple color used in the header for "auto-cropped".
+Replace the collapsible "Configure" section with a simple inline row showing both settings side by side.
 
----
-
-## Design Approach
-
-A small corner indicator works well because:
-- It's subtle and doesn't obscure the image
-- Consistent with the existing hero badge pattern (top-left)
-- Uses the same purple (`text-primary`) as the header count
-
-**Proposed indicator**: A small crop icon in the bottom-left corner
-
-```text
-┌──────────────┐
-│ ⭐           │  ← hero badge (existing, top-left)
-│              │
-│ 🔲           │  ← crop indicator (new, bottom-left)
-└──────────────┘
+**Current:**
+```
+┌─────────────────────────────────────────┐
+│  [Collage Preview]                      │
+├─────────────────────────────────────────┤
+│  CONFIGURE                          ▼   │  ← collapsible header
+│  Background              [color picker] │  ← hidden by default
+│  Spacing                     [slider]   │
+└─────────────────────────────────────────┘
 ```
 
-Bottom-left avoids collision with:
-- Hero badge (top-left)
-- Remove button (top-right)
+**Proposed:**
+```
+┌─────────────────────────────────────────┐
+│  [Collage Preview]                      │
+├─────────────────────────────────────────┤
+│  Background [🎨]     Spacing [──●──]    │  ← always visible, single row
+└─────────────────────────────────────────┘
+```
 
 ---
 
 ## Technical Changes
 
-### File: `src/components/PhotoThumbnail.tsx`
+### File: `src/components/CollageSettings.tsx`
 
-**Add import**: `Crop` icon from lucide-react
-
-**Add new badge** after the hero badge (around line 74):
+**Complete rewrite** - remove collapsible, show inline row:
 
 ```tsx
-{/* Crop indicator - shows if photo has any cropping applied */}
-{(photo.smartCrop || photo.manualCrop) && (
-  <div className="absolute bottom-1 left-1 p-0.5 rounded bg-primary/80 text-white shadow-sm">
-    <Crop className="h-2.5 w-2.5" />
-  </div>
-)}
+import { CollageSettings as CollageSettingsType } from '@/types/collage';
+import { Slider } from '@/components/ui/slider';
+
+interface CollageSettingsProps {
+  settings: CollageSettingsType;
+  onUpdate: (updates: Partial<CollageSettingsType>) => void;
+}
+
+export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
+  return (
+    <div className="flex items-center justify-between gap-6 py-2 px-1">
+      {/* Background color */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Background</span>
+        <input
+          type="color"
+          value={settings.gapColor}
+          onChange={(e) => onUpdate({ gapColor: e.target.value })}
+          className="w-8 h-6 rounded cursor-pointer border border-muted-foreground/30 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+          aria-label="Background color"
+        />
+      </div>
+      
+      {/* Spacing */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Spacing</span>
+        <Slider
+          value={[settings.gapSize]}
+          onValueChange={([value]) => onUpdate({ gapSize: value })}
+          min={0}
+          max={100}
+          step={5}
+          className="w-20 [&>span:first-child]:bg-muted-foreground/30"
+        />
+      </div>
+    </div>
+  );
+}
 ```
 
-**Design details:**
-- `bg-primary/80` - purple background with slight transparency
-- `p-0.5` - very small padding for a subtle indicator
-- `h-2.5 w-2.5` - tiny icon, smaller than the hero badge
-- `bottom-1 left-1` - positioned in bottom-left corner
-- `rounded` - slightly rounded corners
+**Removed:**
+- `useState` hook for collapsible state
+- `Collapsible`, `CollapsibleContent`, `CollapsibleTrigger` imports
+- `ChevronDown` icon import
+- `cn` utility import
+- `STORAGE_KEY` constant
+- `handleOpenChange` function
+- All collapsible wrapper JSX
+
+**Simplified styling:**
+- Color picker: `w-8 h-6` (smaller, more compact)
+- Slider: `w-20` (slightly narrower)
+- Row layout: `flex items-center justify-between gap-6`
 
 ---
 
-## Visual Result
+## Result
 
-**Photo with hero + crop:**
-```
-┌──────────────┐
-│ ⭐           │
-│              │
-│ 🟣           │  ← small purple crop icon
-└──────────────┘
-```
-
-**Photo with crop only:**
-```
-┌──────────────┐
-│              │
-│              │
-│ 🟣           │
-└──────────────┘
-```
-
-**Photo with no crop:**
-```
-┌──────────────┐
-│              │
-│              │
-│              │
-└──────────────┘
-```
+- Settings are always visible (no hidden state)
+- Controls are closer to their labels
+- Less vertical space used
+- Simpler component with no state management
+- localStorage key `collage-settings-open` becomes unused (can be cleaned up later if desired)
 
 ---
 
@@ -91,4 +104,4 @@ Bottom-left avoids collision with:
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoThumbnail.tsx` | Add Crop icon import, add crop indicator badge in bottom-left corner |
+| `src/components/CollageSettings.tsx` | Remove collapsible wrapper, show inline row with both settings |

@@ -444,25 +444,16 @@ function buildRejectedCells(
  * Higher is better.
  * 
  * Criteria:
- * 1. Balance: hero row height vs BELOW height (prefer ~50/50)
- * 2. Uniformity: cell areas should be similar
- * 3. Compactness: prefer layouts that don't waste space
+ * 1. Uniformity: cell areas should be similar
+ * 2. Prominence: hero should be significantly larger than content cells
  */
 function scoreRegionAssignment(
   heroAR: number,
   besideResult: { cells: { width: number; height: number }[]; width: number; height: number },
   belowResult: { cells: { width: number; height: number }[]; width: number; height: number },
-  normalizedGap: number,
+  _normalizedGap: number,
   tuning: V3Tuning
 ): number {
-  const heroRowHeight = 1.0; // Hero height = 1 in normalized space
-  const totalHeight = heroRowHeight + normalizedGap + belowResult.height;
-  
-  // Balance score: how close is hero row to 50% of total height?
-  // Ideal range: 35-65% for hero row
-  const heroRowRatio = heroRowHeight / totalHeight;
-  const balanceScore = 1.0 - Math.abs(heroRowRatio - 0.5) * 2; // 1.0 at 50%, 0.0 at 0% or 100%
-  
   // Uniformity score: coefficient of variation of cell areas
   const allAreas = [
     ...besideResult.cells.map(c => c.width * c.height),
@@ -477,7 +468,8 @@ function scoreRegionAssignment(
   const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
   const prominenceScore = prominenceRatio >= tuning.hero_minProminence ? 1.0 : prominenceRatio / tuning.hero_minProminence;
   
-  // Combine scores with weights
-  return (balanceScore * 0.3) + (uniformityScore * 0.3) + (prominenceScore * 0.4);
+  // Removed balanceScore - was pushing BELOW region to match hero height,
+  // causing large cells that threatened prominence
+  return (uniformityScore * 0.5) + (prominenceScore * 0.5);
 }
 

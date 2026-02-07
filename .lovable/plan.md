@@ -1,40 +1,26 @@
 
 
-# Redesign Header Typography
+# Restore Smartcrop Count Display
 
-## Problem
-The current header with the pixelated emoji icon and "gridwiggle.com" text feels disconnected from the app's modern, minimal dark-mode aesthetic.
+## Design
 
----
+### Completed State
 
-## Design Direction
-
-The app's vibe is:
-- **Dark, modern, and minimal** - charcoal backgrounds, subtle borders
-- **Purple accent color** - used for CTAs and focus states
-- **Playful product name** - "gridwiggle" suggests creative, fun energy
-
-The header should feel like a modern creative tool, not a corporate site.
-
----
-
-## Proposed Header Design
-
-**Remove:**
-- The favicon.png icon
-
-**Typography approach:**
-```text
-grid wiggle
-└──┘ └────┘
-gray purple
+```
+PHOTOS (44) · 38 auto-cropped
+         ↑       ↑
+     total   smartcrop count
 ```
 
-- Split the name visually: "grid" in muted gray, "wiggle" in purple accent
-- Use slightly lighter font weight and tracking for elegance
-- Drop the ".com" - cleaner, more app-like
+### Processing State
 
-This creates a subtle "logo" effect using only typography and color.
+```
+PHOTOS · 6 of 44 ready · 4 auto-cropped
+                  ↑           ↑
+          ready count   smartcrop count
+```
+
+The smartcrop count trails behind the ready count, showing real progress of both phases.
 
 ---
 
@@ -42,47 +28,61 @@ This creates a subtle "logo" effect using only typography and color.
 
 ### File: `src/pages/Index.tsx`
 
-**Lines 388-392**: Replace the current header content
+**Lines 432-443**: Update the header text
 
 ```tsx
-// Before:
-<h1 className="text-lg font-semibold flex items-center gap-2">
-  <img src="/favicon.png" alt="" className="h-5 w-5" />
-  gridwiggle.com
-</h1>
-
-// After:
-<h1 className="text-lg font-medium tracking-wide">
-  <span className="text-muted-foreground">grid</span>
-  <span className="text-primary">wiggle</span>
-</h1>
+<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+  {isProcessing ? (
+    <>
+      Photos
+      <span className="mx-2 text-muted-foreground/50">·</span>
+      <span className="text-emerald-600 normal-case tracking-normal">
+        {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
+      </span>
+      {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
+        <>
+          <span className="mx-2 text-muted-foreground/50">·</span>
+          <span className="text-primary/80 normal-case tracking-normal">
+            {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
+          </span>
+        </>
+      )}
+    </>
+  ) : (
+    <>
+      Photos ({state.photos.length})
+      {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
+        <>
+          <span className="mx-2 text-muted-foreground/50 normal-case">·</span>
+          <span className="text-primary/80 normal-case font-normal tracking-normal">
+            {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
+          </span>
+        </>
+      )}
+    </>
+  )}
+</h3>
 ```
-
-**Design details:**
-- `font-medium` instead of `font-semibold` - more elegant
-- `tracking-wide` - adds subtle letter-spacing for a refined feel
-- "grid" uses `text-muted-foreground` (gray) - subtle, recedes
-- "wiggle" uses `text-primary` (purple) - pops, memorable
 
 ---
 
-## Visual Result
+## Visual Examples
 
-The header will display:
-
-```text
-┌────────────────────────────────────────┐
-│  gridwiggle              [Clear All]   │
-│   ↑    ↑                               │
-│  gray purple                           │
-└────────────────────────────────────────┘
+**During processing:**
+```
+PHOTOS · 6 of 44 ready · 4 auto-cropped    ▼
+         └── green ───┘   └── purple ────┘
 ```
 
-This approach:
-- Removes the mismatched icon
-- Creates a memorable typographic identity
-- Uses the app's existing color palette
-- Feels modern and tool-like rather than "website-y"
+**After complete:**
+```
+PHOTOS (44) · 38 auto-cropped    ▼
+```
+
+**No smartcrops applied:**
+```
+PHOTOS (44)    ▼
+```
 
 ---
 
@@ -90,5 +90,5 @@ This approach:
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Remove favicon img, split name into "grid" (gray) + "wiggle" (purple), adjust typography classes |
+| `src/pages/Index.tsx` | Add "auto-cropped" count to header in both processing and completed states |
 

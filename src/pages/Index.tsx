@@ -707,9 +707,7 @@ export default function Index() {
                     style={{ right: 'calc(100% + 24px)', width: '700px' }}
                   >
                     <DebugPanel 
-                      logs={debugLogs} 
-                      v3Tuning={v3Tuning} 
-                      onV3TuningChange={handleV3TuningChange}
+                      logs={debugLogs}
                       algorithmVersion={algorithmVersion}
                       onAlgorithmVersionChange={setAlgorithmVersion}
                     />

@@ -9,7 +9,7 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
@@ -27,49 +27,12 @@ import {
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import { Shuffle, Star, Image, Download, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
 
 // Placeholder blob for synthetic photos (not used for CSS visualization)
 const PLACEHOLDER_BLOB = new Blob([''], { type: 'image/png' });
-
-/**
- * Format log data for display:
- * - Flatten nested objects with underscore prefix
- * - Remove JSON syntax characters
- * - Format as comma-separated key:value pairs
- */
-function formatLogData(data: Record<string, unknown>): string {
-  const pairs: string[] = [];
-  
-  function flatten(obj: Record<string, unknown>, prefix = '') {
-    for (const [key, value] of Object.entries(obj)) {
-      const fullKey = prefix ? `${prefix}_${key}` : key;
-      
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        // Recursively flatten nested objects
-        flatten(value as Record<string, unknown>, fullKey);
-      } else if (Array.isArray(value)) {
-        // Format arrays as [val1, val2, ...]
-        const formatted = value.map(v => 
-          typeof v === 'number' ? v.toFixed(2) : String(v)
-        ).join(', ');
-        pairs.push(`${fullKey}:[${formatted}]`);
-      } else if (typeof value === 'number') {
-        // Format numbers to 2 decimal places if float
-        const formatted = Number.isInteger(value) ? value : value.toFixed(2);
-        pairs.push(`${fullKey}:${formatted}`);
-      } else {
-        pairs.push(`${fullKey}:${value}`);
-      }
-    }
-  }
-  
-  flatten(data);
-  return pairs.join(', ');
-}
 
 /**
  * Convert SyntheticPhoto to PhotoItem for layout generation.
@@ -196,55 +159,6 @@ interface TestState {
   durationMs: number;
 }
 
-// Thresholds for efficiency indicators
-const LOG_THRESHOLDS = { good: 30, warn: 80 };
-const DURATION_THRESHOLDS = { good: 10, warn: 50 };
-
-function LogCountBadge({ 
-  count, 
-  rejectCount, 
-  feasibilityCount 
-}: { 
-  count: number; 
-  rejectCount: number;
-  feasibilityCount: number;
-}) {
-  const color = count <= LOG_THRESHOLDS.good 
-    ? 'text-green-600' 
-    : count <= LOG_THRESHOLDS.warn 
-      ? 'text-amber-600' 
-      : 'text-red-600';
-  
-  return (
-    <span className={cn("tabular-nums", color)}>
-      {count} logs
-      {(rejectCount > 0 || feasibilityCount > 0) && (
-        <span className="text-muted-foreground ml-1">
-          (
-          {rejectCount > 0 && <span className="text-red-500">{rejectCount} rej</span>}
-          {rejectCount > 0 && feasibilityCount > 0 && ', '}
-          {feasibilityCount > 0 && <span className="text-amber-500">{feasibilityCount} feas</span>}
-          )
-        </span>
-      )}
-    </span>
-  );
-}
-
-function DurationBadge({ durationMs }: { durationMs: number }) {
-  const color = durationMs <= DURATION_THRESHOLDS.good 
-    ? 'text-green-600' 
-    : durationMs <= DURATION_THRESHOLDS.warn 
-      ? 'text-amber-600' 
-      : 'text-red-600';
-  
-  return (
-    <span className={cn("tabular-nums", color)}>
-      {durationMs.toFixed(1)}ms
-    </span>
-  );
-}
-
 export default function V3Test() {
   // Consolidated state initialized with first generation
   const [state, setState] = useState<TestState>(() => {
@@ -290,9 +204,6 @@ export default function V3Test() {
   // Stats
   const heroPhoto = photoSet.photos.find(p => p.priority === 1);
   const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
-  
-  // Log category breakdown
-  const logStats = extractReasonFrequencies(logs);
   
   return (
     <div className="min-h-screen bg-background p-6">
@@ -354,65 +265,12 @@ export default function V3Test() {
         {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-[670px_1fr] gap-6">
           {/* Left: Debug Logs */}
-          <div className="border rounded-lg bg-card overflow-hidden order-2 lg:order-1">
-            <div className="p-3 border-b font-medium text-sm flex items-center justify-between">
-              <span>Debug Logs</span>
-              <div className="flex items-center gap-3 font-mono text-xs">
-                <LogCountBadge 
-                  count={logs.length} 
-                  rejectCount={logStats.rejectCount}
-                  feasibilityCount={logStats.feasibilityCount}
-                />
-                <DurationBadge durationMs={durationMs} />
-              </div>
-            </div>
-            <ScrollArea className="h-[70vh]">
-              <div className="p-3 font-mono text-xs space-y-1">
-                {logs.length === 0 ? (
-                  <div className="text-muted-foreground">No logs yet</div>
-                ) : (
-                  logs.map((entry, idx) => {
-                    const isReject = entry.level === 'warn' || entry.level === 'error' 
-                      || entry.category.includes('reject');
-                    const isFeasibility = entry.category === 'feasibility';
-                    
-                    return (
-                      <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-                        <div className="flex gap-1 min-w-0">
-                          <span className={cn(
-                            "shrink-0",
-                            isReject ? "text-red-500" 
-                              : isFeasibility ? "text-amber-500" 
-                              : "text-blue-500"
-                          )}>
-                            [{entry.category}]
-                          </span>
-                          <span className={cn(
-                            "break-words min-w-0",
-                            isReject ? "text-red-400" 
-                              : isFeasibility ? "text-amber-400" 
-                              : "text-foreground"
-                          )}>
-                            {entry.label}
-                          </span>
-                        </div>
-                        {Object.keys(entry.data).length > 0 && (
-                          <span className={cn(
-                            "break-all",
-                            isReject ? "text-red-400/70" 
-                              : isFeasibility ? "text-amber-400/70" 
-                              : "text-muted-foreground"
-                          )}>
-                            {formatLogData(entry.data)}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </ScrollArea>
-          </div>
+          <DebugLogPanel 
+            logs={logs}
+            durationMs={durationMs}
+            maxHeight="70vh"
+            className="order-2 lg:order-1"
+          />
           
           {/* Right: Canvas */}
           <div className="border rounded-lg p-4 bg-card order-1 lg:order-2">

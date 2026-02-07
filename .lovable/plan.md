@@ -1,110 +1,53 @@
 
-# UI Adjustments: Carousel Size and Layout
+# Fix: Carousel Photo Aspect Ratio
 
-## Overview
+## Problem
 
-Four refinements to the photo carousel and thumbnail navigator components to improve visual balance and layout consistency.
+The carousel photo container uses `aspect-square` which forces all photos into a 1:1 ratio. This clips landscape and portrait photos, as shown in the eagle photo example where the wings are cut off.
 
----
+## Solution
 
-## Changes
+Change from a fixed square aspect ratio to a fixed height container with auto-adjusting width based on the photo's actual aspect ratio (from the crop region if available, otherwise from the original dimensions).
 
-### 1. Reduce Carousel Photo Size
+## Technical Change
 
-**Current**: The carousel photo takes full width with `aspect-square`, resulting in a very large image.
+**File**: `src/components/PhotoCarousel.tsx`
 
-**Change**: Reduce to approximately 1/3 of current size by:
-- Centering the image container
-- Setting a max-width (e.g., `max-w-[200px]` or similar)
-- Keeping aspect-square proportions
-
-**File**: `src/components/PhotoCarousel.tsx` (line 107-108)
-
-```text
-Before:
-<div className="aspect-square bg-muted relative cursor-pointer">
-
-After:
-<div className="aspect-square bg-muted relative cursor-pointer max-w-[180px] mx-auto">
+**Current** (lines 107-108):
+```tsx
+<div 
+  className="aspect-square bg-muted relative cursor-pointer max-w-[180px] mx-auto"
 ```
 
----
+**New approach**:
+1. Calculate the photo's aspect ratio from the crop (or original dimensions)
+2. Use a fixed height (180px) and let width adjust automatically
+3. Center the container and constrain max-width to prevent oversized landscape images
 
-### 2. Update Hero Button Text
+```tsx
+// Calculate aspect ratio from crop or original dimensions
+const aspectRatio = crop 
+  ? crop.width / crop.height 
+  : photo.originalWidth / photo.originalHeight;
 
-**Current**: "Make Hero" / "Hero"
-
-**Change**: "Mark as hero (larger)" / "Hero"
-
-**File**: `src/components/PhotoCarousel.tsx` (line 158)
-
-```text
-Before:
-{photo.priority === 1 ? 'Hero' : 'Make Hero'}
-
-After:
-{photo.priority === 1 ? 'Hero' : 'Mark as hero (larger)'}
+// Fixed height of 180px, width adjusts to aspect ratio
+<div 
+  className="h-[180px] bg-muted relative cursor-pointer mx-auto"
+  style={{ width: `${180 * aspectRatio}px`, maxWidth: '100%' }}
+  onClick={() => onPhotoClick(photo.id)}
+>
 ```
 
----
+This ensures:
+- **Landscape photos**: Show full width, constrained by height (180px tall, wider than 180px)
+- **Portrait photos**: Show full height, narrower than 180px
+- **Square photos**: 180px × 180px (same as before)
+- No clipping - the entire cropped region is always visible
 
-### 3. Move "View All Photos" to Action Row
+## Visual Result
 
-**Current**: "View All Photos" is on its own row below the action buttons.
-
-**Change**: Add it to the same flex row as Hero/Edit/Delete buttons.
-
-**File**: `src/components/PhotoCarousel.tsx` (lines 144-232)
-
-- Remove the separate View All button at the bottom (lines 224-232)
-- Add it inline in the action buttons row (line 144)
-
-```text
-<div className="flex justify-center gap-2 mt-3 flex-wrap">
-  <Button ... >Mark as hero (larger)</Button>
-  <Button ... >Edit</Button>
-  <Button ... ><Trash2 /></Button>
-  <Button 
-    variant="outline"
-    size="sm"
-    onClick={(e) => {
-      e.stopPropagation();
-      onViewAll();
-    }}
-    className="gap-1.5"
-  >
-    <Grid3X3 className="h-4 w-4" />
-    View All
-  </Button>
-</div>
-```
-
----
-
-### 4. Constrain Navigator Width
-
-**Current**: Full-screen overlay with `fixed inset-0`.
-
-**Change**: Constrain content to `max-w-lg` (512px) centered, matching the main app layout.
-
-**File**: `src/components/ThumbnailNavigator.tsx` (line 77)
-
-```text
-Before:
-<div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
-
-After:
-<div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex justify-center">
-  <div className="flex flex-col w-full max-w-lg">
-```
-
-This wraps the content in a centered container with the same max-width as the main app.
-
----
-
-## Files Summary
-
-| File | Changes |
-|------|---------|
-| `src/components/PhotoCarousel.tsx` | Reduce image size, update button text, move View All inline |
-| `src/components/ThumbnailNavigator.tsx` | Add max-w-lg constraint to content |
+| Photo Type | Before | After |
+|------------|--------|-------|
+| Landscape | Clipped to square | Full photo visible, ~180px tall |
+| Portrait | Clipped to square | Full photo visible, ~180px tall |
+| Square | 180×180 | 180×180 (unchanged) |

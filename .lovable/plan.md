@@ -1,139 +1,78 @@
 
+# Fix: Prominence Rejection in Split Search
 
-# Reduce Perceived Lag During Collage Generation
+## Root Cause
 
-## What's Causing the "Laggy" Feel
+You correctly identified the nuance - BESIDE photos are packed into a region with height 1.0, but **multiple rows** within that region result in row heights less than 1.0.
 
-The layout algorithm itself is fast (~10-50ms of pure math), but the UX feels laggy because:
+**However**, the split search allows `besideRowCount = 1`, which means all BESIDE photos share the hero's height (1.0). When a wide content photo (e.g., AR = 1.78) is packed alone or in a single row, its area exceeds a portrait hero's area (e.g., AR = 0.75), causing prominence < 1.0.
 
-1. **No feedback when regenerating** - Clicking shuffle or adjusting settings provides no visual indication that work is happening
-2. **Sudden appearance** - The collage just "pops" in without any transition
-3. **No skeleton/placeholder** - While generating, the space is either empty or shows the old layout
+### The Math
 
-## What Changes For You
+- Hero: AR = 0.75, area = 0.75 × 1.0 = **0.75**
+- Wide content photo in 1-row BESIDE: AR = 1.78, area = 1.78 × 1.0 = **1.78**
+- Prominence ratio = 0.75 / 1.78 = **0.42** → rejected (needs ≥ 1.3)
 
-After this implementation:
-- **Spinner on refresh button** while generating
-- **Subtle fade transition** when the layout changes (old → new)
-- **Skeleton placeholder** when generating from empty (first collage or after clearing)
-- **Immediate button feedback** - the shuffle icon spins while generating
+### Where the Bug Lives
 
----
-
-## Technical Plan
-
-### 1. Add Generating State to Index.tsx
-
-Track when the layout is actively being computed:
-
-```typescript
-const [isGenerating, setIsGenerating] = useState(false);
-
-// In regenerateCollage:
-const regenerateCollage = useCallback((options: RegenerateOptions = {}) => {
-  setIsGenerating(true);
-  
-  // Use setTimeout(0) to let React paint the loading state before blocking
-  setTimeout(() => {
-    try {
-      // ... existing generation logic ...
-    } finally {
-      setIsGenerating(false);
-    }
-  }, 0);
-}, [...]);
-```
-
-### 2. Update Shuffle Button to Show Spinner
-
-In the collage header area, show a spinner when generating:
-
-```typescript
-<Button 
-  variant="ghost" 
-  size="icon" 
-  className="h-8 w-8" 
-  onClick={handleCreateCollage}
-  disabled={isGenerating}
-  title="Shuffle layout"
->
-  <RefreshCw className={cn("h-4 w-4", isGenerating && "animate-spin")} />
-</Button>
-```
-
-### 3. Add Fade Transition to CollagePreview
-
-Wrap the collage in a transition that fades between old and new layouts:
-
-```typescript
-// In CollagePreview.tsx - add transition on the container
-<div
-  ref={collageRef}
-  className="relative mx-auto transition-opacity duration-200"
-  style={{
-    opacity: isTransitioning ? 0.5 : 1,
-    // ... existing styles
-  }}
->
-```
-
-Or simpler approach - use CSS `transition` on the parent in Index.tsx:
-
-```typescript
-<div className={cn(
-  "relative overflow-hidden transition-opacity duration-150",
-  isGenerating && "opacity-60"
-)}>
-  <CollagePreview ... />
-</div>
-```
-
-### 4. Add Skeleton Placeholder for First Generation
-
-When there's no layout yet but we're generating:
-
-```typescript
-{!state.layout && isGenerating && (
-  <div className="aspect-[4/3] bg-muted rounded-xl animate-pulse flex items-center justify-center">
-    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-  </div>
-)}
-```
-
-### 5. Also Update Carousel Refresh Button
-
-The new refresh button in the carousel should also show feedback:
-
-```typescript
-// In PhotoCarousel.tsx
-<Button
-  variant="outline"
-  size="sm"
-  onClick={onRefresh}
-  disabled={isRefreshing}  // New prop
-  title="Regenerate collage"
->
-  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-</Button>
-```
-
-Pass `isGenerating` down as `isRefreshing` prop.
+`findBestSplit` uses `scoreSplit` which applies a **soft penalty** for low prominence, but doesn't discard the split. If no other splits work, this one gets selected and later rejected by `validateProminence` in the final validation.
 
 ---
 
-## Summary of Changes
+## The Fix
+
+Reject invalid splits **during split search** rather than letting them through only to fail later. This is "fail early" validation.
+
+### Changes to `src/lib/v3/split-search.ts`
+
+In the split search loop, after packing BESIDE and BELOW, check prominence **before** adding to `validSplits`:
+
+```text
+// After packing both regions, before adding to validSplits:
+
+// Calculate actual cell areas from packed results
+const allCellAreas = [
+  ...besideResult.cells.map(c => c.width * c.height),
+  ...belowResult.cells.map(c => c.width * c.height),
+];
+
+// Hero area in normalized space
+const heroArea = heroAR * 1.0;
+
+// Check prominence before accepting this split
+const maxContentArea = Math.max(...allCellAreas, 0);
+const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+
+if (prominenceRatio < tuning.hero_minProminence) {
+  // Log and skip - don't let this through to final validation
+  devLogger.log('v3-split', 'Split rejected: prominence too low', {
+    besideCount,
+    besideRowCount,
+    prominenceRatio: prominenceRatio.toFixed(2),
+    required: tuning.hero_minProminence,
+  });
+  continue;
+}
+```
+
+### Why This Works
+
+By checking prominence at the **split level**, we:
+1. Reject geometrically invalid configurations immediately
+2. Give the search more opportunities to find valid alternatives (different row counts, different splits)
+3. Ensure that if `findBestSplit` returns a split, it's already prominence-valid
+4. Reduce wasted computation on configurations doomed to fail
+
+### Alternative Considered: Minimum Row Count
+
+We could also set `minRows` based on prominence requirements, but that's harder to compute accurately. The direct check is simpler and more robust.
+
+---
+
+## Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `isGenerating` state, wrap generation in setTimeout, pass to children |
-| `src/components/PhotoCarousel.tsx` | Add `isRefreshing` prop, show spinner when true |
-| Collage section in Index.tsx | Add opacity transition and skeleton placeholder |
+| `src/lib/v3/split-search.ts` | Add prominence validation inside the search loop before adding to `validSplits` |
 
-## Why setTimeout(0)?
-
-The layout generation is synchronous and blocks the main thread for ~10-50ms. Without `setTimeout(0)`, React can't paint the "generating" state before the blocking work starts. The tiny delay allows the spinner/opacity change to render first, giving users immediate visual feedback.
-
-## Alternative: Web Worker
-
-If we want truly non-blocking generation, we could move the layout algorithm to a Web Worker. However, for ~10-50ms of work, `setTimeout(0)` is sufficient and much simpler.
-
+This is a ~15-line addition that moves the prominence check earlier in the pipeline, preventing the "passes split search, fails final validation" scenario you're seeing in production.

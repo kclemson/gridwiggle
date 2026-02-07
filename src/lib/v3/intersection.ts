@@ -174,6 +174,7 @@ function evaluateNormalizedProposal(
   const regionResult = findValidRegionAssignment(
     contentPhotos,
     heroAR,
+    heroPhoto.id,
     normalizedGap,
     tuning,
     randomize

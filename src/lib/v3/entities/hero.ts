@@ -44,33 +44,14 @@ export function proposePositions(
   const proposals: NormalizedHeroProposal[] = [];
   
   // Corner placement: Always available
-  // Hero at origin (0, 0) - position is 'top-left' in normalized space
-  // The 'top-right' position is determined after we know the total width
+  // All 4 corner positions (top-left, top-right, bottom-left, bottom-right) are symmetric -
+  // they produce identical region assignments, packing, and scores. Only the final 
+  // coordinate mapping differs. We evaluate ONE canonical corner, then apply random
+  // position selection after validation for variety.
   proposals.push({
     rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
     mode: 'corner',
-    position: 'top-left',
-  });
-  
-  // We also propose 'top-right' but x will be adjusted during assembly
-  proposals.push({
-    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-    mode: 'corner',
-    position: 'top-right',
-  });
-  
-  // Bottom-left: hero at bottom-left, BELOW region above
-  proposals.push({
-    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-    mode: 'corner',
-    position: 'bottom-left',
-  });
-
-  // Bottom-right: hero at bottom-right, BELOW region above  
-  proposals.push({
-    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-    mode: 'corner',
-    position: 'bottom-right',
+    position: 'top-left', // Canonical - actual position applied after evaluation
   });
   
   // Edge placement: Requires enough content photos

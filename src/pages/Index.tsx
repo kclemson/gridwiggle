@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef } from 'react';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
-import { PhotoGrid } from '@/components/PhotoGrid';
+import { PhotoCarousel } from '@/components/PhotoCarousel';
+import { ThumbnailNavigator } from '@/components/ThumbnailNavigator';
+import { PhotoProcessingView } from '@/components/PhotoProcessingView';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
 import { DebugPanel, AlgorithmVersion } from '@/components/DebugPanel';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 
@@ -49,6 +50,11 @@ export default function Index() {
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
+  
+  // Carousel and navigator state
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -141,6 +147,9 @@ export default function Index() {
     const total = photos.length;
 
     for (const photo of photos) {
+      // Track currently processing photo for the ProcessingView
+      setCurrentlyProcessingId(photo.id);
+      
       try {
         const result = await getSmartCrop(
           photo.objectUrl,
@@ -170,6 +179,7 @@ export default function Index() {
       setSmartCropProgress((completed / total) * 100);
     }
     
+    setCurrentlyProcessingId(null);
     setIsProcessingSmartCrop(false);
     setSmartCropProgress(0);
   }, [updatePhoto]);
@@ -345,19 +355,6 @@ export default function Index() {
         </header>
 
         <main className="py-3 space-y-4 px-4">
-        {/* Progress bar for smart cropping */}
-        {isProcessing && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Wand2 className="h-4 w-4 animate-pulse-soft text-primary" />
-              <span>{processingStatus}</span>
-            </div>
-            {smartCropProgress > 0 && (
-              <Progress value={smartCropProgress} className="h-2" />
-            )}
-          </div>
-        )}
-
         {/* Upload prompt when no photos */}
         {state.photos.length === 0 && (
           <PhotoUploader 
@@ -377,20 +374,30 @@ export default function Index() {
               />
             </div>
 
-            {/* Photos grid - shows all photos with processing/error/cropped states */}
-            <PhotoGrid
-              photos={state.photos}
-              onRemove={handleRemovePhoto}
-              onPhotoClick={(photoId) => {
-                const photo = state.photos.find(p => p.id === photoId);
-                if (photo && !photo.isProcessing) {
-                  setEditingPhotoId(photoId);
-                }
-              }}
-              showCropped
-              title="Photos"
-              hint="tap to adjust crop"
-            />
+            {/* Processing view or Photo carousel */}
+            {isProcessing ? (
+              <PhotoProcessingView
+                photos={state.photos}
+                currentlyProcessingId={currentlyProcessingId}
+                progress={smartCropProgress}
+                status={processingStatus}
+              />
+            ) : (
+              <PhotoCarousel
+                photos={state.photos}
+                currentIndex={carouselIndex}
+                onIndexChange={setCarouselIndex}
+                onPhotoClick={(photoId) => {
+                  const photo = state.photos.find(p => p.id === photoId);
+                  if (photo && !photo.isProcessing) {
+                    setEditingPhotoId(photoId);
+                  }
+                }}
+                onRemove={handleRemovePhoto}
+                onToggleHero={handleToggleHero}
+                onViewAll={() => setNavigatorOpen(true)}
+              />
+            )}
 
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}
@@ -501,6 +508,22 @@ export default function Index() {
           photo={editingPhoto}
           onClose={() => setEditingPhotoId(null)}
           onSave={handleSaveCrop}
+        />
+      )}
+      
+      {/* Thumbnail Navigator - On-demand overlay */}
+      {navigatorOpen && (
+        <ThumbnailNavigator
+          photos={state.photos}
+          currentIndex={carouselIndex}
+          onSelect={(photoId) => {
+            const idx = state.photos.findIndex(p => p.id === photoId);
+            if (idx >= 0) {
+              setCarouselIndex(idx);
+            }
+            setNavigatorOpen(false);
+          }}
+          onClose={() => setNavigatorOpen(false)}
         />
       )}
     </div>

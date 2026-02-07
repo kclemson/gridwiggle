@@ -130,13 +130,6 @@ export function PhotoCarousel({
                       />
                     )}
                     
-                    {/* Hero badge */}
-                    {isHero && (
-                      <div className="absolute top-2 left-2 bg-yellow-500 text-yellow-950 px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1">
-                        <Star className="h-3 w-3 fill-current" />
-                        Hero
-                      </div>
-                    )}
                     
                     {/* Tap hint overlay */}
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20">
@@ -161,7 +154,7 @@ export function PhotoCarousel({
                         "h-4 w-4",
                         photo.priority === 1 && "fill-current"
                       )} />
-                      {photo.priority === 1 ? 'Hero' : 'Mark as hero (larger)'}
+                      Hero
                     </Button>
                     
                     <Button

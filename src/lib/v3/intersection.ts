@@ -230,6 +230,17 @@ function evaluateNormalizedProposal(
   const besideCount = regionAssignment.besidePhotos.length;
   const besideRowCount = regionAssignment.besideRowCount;
   
+  // Get constraint breakdown for diagnostics (recompute to have access here)
+  const belowRowCalc = calculateBelowRowCount(
+    regionAssignment.belowPhotos,
+    heroRowWidth,
+    normalizedGap,
+    heroAR,
+    tuning,
+    false // Deterministic for diagnostics
+  );
+  const belowConstraints = belowRowCalc.constraints;
+  
   // Pack BELOW at hero row width
   const belowResult = packToFillWidth(
     regionAssignment.belowPhotos,
@@ -286,6 +297,7 @@ function evaluateNormalizedProposal(
       besideCount,
       besideRowCount,
       belowRowCount,
+      belowConstraints,
       heroAR: +heroAR.toFixed(2),
     };
     setRejectedLayout({
@@ -309,6 +321,7 @@ function evaluateNormalizedProposal(
       besideCount,
       besideRowCount,
       belowRowCount,
+      belowConstraints,
       heroAR: +heroAR.toFixed(2),
     };
     setRejectedLayout({
@@ -341,6 +354,7 @@ function evaluateNormalizedProposal(
       besideCount,
       besideRowCount,
       belowRowCount,
+      belowConstraints,
       heroAR: +heroAR.toFixed(2),
       canvasAR: +canvasAR.toFixed(2),
     };
@@ -373,6 +387,7 @@ function evaluateNormalizedProposal(
       besideCount,
       besideRowCount,
       belowRowCount,
+      belowConstraints,
       heroAR: +heroAR.toFixed(2),
       canvasAR: +canvasAR.toFixed(2),
     };

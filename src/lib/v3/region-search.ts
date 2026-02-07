@@ -179,7 +179,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2) },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
           besideCount: 0,
@@ -202,7 +202,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: tuning.hero_minProminence, besideCount: `0 (${minBeside}-${maxBeside})`, besideRowCount: `0`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
+          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: tuning.hero_minProminence, besideCount: `0 (${minBeside}-${maxBeside})`, besideRowCount: `0`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Prominence too low (no BESIDE)', {
           besideCount: 0,
@@ -287,7 +287,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2) },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range', {
           besideCount,
@@ -314,7 +314,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
+          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Prominence too low', {
           besideCount,

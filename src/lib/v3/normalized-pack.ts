@@ -288,6 +288,13 @@ export interface BelowRowCountResult {
   value: number;
   minRows: number;
   maxRows: number;
+  /** Raw constraint values for diagnostics */
+  constraints: {
+    maxRowsByMinAR: number;    // Prevents canvas too tall
+    minRowsByMaxAR: number;    // Prevents canvas too wide  
+    minRowsByCellSize: number; // Prevents tiny cells
+    targetWidth: number;       // The width being packed into
+  };
 }
 
 /**
@@ -309,7 +316,17 @@ export function calculateBelowRowCount(
   randomize: boolean = false
 ): BelowRowCountResult {
   const n = photos.length;
-  if (n <= 1) return { value: 1, minRows: 1, maxRows: 1 };
+  if (n <= 1) return { 
+    value: 1, 
+    minRows: 1, 
+    maxRows: 1,
+    constraints: {
+      maxRowsByMinAR: 1,
+      minRowsByMaxAR: 1,
+      minRowsByCellSize: 1,
+      targetWidth,
+    }
+  };
   
   // Photo geometry
   const meanAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0) / n;
@@ -348,5 +365,15 @@ export function calculateBelowRowCount(
     value = Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
   }
   
-  return { value, minRows, maxRows };
+  return { 
+    value, 
+    minRows, 
+    maxRows,
+    constraints: {
+      maxRowsByMinAR,
+      minRowsByMaxAR,
+      minRowsByCellSize,
+      targetWidth,
+    }
+  };
 }

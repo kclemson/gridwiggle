@@ -98,7 +98,7 @@ export function ThumbnailNavigator({
       {/* Thumbnail Grid */}
       <ScrollArea className="flex-1 p-4">
         <div 
-          className="grid gap-3"
+          className="grid gap-3 p-2"
           style={{
             gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))`,
           }}

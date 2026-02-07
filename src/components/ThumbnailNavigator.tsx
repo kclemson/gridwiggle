@@ -16,7 +16,7 @@ interface ThumbnailNavigatorProps {
 }
 
 const BATCH_SIZE = 8;
-const THUMBNAIL_SIZE = 56; // px
+const THUMBNAIL_SIZE = 85; // px
 
 export function ThumbnailNavigator({
   photos,
@@ -75,7 +75,7 @@ export function ThumbnailNavigator({
 
   return (
     <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex justify-center">
-      <div className="flex flex-col w-full max-w-lg">
+      <div className="flex flex-col w-full max-w-lg sm:max-w-xl md:max-w-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
         <div>
@@ -98,7 +98,7 @@ export function ThumbnailNavigator({
       {/* Thumbnail Grid */}
       <ScrollArea className="flex-1 p-4">
         <div 
-          className="grid gap-2"
+          className="grid gap-3"
           style={{
             gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))`,
           }}
@@ -114,7 +114,7 @@ export function ThumbnailNavigator({
                 key={photo.id}
                 onClick={() => handleSelect(photo.id)}
                 className={cn(
-                  "relative aspect-square rounded overflow-hidden transition-all",
+                  "relative aspect-square transition-all",
                   "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
                   isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
                 )}
@@ -125,21 +125,23 @@ export function ThumbnailNavigator({
               >
                 {isLoaded ? (
                   <>
-                    {crop ? (
-                      <CroppedImage
-                        src={photo.objectUrl}
-                        crop={crop}
-                        originalWidth={photo.originalWidth}
-                        originalHeight={photo.originalHeight}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <img
-                        src={photo.objectUrl}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    )}
+                    <div className="w-full h-full rounded overflow-hidden">
+                      {crop ? (
+                        <CroppedImage
+                          src={photo.objectUrl}
+                          crop={crop}
+                          originalWidth={photo.originalWidth}
+                          originalHeight={photo.originalHeight}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={photo.objectUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                    </div>
                     
                     {/* Hero badge */}
                     {isHero && (
@@ -154,7 +156,7 @@ export function ThumbnailNavigator({
                     </div>
                   </>
                 ) : (
-                  <Skeleton className="w-full h-full" />
+                  <Skeleton className="w-full h-full rounded" />
                 )}
               </button>
             );

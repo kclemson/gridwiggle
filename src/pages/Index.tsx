@@ -4,7 +4,6 @@ import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoCarousel } from '@/components/PhotoCarousel';
 import { ThumbnailNavigator } from '@/components/ThumbnailNavigator';
 import { PhotoProcessingView } from '@/components/PhotoProcessingView';
-import { PhotoProgressDots } from '@/components/PhotoProgressDots';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
@@ -407,17 +406,18 @@ export default function Index() {
               <CollapsibleTrigger asChild>
                 <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
                   <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Photos ({state.photos.length})
+                    {isProcessing ? (
+                      <>
+                        Photos
+                        <span className="mx-2 text-muted-foreground/50">·</span>
+                        <span className="text-emerald-600 normal-case tracking-normal">
+                          {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
+                        </span>
+                      </>
+                    ) : (
+                      `Photos (${state.photos.length})`
+                    )}
                   </h3>
-                  
-                  {/* Show progress dots when processing */}
-                  {isProcessing && (
-                    <PhotoProgressDots 
-                      photos={state.photos}
-                      currentlyProcessingId={currentlyProcessingId}
-                      className="flex-1 justify-center mx-3"
-                    />
-                  )}
                   
                   <ChevronDown 
                     className={cn(
@@ -530,7 +530,7 @@ export default function Index() {
                       
                       {/* Error overlay - shown when layout generation fails */}
                       {layoutError && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl z-20">
                           <p className="text-sm text-muted-foreground text-center mb-3 px-4">
                             {layoutError}
                           </p>

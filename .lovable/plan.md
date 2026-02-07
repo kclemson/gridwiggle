@@ -1,93 +1,168 @@
 
+# Plan: Standardize Rejection Details Across All Rejection Points
 
-# Plan: Expose belowRowCount Range for Rejection Diagnostics
+## The Problem
 
-## The Issue
+The `RejectionBadge` component is already shared between V3Test and the main app. However, the rejection points in `intersection.ts` pass minimal details, while `region-search.ts` passes full diagnostics.
 
-`calculateBelowRowCount` internally computes a valid range (`minRows` to `maxRows`) but only returns the picked value. This hides useful diagnostic context.
+| Location | Rejection Types | Current Details |
+|----------|-----------------|-----------------|
+| `region-search.ts` | prominence, canvas AR | ✅ Full (`besideCount`, `besideRowCount`, `belowRowCount`, `heroAR`, `canvasAR`) |
+| `intersection.ts` | prominence, canvas AR, hero vs smallest | ❌ Minimal (only `ratio`, `required`, or `canvasAR`) |
 
-## Solution: Return Both Value and Range
+## Solution
 
-Modify `calculateBelowRowCount` to return a result object instead of just a number.
+Add standardized fields to all rejection points in `intersection.ts` so the `RejectionBadge` always displays full context.
+
+---
 
 ## Technical Changes
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/normalized-pack.ts` | Change return type to `{ value: number, minRows: number, maxRows: number }` |
-| `src/lib/v3/region-search.ts` | Update all call sites to destructure result; add range to rejection details |
+| `src/lib/v3/intersection.ts` | Add standardized fields to all 5 rejection points |
 
 ---
 
-### 1. normalized-pack.ts - New Return Type
+## Detailed Changes
+
+### 1. Extract Variables for Reuse
+
+Near line 227, after `belowRowCount` is defined, add:
 
 ```typescript
-// New interface
-export interface BelowRowCountResult {
-  value: number;
-  minRows: number;
-  maxRows: number;
-}
+const belowRowCount = regionAssignment.belowRowCount;
 
-// Updated function signature
-export function calculateBelowRowCount(...): BelowRowCountResult {
-  // ... existing calculation ...
-  
-  const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
-  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
-  
-  // Pick value (existing logic)
-  let value: number;
-  if (randomize && minRows < maxRows) {
-    value = minRows + Math.floor(Math.random() * (maxRows - minRows + 1));
-  } else {
-    value = Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
-  }
-  
-  return { value, minRows, maxRows };
-}
+// For rejection diagnostics
+const besideCount = regionAssignment.besidePhotos.length;
+const besideRowCount = regionAssignment.besideRowCount;
 ```
 
-### 2. region-search.ts - Update Call Sites
+### 2. Canvas Too Tall (lines 277-292)
 
+Before:
 ```typescript
-// Before
-const belowRowCount = calculateBelowRowCount(...);
-
-// After
-const belowResult = calculateBelowRowCount(...);
-const belowRowCount = belowResult.value;
-const belowRowRange = `${belowResult.minRows}-${belowResult.maxRows}`;
+details: { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR },
 ```
 
-### 3. Rejection Details - Add Range
-
+After:
 ```typescript
 details: { 
-  prominenceRatio: +prominenceRatio.toFixed(2), 
-  required: tuning.hero_minProminence, 
-  besideCount: `${besideCount} (${minBeside}-${maxBeside})`,
-  besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`,
-  belowRowCount: `${belowRowCount} (${belowRowRange})`,  // NEW
+  canvasAR: +canvasAR.toFixed(2), 
+  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+  besideCount,
+  besideRowCount,
+  belowRowCount,
+  heroAR: +heroAR.toFixed(2),
+},
+```
+
+### 3. Canvas Too Wide (lines 295-311)
+
+Before:
+```typescript
+details: { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR },
+```
+
+After:
+```typescript
+details: { 
+  canvasAR: +canvasAR.toFixed(2), 
+  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+  besideCount,
+  besideRowCount,
+  belowRowCount,
+  heroAR: +heroAR.toFixed(2),
+},
+```
+
+### 4. Prominence Too Low (lines 322-338)
+
+Before:
+```typescript
+details: { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence },
+```
+
+After:
+```typescript
+details: { 
+  prominenceRatio: +prominence.ratio.toFixed(2), 
+  required: tuning.hero_minProminence,
+  besideCount,
+  besideRowCount,
+  belowRowCount,
   heroAR: +heroAR.toFixed(2),
   canvasAR: +canvasAR.toFixed(2),
-}
+},
+```
+
+### 5. Hero Too Large vs Smallest (lines 343-367)
+
+This one already has more detail. Add the standard fields:
+
+Before:
+```typescript
+details: { 
+  ratio: +smallestCheck.ratio.toFixed(1), 
+  maxAllowed: tuning.hero_maxToSmallest,
+  heroArea: +heroArea.toFixed(3),
+  smallestAreas,
+},
+```
+
+After:
+```typescript
+details: { 
+  ratio: +smallestCheck.ratio.toFixed(1), 
+  maxAllowed: tuning.hero_maxToSmallest,
+  heroArea: +heroArea.toFixed(3),
+  smallestAreas,
+  besideCount,
+  besideRowCount,
+  belowRowCount,
+  heroAR: +heroAR.toFixed(2),
+  canvasAR: +canvasAR.toFixed(2),
+},
+```
+
+### 6. Simple Rows Canvas AR (lines 605-626)
+
+This is the hero-less case, so `besideCount`, `besideRowCount`, `belowRowCount` don't apply. Keep as-is but add row count info:
+
+Before:
+```typescript
+details: { 
+  canvasAR: +canvasAR.toFixed(2), 
+  minAR: tuning.canvas_minAR,
+  maxAR: tuning.canvas_maxAR,
+},
+```
+
+After:
+```typescript
+details: { 
+  canvasAR: +canvasAR.toFixed(2), 
+  allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+  rowCount,
+  photoCount: photos.length,
+},
 ```
 
 ---
 
 ## Expected Result
 
-Rejection badge shows complete search space:
+All rejections from both files will display full context:
 
 ```text
 REJECTED: prominence too low
-prominenceRatio: 0.54
+prominenceRatio: 0.84
 required: 1.3
-besideCount: 8 (8-8)
-besideRowCount: 4 (1-4)
-belowRowCount: 3 (2-5)
+besideCount: 8
+besideRowCount: 4
+belowRowCount: 3
 heroAR: 0.60
 canvasAR: 0.74
 ```
 
+The `RejectionBadge` component stays unchanged - it already renders all fields from `details`.

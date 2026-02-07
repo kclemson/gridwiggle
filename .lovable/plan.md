@@ -1,155 +1,214 @@
 
 
-## Refactor calculateBelowRowCount + Add Cell Size Constraint
+## Clean Up Feasibility Architecture & Reduce Log Noise
 
 ### Design Intent
-1. **Clean up API**: Replace individual constraint params with `V3Tuning` object (consistent with rest of v3)
-2. **Add cell size constraint**: Integrate `hero_maxToSmallest` so the function picks a row count that satisfies all constraints
+
+**Separation of concerns:**
+1. **`feasibility.ts`** = Pure pre-pack algebraic estimates (no post-pack data required)
+2. **`region-search.ts`** = Search loop with inline validations (uses packed results)
+
+**Current problem:** `canMeetCanvasAR` requires `heroRowWidth`, which is only known AFTER packing BESIDE. This makes it a validation step, not a feasibility pre-check — but it lives in `feasibility.ts` and logs as `'feasibility'`, which is misleading.
 
 ### User Outcomes
-- Wide heroes with 20+ photos will find valid layouts
-- Consistent API across v3 functions
-- Easier to add future constraints without signature changes
+- Logs are easier to scan — true feasibility checks (amber) vs validations (normal)
+- Far fewer log entries (~10-15 instead of ~100+)
+- Better mental model: feasibility = algebraic estimates to skip entire branches
 
 ---
 
 ## Changes
 
-### File: `src/lib/v3/normalized-pack.ts`
+### 1. Refactor `feasibility.ts` — Remove post-pack functions
 
-**Refactor signature and add constraint:**
+Move `canMeetCanvasAR` out of `feasibility.ts` entirely. It's not a true pre-check since it requires packed `heroRowWidth`.
+
+Add a **new true pre-check** that works at the `besideCount` level:
 
 ```typescript
 /**
- * Calculate optimal row count for BELOW packing given width and photo geometry.
- * Enforces:
- * - canvas_minAR (prevents too-tall canvas)
- * - canvas_maxAR (prevents too-wide canvas)  
- * - hero_maxToSmallest (prevents tiny content cells)
+ * Estimate if ANY row configuration for a given besideCount could possibly
+ * produce a valid canvas AR. Uses algebraic estimate of minimum heroRowWidth.
+ * 
+ * This is a true pre-pack estimate — runs BEFORE any packing.
  */
-export function calculateBelowRowCount(
-  photos: PhotoDimension[],
-  targetWidth: number,
-  normalizedGap: number,
+export function canBesideCountMeetCanvasAR(
   heroAR: number,
+  besidePhotos: PhotoDimension[],
+  normalizedGap: number,
   tuning: V3Tuning
-): number {
-  const n = photos.length;
-  if (n <= 1) return 1;
-  
-  // Photo geometry
-  const meanAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0) / n;
-  const minAR = Math.min(...photos.map(p => p.aspectRatio));
-  
-  // === Constraint 1: Prevent too-tall (minAR) ===
-  const heroRowHeight = heroAR > 0 ? 1.0 : 0;
-  const maxBelowHeight = targetWidth / tuning.canvas_minAR - heroRowHeight - normalizedGap;
-  const maxRowsByMinAR = Math.floor(Math.sqrt(Math.max(0, maxBelowHeight * n * meanAR / targetWidth)));
-  
-  // === Constraint 2: Prevent too-wide (maxAR) ===
-  const minRowsByMaxAR = Math.ceil(Math.sqrt(n * meanAR / tuning.canvas_maxAR));
-  
-  // === Constraint 3: Prevent tiny cells (hero_maxToSmallest) ===
-  // Only applies when there's a hero
-  let minRowsByCellSize = 1;
-  if (heroAR > 0) {
-    // Conservative estimate: use 0.6x minAR to account for distribution variance
-    const effectiveMinAR = minAR * 0.6;
-    minRowsByCellSize = Math.ceil(
-      Math.sqrt(heroAR * n * n * meanAR * meanAR / 
-        (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))
-    );
-  }
-  
-  // === Combine constraints ===
-  const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
-  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
-  
-  // Choose middle of valid range for balance
-  return Math.max(minRows, Math.min(maxRows, Math.ceil((minRows + maxRows) / 2)));
-}
+): { feasible: boolean; minHeroRowWidth: number }
 ```
 
-### File: `src/lib/v3/region-search.ts`
+**Key insight:** The minimum `heroRowWidth` occurs when BESIDE is packed into maximum rows (most vertical stacking). We can estimate this without packing:
+- `minBesideWidth ≈ sumBesideAR / maxRows` (where `maxRows = min(n, 4)`)
+- `minHeroRowWidth = heroAR + gap + minBesideWidth`
 
-**Update call site (~line 195):**
+If even this best-case width exceeds canvas AR limits, skip the entire `besideCount`.
 
-```typescript
-// Before:
-const belowRowCount = calculateBelowRowCount(
-  belowPhotos,
-  heroRowWidth,
-  normalizedGap,
-  tuning.canvas_minAR,
-  tuning.canvas_maxAR
-);
+### 2. Update `region-search.ts` — Two-level pruning
 
-// After:
-const belowRowCount = calculateBelowRowCount(
-  belowPhotos,
-  heroRowWidth,
-  normalizedGap,
-  heroAR,
-  tuning
-);
-```
+**Outer loop (besideCount level):** Add `canBesideCountMeetCanvasAR` check — logs once per skipped besideCount.
 
-### File: `src/lib/v3/intersection.ts`
+**Inner loop (besideRowCount level):** Keep the exact canvas AR validation, but:
+- Move it inline (don't call `canMeetCanvasAR`)
+- Log as `'region'` category (it's a validation, not a feasibility estimate)
+- Only log on actual rejection (not every iteration)
 
-**Update call sites (search for `calculateBelowRowCount`):**
+### 3. Update `DebugPanel.tsx` — Visual distinction
 
-For hero layouts:
-```typescript
-const belowRowCount = calculateBelowRowCount(
-  regionAssignment.belowPhotos,
-  heroRowWidth,
-  normalizedGap,
-  heroAR,
-  tuning
-);
-```
-
-For hero-less layouts (pass `heroAR = 0`):
-```typescript
-const rowCount = calculateBelowRowCount(
-  photos, 
-  1.0, 
-  normalizedGap, 
-  0,     // No hero
-  tuning
-);
-```
+Style `feasibility` category logs with amber background and Filter icon:
+- Immediately recognizable as "early pruning" steps
+- Visually distinct from blue "region" logs (actual search activity)
 
 ---
 
 ## Technical Details
 
-### The Cell Size Constraint Math
+### File: `src/lib/v3/feasibility.ts`
 
-For smallest cell area in BELOW:
-```
-smallestArea ≈ minAR × rowHeight²
-rowHeight ≈ targetWidth × R / (n × meanAR)
+**Remove:** `canMeetCanvasAR` (lines 69-102)
+
+**Add:** New outer-loop pre-check:
+
+```typescript
+/**
+ * Estimate if ANY row configuration for a given besideCount could produce
+ * a valid canvas AR. Uses minimum heroRowWidth estimate.
+ * 
+ * This is a TRUE pre-pack check — runs before any packing happens.
+ */
+export function canBesideCountMeetCanvasAR(
+  heroAR: number,
+  besidePhotos: PhotoDimension[],
+  normalizedGap: number,
+  tuning: V3Tuning
+): { feasible: boolean; minHeroRowWidth: number } {
+  if (besidePhotos.length === 0) {
+    return { feasible: true, minHeroRowWidth: heroAR };
+  }
+  
+  // Minimum besideWidth occurs at maximum row count (most vertical stacking)
+  const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
+  const maxRows = Math.min(besidePhotos.length, 4);
+  const minBesideWidth = sumBesideAR / maxRows;
+  
+  const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
+  
+  // Best-case canvas AR (minimum width / maximum height)
+  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+  const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
+  const bestCaseAR = canvasWidth / minCanvasHeight;
+  
+  const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
+  
+  if (!feasible) {
+    devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
+      besideCount: besidePhotos.length,
+      minHeroRowWidth: minHeroRowWidth.toFixed(2),
+      bestCaseAR: bestCaseAR.toFixed(2),
+      maxAR: tuning.canvas_maxAR,
+    });
+  }
+  
+  return { feasible, minHeroRowWidth };
+}
 ```
 
-For `heroArea / smallestArea ≤ maxToSmallest`:
-```
-R ≥ sqrt(heroAR × n² × meanAR² / (effectiveMinAR × width² × maxToSmallest))
+### File: `src/lib/v3/region-search.ts`
+
+**Add outer-loop pre-check** (after line 80, before entering the `besideCount > 0` block):
+
+```typescript
+// Early canvas AR feasibility check at besideCount level
+if (besideCount > 0) {
+  const canvasARFeasibility = canBesideCountMeetCanvasAR(
+    heroAR, besidePhotos, normalizedGap, tuning
+  );
+  if (!canvasARFeasibility.feasible) {
+    continue; // Skip entire besideCount — no row config can work
+  }
+}
 ```
 
-The 0.6x factor on `minAR` accounts for worst-case row distribution where the narrowest photo ends up in a wide row.
+**Remove import** of `canMeetCanvasAR` (line 12).
 
-### Expected Result for heroAR = 2.45, n = 22
+**Replace inner-loop check** (lines 186-196):
+Instead of calling `canMeetCanvasAR`, do inline validation without separate logging:
 
-With `effectiveMinAR ≈ 0.42` (assuming minAR ≈ 0.7):
+```typescript
+// Validate canvas AR (post-pack check)
+const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+const canvasWidth = heroRowWidth + 2 * normalizedGap;
+const bestCaseAR = canvasWidth / minCanvasHeight;
+
+if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
+  continue; // Skip — canvas too wide (already logged at besideCount level if pattern repeats)
+}
 ```
-minRowsByCellSize = ceil(sqrt(2.45 × 484 × 1.21 / (0.42 × 6.0 × 22)))
-                  = ceil(sqrt(1435 / 55.4))
-                  = ceil(5.09)
-                  = 6
+
+### File: `src/components/DebugPanel.tsx`
+
+**Update `getLogIcon`** to accept category:
+
+```typescript
+function getLogIcon(label: string, data: Record<string, unknown>, category?: string) {
+  // Feasibility checks — amber filter icon
+  if (category === 'feasibility') {
+    return <Filter className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
+  }
+  
+  // ... existing logic
+}
 ```
 
-This forces 6 rows minimum, ensuring cells are large enough to pass the final validation.
+**Update `LogEntryRow`** to pass category and add amber styling:
+
+```typescript
+function LogEntryRow({ entry }: { entry: LogEntry }) {
+  const icon = getLogIcon(entry.label, entry.data, entry.category);
+  const isFeasibility = entry.category === 'feasibility';
+  
+  return (
+    <div className={cn(
+      "border-b border-border/50 py-2 px-3 last:border-b-0",
+      isFeasibility && "bg-amber-500/10"
+    )}>
+      {/* ... rest unchanged */}
+    </div>
+  );
+}
+```
+
+**Add imports:**
+```typescript
+import { Filter } from 'lucide-react';
+import { cn } from '@/lib/utils';
+```
+
+---
+
+## Expected Log Output (Before vs After)
+
+**Before (371 logs):**
+```
+[feasibility] Canvas AR infeasible  heroRowWidth:3.03...
+[region] Skipping (canvas AR infeasible) besideCount:1, besideRowCount:1...
+[feasibility] Canvas AR infeasible  heroRowWidth:3.78...
+[region] Skipping (canvas AR infeasible) besideCount:2, besideRowCount:1...
+[feasibility] Canvas AR infeasible  heroRowWidth:3.78...
+[region] Skipping (canvas AR infeasible) besideCount:2, besideRowCount:2...
+... (repeats ~50 times)
+```
+
+**After (~15 logs):**
+```
+[feasibility] Canvas AR infeasible for besideCount  besideCount:8, minHeroRowWidth:4.2...
+[feasibility] Canvas AR infeasible for besideCount  besideCount:9, minHeroRowWidth:4.8...
+[region] Valid assignment candidate  besideCount:3, besideRowCount:2...
+[region] Valid assignment candidate  besideCount:4, besideRowCount:2...
+[region] Assignment selected by best score  ...
+```
 
 ---
 
@@ -157,7 +216,7 @@ This forces 6 rows minimum, ensuring cells are large enough to pass the final va
 
 | File | Changes |
 |------|---------|
-| `src/lib/v3/normalized-pack.ts` | Refactor signature to use `V3Tuning`, add cell size constraint |
-| `src/lib/v3/region-search.ts` | Update call to match new signature |
-| `src/lib/v3/intersection.ts` | Update calls to match new signature |
+| `src/lib/v3/feasibility.ts` | Remove `canMeetCanvasAR`, add `canBesideCountMeetCanvasAR` |
+| `src/lib/v3/region-search.ts` | Add outer-loop pre-check, inline inner-loop validation without logging |
+| `src/components/DebugPanel.tsx` | Add amber styling + Filter icon for feasibility category |
 

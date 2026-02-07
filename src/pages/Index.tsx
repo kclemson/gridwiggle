@@ -16,6 +16,7 @@ import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { generateCollageLayoutV3 } from '@/lib/v3';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
+import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { cn } from '@/lib/utils';
@@ -162,6 +163,7 @@ export default function Index() {
   }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
 
   // Process smart crops for photos - called directly from event handler
+  // Also loads dimensions + creates display previews (moved here for instant UI feedback)
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
     if (photos.length === 0) return;
     
@@ -176,11 +178,33 @@ export default function Index() {
       setCurrentlyProcessingId(photo.id);
       
       try {
+        // Get fresh photo data from state (dimensions may have been updated)
+        const currentPhoto = photosRef.current.find(p => p.id === photo.id);
+        let width = currentPhoto?.originalWidth || photo.originalWidth;
+        let height = currentPhoto?.originalHeight || photo.originalHeight;
+        
+        // Load dimensions if not yet known (moved from PhotoUploader for instant feedback)
+        if (width === 0 || height === 0) {
+          const dimensions = await getImageDimensions(photo.objectUrl);
+          width = dimensions.width;
+          height = dimensions.height;
+          
+          // Create display preview
+          const preview = await createDisplayPreview(photo.blob, 1200);
+          
+          updatePhoto(photo.id, {
+            originalWidth: width,
+            originalHeight: height,
+            previewUrl: preview.url,
+            previewBlob: preview.blob,
+          });
+        }
+        
         const result = await getSmartCrop(
           photo.objectUrl,
           photo.blob,
-          photo.originalWidth,
-          photo.originalHeight,
+          width,
+          height,
           (status) => setProcessingStatus(status)
         );
         

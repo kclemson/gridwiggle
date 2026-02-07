@@ -213,6 +213,16 @@ export function useCollageState() {
   }, []);
 
   const addPhotos = useCallback(async (newPhotos: PhotoItem[]): Promise<{ succeeded: PhotoItem[]; failed: PhotoItem[] }> => {
+    // STEP 1: Add to state IMMEDIATELY (shows progress UI right away)
+    setState((prev) => ({
+      ...prev,
+      photos: [...prev.photos, ...newPhotos],
+    }));
+    
+    // Track URLs
+    newPhotos.forEach(p => objectUrlsRef.current.add(p.objectUrl));
+
+    // STEP 2: Persist to IndexedDB in background (non-blocking for UI)
     const succeeded: PhotoItem[] = [];
     const failed: PhotoItem[] = [];
 
@@ -225,30 +235,29 @@ export function useCollageState() {
           height: photo.originalHeight,
         });
         succeeded.push(photo);
-        objectUrlsRef.current.add(photo.objectUrl);
       } catch (e) {
         console.error('Failed to save photo to IndexedDB:', photo.id, e);
         failed.push(photo);
+        // Remove from state on failure
+        setState((prev) => ({
+          ...prev,
+          photos: prev.photos.filter(p => p.id !== photo.id),
+        }));
         URL.revokeObjectURL(photo.objectUrl);
+        objectUrlsRef.current.delete(photo.objectUrl);
       }
     }
 
-    // Caller receives failed array and can handle as needed
-    // Failed photos are not added to state, silently excluded
-
+    // Save metadata after all IndexedDB writes complete
     if (succeeded.length > 0) {
       setState((prev) => {
-        const next = {
-          ...prev,
-          photos: [...prev.photos, ...succeeded],
-        };
-        debouncedSaveMetadata(next);
-        return next;
+        debouncedSaveMetadata(prev);
+        return prev;
       });
     }
 
     return { succeeded, failed };
-  }, []);
+  }, [debouncedSaveMetadata]);
 
   const removePhoto = useCallback(async (photoId: string) => {
     setState((prev) => {

@@ -1,83 +1,163 @@
 
 
-## Update Test Photo Counts and Hero Probability
+## Improve V3 Debug Log Scannability
 
 ### Design Intent
-Ensure comprehensive test coverage by including:
-- Small sets (5, 6) for simpler layout validation
-- Missing edge-case values (16, 20, 30) for mathematical diversity
-- Focused hero testing (95% hero probability)
+Make failure cases stand out visually in both the browser console and the V3Test UI logs, while reducing log noise from repetitive packing operations.
 
 ### User Outcomes
-- V3Test shuffle will occasionally produce very small sets (5-6 photos)
-- Better coverage across the full range of realistic photo counts
-- Rare no-hero cases (5%) since those layouts are already well-handled
+- Failure logs will use `[layout-reject]` category and appear in red in the UI
+- Console logs will use `console.warn` for rejections, making them visually distinct in DevTools
+- Fewer logs to scroll through by consolidating repetitive row-packing logs
+- Faster debugging cycles when iterating on V3 algorithm
 
 ---
 
-### Changes
+## Changes
 
-#### File 1: `src/test/layout/photoGenerator.ts`
+### Part 1: Reduce Log Noise
 
-**Current (line 11):**
-```typescript
-export const TEST_PHOTO_COUNTS = [8, 9, 10, 12, 14, 17, 23, 35, 50] as const;
-```
+#### File: `src/lib/v3/utils.ts`
 
-**New:**
-```typescript
-export const TEST_PHOTO_COUNTS = [5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35, 50] as const;
-```
+Remove or consolidate these logs in `distributeByARBudget`:
+- **Remove**: "Starting AR-budget distribution" (line 175-181) - the input params are already visible in region-level logs
+- **Remove**: "After greedy packing" (line 214-218) - intermediate state, covered by final
+- **Keep**: "Final distribution" but simplify it
+- **Remove**: "Height validation" (line 250-254) - intermediate validation step
+- **Remove**: "Merged row with previous/next" (lines 284-287, 295-298) - low-level detail
 
-Added values:
-| Count | Rationale |
-|-------|-----------|
-| 5 | Minimum practical set, tests sparse layouts |
-| 6 | Small set, 2×3 or 3×2 grid potential |
-| 16 | Power of 2, clean factorization |
-| 20 | Common real-world set size |
-| 30 | Common real-world set size |
+This reduces 5-6 logs per packing attempt down to 1.
+
+#### File: `src/lib/v3/row-pack.ts`
+
+- **Remove**: "Row count selection" (line 285-292) - rarely needed for debugging failures
 
 ---
 
-#### File 2: `src/pages/V3Test.tsx`
+### Part 2: Distinguish Failure Logs
 
-**Change 1: Import TEST_PHOTO_COUNTS (add to imports)**
+#### File: `src/lib/devLogger.ts`
+
+Add a new `level` field to `LogEntry` and update the logger:
+
 ```typescript
-import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
+export interface LogEntry {
+  timestamp: number;
+  category: string;
+  label: string;
+  data: Record<string, unknown>;
+  level?: 'info' | 'warn' | 'error';  // NEW
+}
+
+export const devLogger = {
+  log(category: string, label: string, data: Record<string, unknown> = {}, level: 'info' | 'warn' | 'error' = 'info') {
+    if (!isDev) return;
+    
+    // Use appropriate console method based on level
+    const consoleMethod = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+    consoleMethod(`[${category}] ${label}`, data);
+    
+    logs.push({ timestamp: Date.now(), category, label, data, level });
+  },
+
+  // Convenience methods
+  warn(category: string, label: string, data: Record<string, unknown> = {}) {
+    this.log(category, label, data, 'warn');
+  },
+
+  error(category: string, label: string, data: Record<string, unknown> = {}) {
+    this.log(category, label, data, 'error');
+  },
+  
+  // ...existing clear() and getLogs()
+};
 ```
 
-**Change 2: Update generateRandomSet function (lines 83-87)**
+#### File: `src/lib/v3/intersection.ts`
 
-Current:
-```typescript
-const photoCount = Math.floor(Math.random() * 41) + 10; // 10-50
-const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
-const hasHero = Math.random() < 0.8; // 80% hero
-```
+Change these failure logs from `devLogger.log` to `devLogger.warn` with a distinct category:
 
-New:
-```typescript
-const photoCount = TEST_PHOTO_COUNTS[Math.floor(Math.random() * TEST_PHOTO_COUNTS.length)];
-const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
-const hasHero = Math.random() < 0.95; // 95% hero - no-hero cases are easier
+| Current | New |
+|---------|-----|
+| `devLogger.log('layout', 'Canvas too tall', ...)` | `devLogger.warn('layout-reject', 'Canvas too tall', ...)` |
+| `devLogger.log('layout', 'Canvas too wide', ...)` | `devLogger.warn('layout-reject', 'Canvas too wide', ...)` |
+| `devLogger.log('layout', 'Prominence too low', ...)` | `devLogger.warn('layout-reject', 'Prominence too low', ...)` |
+| `devLogger.log('layout', 'Hero too large vs smallest cells', ...)` | `devLogger.warn('layout-reject', 'Hero too large vs smallest cells', ...)` |
+| `devLogger.log('layout', 'No valid configurations found')` | `devLogger.warn('layout-reject', 'No valid configurations found')` |
+| `devLogger.log('layout', 'No valid region assignment found for proposal', ...)` | `devLogger.warn('layout-reject', 'No valid region assignment', ...)` |
+
+#### File: `src/lib/v3/region-search.ts`
+
+Same pattern for region rejections:
+
+| Current | New |
+|---------|-----|
+| `devLogger.log('region', 'Assignment rejected...')` | `devLogger.warn('region-reject', 'Assignment rejected...', ...)` |
+| `devLogger.log('region', 'No valid assignment found')` | `devLogger.warn('region-reject', 'No valid assignment found')` |
+
+---
+
+### Part 3: UI Conditional Formatting
+
+#### File: `src/pages/V3Test.tsx`
+
+Update the log entry rendering to apply red styling for warn/error levels:
+
+```tsx
+logs.map((entry, idx) => {
+  const isReject = entry.level === 'warn' || entry.level === 'error' 
+    || entry.category.includes('reject');
+  
+  return (
+    <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
+      <div className="flex gap-1 min-w-0">
+        <span className={cn(
+          "shrink-0",
+          isReject ? "text-red-500" : "text-blue-500"
+        )}>
+          [{entry.category}]
+        </span>
+        <span className={cn(
+          "break-words min-w-0",
+          isReject ? "text-red-400" : "text-foreground"
+        )}>
+          {entry.label}
+        </span>
+      </div>
+      {Object.keys(entry.data).length > 0 && (
+        <span className={cn(
+          "break-all",
+          isReject ? "text-red-400/70" : "text-muted-foreground"
+        )}>
+          {formatLogData(entry.data)}
+        </span>
+      )}
+    </div>
+  );
+})
 ```
 
 ---
 
-### Summary
+## Summary
 
-| Setting | Current | New |
-|---------|---------|-----|
-| Photo counts | Uniform 10-50 | `[5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35, 50]` |
-| Hero probability | 80% | 95% |
+| Area | Before | After |
+|------|--------|-------|
+| Logs per pack operation | 5-6 | 1 |
+| Failure category | `[layout]` | `[layout-reject]` or `[region-reject]` |
+| Console output | All `console.log` | Failures use `console.warn` |
+| UI styling | All blue | Rejections in red |
 
 ---
 
-### Files Modified
+## Files Modified
 
-| File | Change |
-|------|--------|
-| `src/test/layout/photoGenerator.ts` | Expand `TEST_PHOTO_COUNTS` to include 5, 6, 16, 20, 30 |
-| `src/pages/V3Test.tsx` | Use `TEST_PHOTO_COUNTS`; increase hero probability to 95% |
+| File | Changes |
+|------|---------|
+| `src/lib/devLogger.ts` | Add `level` field and `warn()`/`error()` methods |
+| `src/lib/v3/utils.ts` | Remove 5 redundant logs from AR-budget distribution |
+| `src/lib/v3/row-pack.ts` | Remove 1 redundant "Row count selection" log |
+| `src/lib/v3/intersection.ts` | Change 6 failure logs to `devLogger.warn('layout-reject', ...)` |
+| `src/lib/v3/region-search.ts` | Change 2+ rejection logs to `devLogger.warn('region-reject', ...)` |
+| `src/pages/V3Test.tsx` | Add conditional red styling for reject/warn entries |
 

@@ -1,123 +1,85 @@
 
-# Fix: Thread `randomize` to Row Distribution
+# Fix Thumbnail Grid Size & Selection Ring Clipping
 
-## Problem Summary
-After gating randomness behind the `randomize` flag, the flag isn't being passed down to `distributeByARBudget` - the function that actually uses it to add jitter to row breaks. This means:
+## What You'll Experience After This Fix
 
-1. Jitter is **always disabled** (even when shuffle button is clicked)
-2. Deterministic row distribution hits geometry edge cases that random jitter used to help avoid
-3. Result: slider movements now consistently fail for certain photo sets
+1. **Larger thumbnails in View All**: Photos will be 85px instead of 56px - easier to see and select
+2. **Mobile-friendly layout**: Grid will adapt gracefully to smaller screens (fewer columns, appropriate padding)
+3. **Selection ring visible**: The purple border around the current photo won't be cut off anymore
 
-## What Users Will Experience After Fix
-- **Slider adjustments**: Stable, predictable - no more random failures
-- **Shuffle button**: Actually shuffles again (provides variety via jitter)
-- **Edge cases**: If a photo set truly can't produce a valid layout, the error overlay appears instead of destroying the collage
+---
 
-## Technical Fix
+## Technical Changes
 
-### Thread `randomize` through the packing chain
+### File: `src/components/ThumbnailNavigator.tsx`
 
-**File: `src/lib/v3/normalized-pack.ts`**
-
-Update `packToFillHeight` and `packToFillWidth` to accept and pass `randomize`:
-
+**Change 1: Increase thumbnail size**
 ```typescript
-// Line 29-35: packToFillHeight signature
-export function packToFillHeight(
-  photos: PhotoDimension[],
-  targetHeight: number,
-  normalizedGap: number,
-  rowCount: number,
-  tuning: V3Tuning = DEFAULT_V3_TUNING,
-  randomize: boolean = false  // ADD THIS
-): NormalizedPackResult {
-
-// Line 62: pass randomize to distributeByARBudget
-const rows = distributeByARBudget(photos, rowCount, tuning, randomize);
+// Line 19: Change from 56 to 85
+const THUMBNAIL_SIZE = 85; // px
 ```
 
-```typescript
-// Line 159-165: packToFillWidth signature  
-export function packToFillWidth(
-  photos: PhotoDimension[],
-  targetWidth: number,
-  normalizedGap: number,
-  rowCount: number,
-  tuning: V3Tuning = DEFAULT_V3_TUNING,
-  randomize: boolean = false  // ADD THIS
-): NormalizedPackResult {
+**Change 2: Fix ring clipping issue**
 
-// Line 191: pass randomize to distributeByARBudget
-const rows = distributeByARBudget(photos, rowCount, tuning, randomize);
-```
-
-**File: `src/lib/v3/split-search.ts`**
-
-Update calls to packing functions to pass `randomize`:
+The problem is that `overflow-hidden` on the button clips the `ring` and `ring-offset` which render *outside* the element bounds. The fix is to:
+- Remove `overflow-hidden` from the button (which was there to clip the image)
+- Instead, add `overflow-hidden` and `rounded` to the image container inside
 
 ```typescript
-// Line 93: packToFillWidth for BELOW in "no BESIDE" case
-const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
-
-// Line 138: packToFillHeight for BESIDE
-const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount, tuning, randomize);
-
-// Line 155: packToFillWidth for BELOW
-const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
+// Line 116-124: Update button and image wrapper
+<button
+  key={photo.id}
+  onClick={() => handleSelect(photo.id)}
+  className={cn(
+    "relative aspect-square transition-all",
+    "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+    isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+  )}
+  style={{ 
+    minHeight: THUMBNAIL_SIZE,
+    minWidth: THUMBNAIL_SIZE,
+  }}
+>
+  {isLoaded ? (
+    <div className="w-full h-full rounded overflow-hidden">
+      {crop ? (
+        <CroppedImage ... />
+      ) : (
+        <img ... />
+      )}
+    </div>
+    ...
+  )}
+</button>
 ```
 
-**File: `src/lib/v3/intersection.ts`**
+**Change 3: Better mobile responsiveness**
 
-Update calls in `evaluateNormalizedProposal` and `generateSimpleRowsLayout`:
-
+Add responsive padding and ensure grid works on narrow viewports:
 ```typescript
-// In evaluateNormalizedProposal (~line 158):
-besideResult = packToFillHeight(
-  splitResult.besidePhotos,
-  1.0,
-  normalizedGapForLayout,
-  splitResult.besideRowCount,
-  tuning,
-  randomize  // ADD THIS
-);
-
-// (~line 178):
-const belowResult = packToFillWidth(
-  splitResult.belowPhotos,
-  heroRowWidth,
-  normalizedGapForLayout,
-  belowRowCount,
-  tuning,
-  randomize  // ADD THIS
-);
-
-// In generateSimpleRowsLayout (~line 506):
-const normalizedResult = packToFillWidth(
-  photos, 
-  1.0, 
-  estimatedNormalizedGap, 
-  rowCount, 
-  tuning,
-  false  // Simple rows always deterministic
-);
+// Line 99-104: Update grid container
+<div 
+  className="grid gap-3"
+  style={{
+    gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))`,
+  }}
+>
 ```
 
-## Files Changed
+Also update the container max-width to be responsive:
+```typescript
+// Line 78: Make container more responsive
+<div className="flex flex-col w-full max-w-lg sm:max-w-xl md:max-w-2xl">
+```
 
-| File | Change |
-|------|--------|
-| `src/lib/v3/normalized-pack.ts` | Add `randomize` param to `packToFillHeight` and `packToFillWidth`, pass to `distributeByARBudget` |
-| `src/lib/v3/split-search.ts` | Pass `randomize` to all packing function calls |
-| `src/lib/v3/intersection.ts` | Pass `randomize` to packing function calls in `evaluateNormalizedProposal` |
+---
 
-## Why This Fixes the Issue
+## Summary of Changes
 
-1. **Slider movements**: `randomize=false` → deterministic packing → consistent (not random failure)
-2. **Shuffle button**: `randomize=true` → jitter enabled → variety in row distribution → explores more configurations that might pass canvas AR constraints
-3. **Edge cases still fail gracefully**: If geometry truly doesn't work, error overlay shows instead of destroying collage
-
-## Testing Checklist
-1. Upload 10+ landscape photos, generate collage
-2. Move spacing slider - should remain stable
-3. Click shuffle - should produce different layouts
-4. Verify no random "couldn't generate" errors on slider movement
+| Location | Change |
+|----------|--------|
+| Line 19 | `THUMBNAIL_SIZE = 85` (was 56) |
+| Line 78 | Add responsive max-width classes |
+| Line 101 | Increase gap from `gap-2` to `gap-3` |
+| Line 117 | Remove `rounded overflow-hidden` from button |
+| Line 127-142 | Wrap image content in `<div className="w-full h-full rounded overflow-hidden">` |

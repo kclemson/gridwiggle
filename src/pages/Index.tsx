@@ -7,19 +7,18 @@ import { PhotoProcessingView } from '@/components/PhotoProcessingView';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
-import { DebugPanel, AlgorithmVersion } from '@/components/DebugPanel';
+import { DebugPanel } from '@/components/DebugPanel';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateLayoutInWorker } from '@/services/layoutGenerationService';
-import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
-import { generateCollageLayoutV3 } from '@/lib/v3';
+import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
 import { 
   saveCapture, 
@@ -47,7 +46,6 @@ export default function Index() {
     updatePhoto,
     updateSettings,
     setLayout,
-    updateLayoutCells,
     clearAll,
   } = useCollageState();
 
@@ -59,7 +57,6 @@ export default function Index() {
   const [processingStatus, setProcessingStatus] = useState<string>('Detecting faces and subjects...');
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
-  const [algorithmVersion, setAlgorithmVersion] = useState<AlgorithmVersion>('v3');
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   
@@ -155,55 +152,34 @@ export default function Index() {
     devLogger.clear();
     remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
     
-    // V3 is the production algorithm
-    // In dev mode, algorithmVersion toggle in DebugPanel can override
-    const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
-    
     try {
-      let layout;
-      let workerResult: { durationMs?: number; usedWorker?: boolean; failure?: { reason: string }; logs?: LogEntry[] } | undefined;
+      // Always use V3 worker for layout generation
+      const result = await generateLayoutInWorker({
+        dimensions,
+        normalizedGap,
+        tuning: tuningOverride,
+        randomize,
+      });
       
-      if (useV3) {
-        // Worker-based async generation (non-blocking)
-        const result = await generateLayoutInWorker({
-          dimensions,
-          normalizedGap,
-          tuning: tuningOverride,
-          randomize,
-        });
-        
-        // Check for stale response (user clicked again while we were working)
-        if (requestId !== latestRequestIdRef.current) {
-          return; // Discard stale result
+      // Check for stale response (user clicked again while we were working)
+      if (requestId !== latestRequestIdRef.current) {
+        return; // Discard stale result
+      }
+      
+      const layout = result.layout;
+      
+      // Populate debug logs from worker
+      if (result.logs) {
+        for (const log of result.logs) {
+          devLogger.log(log.category, log.label, log.data);
         }
-        
-        layout = result.layout;
-        workerResult = result;
-        
-        // Populate debug logs from worker
-        if (result.logs) {
-          for (const log of result.logs) {
-            devLogger.log(log.category, log.label, log.data);
-          }
-        }
-      } else {
-        // V1 fallback (dev-only, synchronous)
-        const photoWeights: Record<string, number> = {};
-        for (const d of dimensions) {
-          photoWeights[d.id] = d.weight;
-        }
-        layout = generateCollageLayout(photosToUse, settings, { 
-          photoWeights,
-          randomize,
-          tuning: DEFAULT_TUNING,
-        });
       }
       
       const currentLogs = devLogger.getLogs();
       setDebugLogs(currentLogs);
       
-      // Save capture directly (dev only, v3 only)
-      if (import.meta.env.DEV && useV3 && workerResult) {
+      // Save capture directly (dev only)
+      if (import.meta.env.DEV) {
         const heroPhoto = photosToUse.find(p => {
           const dim = dimensions.find(d => d.id === p.id);
           return dim?.weight === 2.0;
@@ -216,7 +192,7 @@ export default function Index() {
           ? (landscapeCount / dimensions.length) * 2 - 1 
           : 0;
         
-        const logEntries = workerResult.logs || currentLogs;
+        const logEntries = result.logs || currentLogs;
         const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
           extractReasonFrequencies(logEntries);
         const lastRejection = getLastRejection(logEntries);
@@ -242,7 +218,7 @@ export default function Index() {
           rejectReasons,
           feasibilityCount,
           feasibilityReasons,
-          durationMs: workerResult.durationMs ?? 0,
+          durationMs: result.durationMs ?? 0,
           failureReason: layout ? null : lastRejection?.reason ?? 'unknown',
           failureDetails: layout ? null : lastRejection?.details ?? null,
           capturedAt: new Date().toISOString(),
@@ -254,14 +230,14 @@ export default function Index() {
         setLayoutError(null);
         remoteLogger.info('layout', 'Layout generated', { 
           cells: layout.cells.length,
-          durationMs: workerResult?.durationMs,
-          usedWorker: workerResult?.usedWorker ?? false,
+          durationMs: result.durationMs,
+          usedWorker: result.usedWorker ?? false,
         });
       } else {
         remoteLogger.error('layout', 'Layout generation failed', {
-          durationMs: workerResult?.durationMs,
-          usedWorker: workerResult?.usedWorker ?? false,
-          reason: workerResult?.failure?.reason ?? 'unknown',
+          durationMs: result.durationMs,
+          usedWorker: result.usedWorker ?? false,
+          reason: result.failure?.reason ?? 'unknown',
         });
         if (state.layout) {
           setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
@@ -288,7 +264,7 @@ export default function Index() {
         setIsGenerating(false);
       }
     }
-  }, [state.settings, state.layout, setLayout, v3Tuning, algorithmVersion]);
+  }, [state.settings, state.layout, setLayout, v3Tuning]);
 
   // Process smart crops for photos - called directly from event handler
   // Also loads dimensions + creates display previews (moved here for instant UI feedback)
@@ -462,41 +438,51 @@ export default function Index() {
     }
   }, [v3Tuning, state.layout, regenerateCollage]);
 
-  const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
-    if (state.layout) {
-      const newLayout = reflowAfterSwap(
-        state.layout,
-        state.photos,
-        photoId1,
-        photoId2,
-        state.settings.gapSize
-      );
-      setLayout(newLayout);
-    }
-  }, [state.layout, state.photos, state.settings.gapSize, setLayout]);
-
   const handleExport = useCallback(async () => {
     if (!state.layout) return;
-
+    
     setIsExporting(true);
     setExportError(null);
+    remoteLogger.info('export', 'Starting export', { photoCount: state.photos.length });
+    
     try {
       const blob = await exportCollageAsPng(
         state.photos,
         state.layout,
-        state.settings.gapColor,
-        2 // 2x scale for higher resolution
+        state.settings.gapColor
       );
-      
-      const timestamp = new Date().toISOString().split('T')[0];
-      await shareOrDownload(blob, `collage-${timestamp}.png`);
+      await shareOrDownload(blob, `collage-${Date.now()}.png`);
+      remoteLogger.info('export', 'Export complete', { size: blob.size });
     } catch (error) {
       console.error('Export failed:', error);
-      setExportError('Failed to export collage. Please try again.');
+      remoteLogger.error('export', 'Export failed', { 
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setExportError('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
     }
-  }, [state.photos, state.layout, state.settings.gapColor]);
+  }, [state.layout, state.photos, state.settings]);
+
+  const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
+    if (!state.layout) return;
+    
+    // Use gap size from settings - convert slider (0-100) to normalized gap (0 to 0.04)
+    // Then scale to layout width for absolute pixels
+    const normalizedGap = (state.settings.gapSize / 100) * 0.04;
+    const gapPx = normalizedGap * state.layout.width;
+    
+    // Reflow-aware swap: recalculates row heights based on new photo placements
+    const newLayout = reflowAfterSwap(
+      state.layout,
+      state.photos,
+      photoId1,
+      photoId2,
+      gapPx
+    );
+    // Update layout with new cells and dimensions
+    setLayout(newLayout);
+  }, [state.layout, state.photos, state.settings.gapSize, setLayout]);
 
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
 
@@ -761,8 +747,6 @@ export default function Index() {
                   >
                     <DebugPanel 
                       logs={debugLogs}
-                      algorithmVersion={algorithmVersion}
-                      onAlgorithmVersionChange={setAlgorithmVersion}
                     />
                   </div>
                 )}

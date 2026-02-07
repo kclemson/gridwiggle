@@ -1,12 +1,11 @@
-import { generateCollageLayout } from '@/lib/collageLayout';
+import { generateCollageLayoutV3 } from '@/lib/v3';
 import { 
   CollageSettings, 
-  LayoutTuning, 
   PhotoItem, 
-  DEFAULT_TUNING,
   CollageLayout,
   isShapeAvailable,
 } from '@/types/collage';
+import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { 
   SyntheticPhoto, 
   LayoutTestCase, 
@@ -134,7 +133,7 @@ function calculateMetrics(
 }
 
 /**
- * Run a test case through the layout algorithm and compute metrics.
+ * Run a test case through the V3 layout algorithm and compute metrics.
  */
 export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   const { photos, shape, tuning } = testCase;
@@ -142,7 +141,7 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   // Convert synthetic photos to PhotoItems
   const photoItems = photos.map(syntheticToPhotoItem);
   
-  // Convert priority to photoWeights (same logic as Index.tsx)
+  // Convert priority to photoWeights
   // Priority 1 = hero → weight 2.0
   // Priority 2, 3 = standard → weight 1.0
   const photoWeights: Record<string, number> = {};
@@ -150,21 +149,38 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
   }
   
-  // Merge tuning with defaults
-  const fullTuning: LayoutTuning = { ...DEFAULT_TUNING, ...tuning };
+  // Build V3 tuning with test case overrides (currently no direct mapping)
+  const v3Tuning: Partial<V3Tuning> = {};
   
-  // Run the layout algorithm WITH WEIGHTS
+  // Run the V3 layout algorithm
   const settings: CollageSettings = {
     shape,
     gapColor: '#000000',
     gapSize: 4,
   };
   
-  const layout = generateCollageLayout(photoItems, settings, {
-    tuning: fullTuning,
+  const layout = generateCollageLayoutV3(photoItems, settings, {
+    photoWeights,
     randomize: false, // Deterministic for testing
-    photoWeights, // Now heroes will be detected!
+    tuning: v3Tuning,
   });
+  
+  // Handle null layouts (V3 returns null on failure)
+  if (!layout) {
+    return {
+      testCase,
+      layout: { width: 0, height: 0, cells: [] },
+      rowCount: 0,
+      rowSizes: [],
+      rowHeroAdjacent: [],
+      canvasAspect: 0,
+      areaCoefficientOfVariation: 0,
+      largestToSmallestRatio: 0,
+      heroCoverage: null,
+      cellAreaPercents: [],
+      heroToRunnerUpRatio: null,
+    };
+  }
   
   // Calculate metrics
   const metrics = calculateMetrics(layout, photos);

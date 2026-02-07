@@ -149,7 +149,7 @@ export function findValidRegionAssignment(
       const heroRowWidth = heroAR; // Just the hero, no beside region
       
       // Calculate BELOW row count
-      const belowRowCount = calculateBelowRowCount(
+      const belowRowResult = calculateBelowRowCount(
         belowPhotos, 
         heroRowWidth, 
         normalizedGap,
@@ -157,6 +157,8 @@ export function findValidRegionAssignment(
         tuning,
         randomize
       );
+      const belowRowCount = belowRowResult.value;
+      const belowRowRange = `${belowRowResult.minRows}-${belowRowResult.maxRows}`;
       
       // Pack BELOW
       const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
@@ -177,7 +179,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
           besideCount: 0,
@@ -200,7 +202,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: tuning.hero_minProminence, besideCount: `0 (${minBeside}-${maxBeside})`, besideRowCount: `0` },
+          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: tuning.hero_minProminence, besideCount: `0 (${minBeside}-${maxBeside})`, besideRowCount: `0`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Prominence too low (no BESIDE)', {
           besideCount: 0,
@@ -255,7 +257,7 @@ export function findValidRegionAssignment(
       }
       
       // Calculate optimal row count for BELOW (respecting both min and max AR)
-      const belowRowCount = calculateBelowRowCount(
+      const belowRowResult = calculateBelowRowCount(
         belowPhotos, 
         heroRowWidth, 
         normalizedGap,
@@ -263,6 +265,8 @@ export function findValidRegionAssignment(
         tuning,
         randomize
       );
+      const belowRowCount = belowRowResult.value;
+      const belowRowRange = `${belowRowResult.minRows}-${belowRowResult.maxRows}`;
       
       // Pack BELOW at derived width
       const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
@@ -283,7 +287,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range', {
           besideCount,
@@ -310,7 +314,7 @@ export function findValidRegionAssignment(
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})` },
+          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Prominence too low', {
           besideCount,

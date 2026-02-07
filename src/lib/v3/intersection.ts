@@ -561,13 +561,14 @@ function generateSimpleRowsLayout(
   }
   
   // Determine row count using geometry-aware calculation (enforces both min and max AR)
-  const rowCount = calculateBelowRowCount(
+  const rowCountResult = calculateBelowRowCount(
     photos, 
     1.0, 
     normalizedGap, 
     0,     // No hero
     tuning
   );
+  const rowCount = rowCountResult.value;
   
   // Pack in normalized space (use width = 1.0 as reference)
   // Simple rows always use deterministic packing (no hero = no shuffle)

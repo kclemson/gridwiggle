@@ -9,7 +9,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
-import { generatePhotoSet } from '@/test/layout/photoGenerator';
+import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { SyntheticPhoto } from '@/test/layout/types';
@@ -81,9 +81,9 @@ function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
  * Generate a random photo set with 80% hero probability.
  */
 function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
-  const photoCount = Math.floor(Math.random() * 41) + 10; // 10-50
+  const photoCount = TEST_PHOTO_COUNTS[Math.floor(Math.random() * TEST_PHOTO_COUNTS.length)];
   const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
-  const hasHero = Math.random() < 0.8; // 80% hero
+  const hasHero = Math.random() < 0.95; // 95% hero - no-hero cases are easier
   const seed = Date.now(); // Use timestamp as pseudo-seed for reference
   
   const photos = generatePhotoSet(photoCount, orientationBias, hasHero);

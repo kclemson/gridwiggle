@@ -511,6 +511,10 @@ export default function Index() {
           photo={editingPhoto}
           onClose={() => setEditingPhotoId(null)}
           onSave={handleSaveCrop}
+          onDelete={(photoId) => {
+            handleRemovePhoto(photoId);
+            setEditingPhotoId(null);
+          }}
         />
       )}
       

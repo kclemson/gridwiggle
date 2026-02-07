@@ -459,8 +459,8 @@ function generateSimpleRowsLayout(
     photos, 
     1.0, 
     normalizedGap, 
-    tuning.canvas_minAR,
-    tuning.canvas_maxAR
+    0,     // No hero
+    tuning
   );
   
   // Pack in normalized space (use width = 1.0 as reference)

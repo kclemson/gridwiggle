@@ -35,10 +35,6 @@ export function PhotoProcessingView({
               alt=""
               className="w-full h-full object-cover"
             />
-            {/* Spinner overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-              <Loader2 className="h-8 w-8 text-white animate-spin" />
-            </div>
           </div>
         </div>
       )}

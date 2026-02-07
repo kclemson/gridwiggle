@@ -438,7 +438,8 @@ export default function Index() {
                       <>
                         Photos
                         <span className="mx-2 text-muted-foreground/50">·</span>
-                        <span className="text-emerald-600 normal-case tracking-normal">
+                        <Loader2 className="inline h-3 w-3 animate-spin text-muted-foreground" />
+                        <span className="ml-1.5 text-emerald-600 normal-case tracking-normal">
                           {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
                         </span>
                         {state.photos.filter(p => p.smartCrop !== null).length > 0 && (

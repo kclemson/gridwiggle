@@ -124,7 +124,7 @@ export function generateCollageLayoutV3(
   });
   
   // Find valid configuration through constraint intersection
-  const config = findValidConfiguration(dimensions, canvasWidth, pixelGap, tuning);
+  const config = findValidConfiguration(dimensions, canvasWidth, pixelGap, tuning, randomize);
   
   if (!config) {
     devLogger.log('v3', 'No valid configuration found');

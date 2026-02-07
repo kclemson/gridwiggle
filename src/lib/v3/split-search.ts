@@ -34,7 +34,8 @@ export function findBestSplit(
   photos: PhotoDimension[],
   heroAR: number,
   normalizedGap: number,
-  tuning: V3Tuning
+  tuning: V3Tuning,
+  randomize: boolean = false
 ): SplitResult | null {
   if (photos.length === 0) {
     return null;
@@ -51,8 +52,10 @@ export function findBestSplit(
     };
   }
   
-  // Shuffle photos randomly (each call produces different assignments)
-  const shuffledPhotos = shuffleArray(photos);
+  // Order photos: shuffle for variety OR sort by AR for determinism
+  const orderedPhotos = randomize
+    ? shuffleArray(photos)
+    : [...photos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
   // Search parameters - canvas AR constraint naturally limits valid splits
   const minBesidePhotos = 0;  // Allow "hero at top, all below"
@@ -61,16 +64,17 @@ export function findBestSplit(
   // Collect all valid splits instead of tracking best
   const validSplits: SplitResult[] = [];
   
-  devLogger.log('v3-split', 'Starting randomized split search', {
+  devLogger.log('v3-split', 'Starting split search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
     searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
+    randomize,
   });
   
   for (let besideCount = minBesidePhotos; besideCount <= maxBesidePhotos; besideCount++) {
-    // Slice from shuffled array (random assignment)
-    const besidePhotos = shuffledPhotos.slice(0, besideCount);
-    const belowPhotos = shuffledPhotos.slice(besideCount);
+    // Slice from ordered array (shuffled or sorted)
+    const besidePhotos = orderedPhotos.slice(0, besideCount);
+    const belowPhotos = orderedPhotos.slice(besideCount);
     
     // Handle "no BESIDE" case (hero at top, all content below)
     if (besideCount === 0) {
@@ -195,8 +199,12 @@ export function findBestSplit(
   }
   
   if (validSplits.length > 0) {
-    const selected = validSplits[Math.floor(Math.random() * validSplits.length)];
-    devLogger.log('v3-split', 'Split selected randomly', {
+    // Pick randomly for variety OR pick best score for determinism
+    const selected = randomize
+      ? validSplits[Math.floor(Math.random() * validSplits.length)]
+      : validSplits.reduce((best, current) => current.score > best.score ? current : best);
+    
+    devLogger.log('v3-split', `Split selected ${randomize ? 'randomly' : 'by best score'}`, {
       totalCandidates: validSplits.length,
       besideCount: selected.besidePhotos.length,
       belowCount: selected.belowPhotos.length,

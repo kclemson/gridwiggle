@@ -7,7 +7,7 @@
  */
 
 import { PhotoDimension, RegionSpec, LayoutCell, V3Tuning } from './types';
-import { randomInt, mean } from './utils';
+import { randomInt, distributeByARBudget } from './utils';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -120,7 +120,7 @@ export function packPhotosIntoRegion(
   // Iteratively reduce row count until constraints are satisfied
   // Fewer rows = more photos per row = smaller cells = lower height
   while (rowCount >= minRows) {
-    const result = packWithRowCount(photos, region, gap, rowCount);
+    const result = packWithRowCount(photos, region, gap, rowCount, tuning);
     
     const violatesArea = constraints.maxCellArea && result.maxCellArea > constraints.maxCellArea;
     const violatesHeight = constraints.maxHeight && result.actualHeight > constraints.maxHeight;
@@ -138,7 +138,7 @@ export function packPhotosIntoRegion(
   }
   
   // Couldn't satisfy constraints - return the best attempt (minRows)
-  const result = packWithRowCount(photos, region, gap, minRows);
+  const result = packWithRowCount(photos, region, gap, minRows, tuning);
   
   // Still apply fillHeight scaling if applicable
   if (constraints.fillHeight && result.actualHeight < constraints.fillHeight) {
@@ -246,13 +246,14 @@ function packWithRowCount(
   photos: PhotoDimension[],
   region: RegionSpec,
   gap: number,
-  rowCount: number
+  rowCount: number,
+  tuning: V3Tuning
 ): PackingResult {
-  // Distribute photos across rows using round-robin
-  const rows = distributeToRowsRoundRobin(photos, rowCount);
+  // Distribute photos across rows using AR-budget algorithm
+  const rows = distributeByARBudget(photos, rowCount, tuning);
   
   // Pack each row and stack them
-  return packRows(rows, region, gap, rowCount);
+  return packRows(rows, region, gap, rows.length);
 }
 
 /**
@@ -291,21 +292,6 @@ function pickRandomRowCount(
   });
   
   return chosen;
-}
-
-/**
- * Distribute photos across rows using round-robin (prevents singleton last rows).
- * e.g., 7 photos into 3 rows → [3, 2, 2] instead of [3, 3, 1]
- */
-function distributeToRowsRoundRobin(photos: PhotoDimension[], rowCount: number): PhotoDimension[][] {
-  const rows: PhotoDimension[][] = Array.from({ length: rowCount }, () => []);
-  
-  photos.forEach((photo, index) => {
-    rows[index % rowCount].push(photo);
-  });
-  
-  // Remove empty rows (shouldn't happen with round-robin, but safety check)
-  return rows.filter(row => row.length > 0);
 }
 
 /**

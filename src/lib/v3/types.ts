@@ -41,6 +41,12 @@ export interface V3Tuning {
   canvas_minAR: number;
   /** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.0 = 2:1 */
   canvas_maxAR: number;
+  
+  // === Row Distribution ===
+  /** AR budget jitter for organic variation (0.2 = +/- 20%) */
+  row_arBudgetJitter: number;
+  /** Max row height relative to average (1.8 = 180% of avg height) */
+  row_maxHeightRatio: number;
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
@@ -53,6 +59,8 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   row_flexPercent: 0.10,
   canvas_minAR: 0.67,
   canvas_maxAR: 2.0,
+  row_arBudgetJitter: 0.2,
+  row_maxHeightRatio: 1.8,
 };
 
 // ============================================================================

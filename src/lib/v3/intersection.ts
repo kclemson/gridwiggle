@@ -165,7 +165,8 @@ function evaluateNormalizedProposal(
       splitResult.besidePhotos,
       1.0,
       estimatedNormalizedGap,
-      splitResult.besideRowCount
+      splitResult.besideRowCount,
+      tuning
     );
     heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
   }
@@ -178,7 +179,8 @@ function evaluateNormalizedProposal(
     splitResult.belowPhotos,
     heroRowWidth,
     estimatedNormalizedGap,
-    belowRowCount
+    belowRowCount,
+    tuning
   );
   
   // Calculate total normalized canvas
@@ -474,7 +476,7 @@ function generateSimpleRowsLayout(
   );
   
   // Pack in normalized space (use width = 1.0 as reference)
-  const normalizedResult = packToFillWidth(photos, 1.0, estimatedNormalizedGap, rowCount);
+  const normalizedResult = packToFillWidth(photos, 1.0, estimatedNormalizedGap, rowCount, tuning);
   
   // ============================================================================
   // Bottom-Up: Derive scale factor from geometry

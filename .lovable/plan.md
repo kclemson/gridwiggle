@@ -1,6 +1,6 @@
-
-
 # AR-Budget Row Distribution
+
+**Status: IMPLEMENTED ✓**
 
 ## Overview
 

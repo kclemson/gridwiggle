@@ -5,7 +5,8 @@
  * Widths are derived from geometry, not constrained upfront.
  */
 
-import { PhotoDimension, NormalizedCell, NormalizedPackResult, V3Tuning } from './types';
+import { PhotoDimension, NormalizedCell, NormalizedPackResult, V3Tuning, DEFAULT_V3_TUNING } from './types';
+import { distributeByARBudget } from './utils';
 
 // ============================================================================
 // Pack to Fill Height (for BESIDE region)
@@ -22,13 +23,15 @@ import { PhotoDimension, NormalizedCell, NormalizedPackResult, V3Tuning } from '
  * @param targetHeight - Height to fill (1.0 for BESIDE)
  * @param normalizedGap - Gap as fraction of hero height
  * @param rowCount - Number of rows to use
+ * @param tuning - V3Tuning for AR-budget distribution
  * @returns Packed cells and total width used
  */
 export function packToFillHeight(
   photos: PhotoDimension[],
   targetHeight: number,
   normalizedGap: number,
-  rowCount: number
+  rowCount: number,
+  tuning: V3Tuning = DEFAULT_V3_TUNING
 ): NormalizedPackResult {
   if (photos.length === 0) {
     return { cells: [], width: 0, height: 0, rowCount: 0 };
@@ -55,8 +58,8 @@ export function packToFillHeight(
     };
   }
   
-  // Distribute photos across rows using round-robin
-  const rows = distributeToRowsRoundRobin(photos, rowCount);
+  // Distribute photos across rows using AR-budget algorithm
+  const rows = distributeByARBudget(photos, rowCount, tuning);
   
   // Calculate total gap height between rows
   const totalGapHeight = (rows.length - 1) * normalizedGap;
@@ -150,13 +153,15 @@ export function packToFillHeight(
  * @param targetWidth - Width to fill
  * @param normalizedGap - Gap as fraction of hero height
  * @param rowCount - Number of rows to use
+ * @param tuning - V3Tuning for AR-budget distribution
  * @returns Packed cells and total height used
  */
 export function packToFillWidth(
   photos: PhotoDimension[],
   targetWidth: number,
   normalizedGap: number,
-  rowCount: number
+  rowCount: number,
+  tuning: V3Tuning = DEFAULT_V3_TUNING
 ): NormalizedPackResult {
   if (photos.length === 0) {
     return { cells: [], width: 0, height: 0, rowCount: 0 };
@@ -182,8 +187,8 @@ export function packToFillWidth(
     };
   }
   
-  // Distribute photos across rows using round-robin
-  const rows = distributeToRowsRoundRobin(photos, rowCount);
+  // Distribute photos across rows using AR-budget algorithm
+  const rows = distributeByARBudget(photos, rowCount, tuning);
   
   // Pack rows
   const cells: NormalizedCell[] = [];
@@ -227,25 +232,6 @@ export function packToFillWidth(
     height: totalHeight,
     rowCount: rows.length,
   };
-}
-
-// ============================================================================
-// Row Distribution
-// ============================================================================
-
-/**
- * Distribute photos across rows using round-robin.
- * Prevents singleton last rows (e.g., 7 photos into 3 rows → [3, 2, 2] not [3, 3, 1])
- */
-function distributeToRowsRoundRobin(photos: PhotoDimension[], rowCount: number): PhotoDimension[][] {
-  const rows: PhotoDimension[][] = Array.from({ length: rowCount }, () => []);
-  
-  photos.forEach((photo, index) => {
-    rows[index % rowCount].push(photo);
-  });
-  
-  // Remove empty rows (safety check)
-  return rows.filter(row => row.length > 0);
 }
 
 // ============================================================================

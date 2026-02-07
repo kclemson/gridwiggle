@@ -86,7 +86,7 @@ export function findBestSplit(
       );
       
       // Pack BELOW
-      const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount);
+      const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning);
       
       if (belowResult.cells.length === 0) continue;
       
@@ -131,7 +131,7 @@ export function findBestSplit(
     
     for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
       // Pack BESIDE at height = 1
-      const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount);
+      const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount, tuning);
       
       if (besideResult.cells.length === 0) continue;
       
@@ -148,7 +148,7 @@ export function findBestSplit(
       );
       
       // Pack BELOW at derived width
-      const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount);
+      const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning);
       
       if (belowPhotos.length > 0 && belowResult.cells.length === 0) continue;
       

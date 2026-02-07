@@ -95,7 +95,15 @@ function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
 const LOG_THRESHOLDS = { good: 30, warn: 80 };
 const DURATION_THRESHOLDS = { good: 10, warn: 50 };
 
-function LogCountBadge({ count }: { count: number }) {
+function LogCountBadge({ 
+  count, 
+  rejectCount, 
+  feasibilityCount 
+}: { 
+  count: number; 
+  rejectCount: number;
+  feasibilityCount: number;
+}) {
   const color = count <= LOG_THRESHOLDS.good 
     ? 'text-green-600' 
     : count <= LOG_THRESHOLDS.warn 
@@ -105,6 +113,15 @@ function LogCountBadge({ count }: { count: number }) {
   return (
     <span className={cn("tabular-nums", color)}>
       {count} logs
+      {(rejectCount > 0 || feasibilityCount > 0) && (
+        <span className="text-muted-foreground ml-1">
+          (
+          {rejectCount > 0 && <span className="text-red-500">{rejectCount} rej</span>}
+          {rejectCount > 0 && feasibilityCount > 0 && ', '}
+          {feasibilityCount > 0 && <span className="text-amber-500">{feasibilityCount} feas</span>}
+          )
+        </span>
+      )}
     </span>
   );
 }
@@ -173,6 +190,22 @@ export default function V3Test() {
   const heroPhoto = photoSet.photos.find(p => p.priority === 1);
   const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
   
+  // Log category breakdown
+  const logStats = useMemo(() => {
+    let rejectCount = 0;
+    let feasibilityCount = 0;
+    
+    for (const entry of logs) {
+      if (entry.level === 'warn' || entry.level === 'error' || entry.category.includes('reject')) {
+        rejectCount++;
+      } else if (entry.category === 'feasibility') {
+        feasibilityCount++;
+      }
+    }
+    
+    return { rejectCount, feasibilityCount };
+  }, [logs]);
+  
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -210,7 +243,11 @@ export default function V3Test() {
             <div className="p-3 border-b font-medium text-sm flex items-center justify-between">
               <span>Debug Logs</span>
               <div className="flex items-center gap-3 font-mono text-xs">
-                <LogCountBadge count={logs.length} />
+                <LogCountBadge 
+                  count={logs.length} 
+                  rejectCount={logStats.rejectCount}
+                  feasibilityCount={logStats.feasibilityCount}
+                />
                 <DurationBadge durationMs={durationMs} />
               </div>
             </div>

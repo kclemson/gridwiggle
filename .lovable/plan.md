@@ -1,122 +1,149 @@
 
 
-# Remove V2 Layout Code
+# Add Hero-to-Smallest Constraint
 
 ## Overview
 
-Remove the V2 layout algorithm code entirely since V3 is the active development target. V3 is fully independent with its own types, utilities, and logic - no actual dependencies on V2 code.
+Prevent layouts where content photos become unreadably small by limiting how much larger the hero can be compared to the smallest content cells.
 
-## What Gets Removed
+## Design Intent
 
-### Files to Delete
+**Problem**: Current prominence check (`heroArea / runnerUpArea ≥ 1.3`) only compares to the largest content photo. Layouts can pass where the runner-up is fine but other photos (especially in BESIDE region) are tiny thumbnails.
 
-| File | Description |
-|------|-------------|
-| `src/lib/v2/index.ts` | V2 entry point |
-| `src/lib/v2/math.ts` | V2 math utilities |
-| `src/lib/v2/pack.ts` | V2 packing functions |
-| `src/lib/v2/score.ts` | V2 scoring logic |
-| `src/lib/v2/strategy.ts` | V2 strategy generation |
-| `src/lib/v2/types.ts` | V2 type definitions |
+**Goal**: Hero can't be more than 15× the size of the smallest content photos.
 
-The entire `src/lib/v2/` directory will be deleted.
+**User Outcome**: No more "hero looks great but those beside photos are invisible" layouts.
 
-### UI Changes
+---
 
-**DebugPanel.tsx**:
-- Change `AlgorithmVersion` type from `'v1' | 'v2' | 'v3'` to `'v1' | 'v3'`
-- Remove the V2 toggle button from the ToggleGroup
+## Mathematical Approach
 
-**Index.tsx**:
-- Remove `import { generateCollageLayoutV2 } from '@/lib/v2'`
-- Simplify the layout generation conditional to only handle V1 and V3
+**New metric**: `heroArea / avgSmallest(contentAreas)`
+
+- Sort content areas ascending
+- Take bottom 10% (minimum 1 photo)
+- Calculate average of those smallest photos
+- Require: `heroArea / avgSmallest ≤ hero_maxToSmallest`
+
+**Starting threshold**: 15× (derived from screenshot analysis)
+- Current bad layout: ~41× → **REJECTED**
+- Acceptable below photos: ~10-14× → **ACCEPTED**
 
 ---
 
 ## Technical Changes
 
-### 1. Update `src/components/DebugPanel.tsx`
+### 1. Add Tuning Parameter (`src/lib/v3/types.ts`)
 
-**Line 8**: Change type definition:
-```typescript
-// Before
-export type AlgorithmVersion = 'v1' | 'v2' | 'v3';
+Add to `V3Tuning` interface:
 
-// After
-export type AlgorithmVersion = 'v1' | 'v3';
+```text
+interface V3Tuning {
+  // ... existing params
+  
+  /** Max hero area relative to avg of smallest content photos (15 = hero ≤ 15× smallest) */
+  hero_maxToSmallest: number;
+}
 ```
 
-**Lines 141-143**: Remove the V2 toggle button:
-```typescript
-// DELETE these lines:
-<ToggleGroupItem value="v2" className="text-xs font-mono px-2 h-6">
-  v2
-</ToggleGroupItem>
+Default value: `hero_maxToSmallest: 15`
+
+### 2. Add Validation Function (`src/lib/v3/entities/hero.ts`)
+
+New function to validate smallest cell constraint:
+
+```text
+/**
+ * Validate that hero isn't too large compared to smallest content cells.
+ * Uses average of bottom 10% of content areas (minimum 1 photo).
+ */
+export function validateSmallestCellRatio(
+  heroArea: number,
+  contentAreas: number[],
+  tuning: V3Tuning
+): { valid: boolean; ratio: number } {
+  if (contentAreas.length === 0) {
+    return { valid: true, ratio: 0 };
+  }
+  
+  // Sort ascending, take bottom 10% (min 1)
+  const sorted = [...contentAreas].sort((a, b) => a - b);
+  const bottomCount = Math.max(1, Math.ceil(sorted.length * 0.1));
+  const smallest = sorted.slice(0, bottomCount);
+  
+  // Average of smallest photos
+  const avgSmallest = smallest.reduce((s, v) => s + v, 0) / smallest.length;
+  
+  const ratio = heroArea / avgSmallest;
+  
+  return {
+    valid: ratio <= tuning.hero_maxToSmallest,
+    ratio,
+  };
+}
 ```
 
-### 2. Update `src/pages/Index.tsx`
+### 3. Integration Point (`src/lib/v3/intersection.ts`)
 
-**Line 13**: Remove V2 import:
-```typescript
-// DELETE this line:
-import { generateCollageLayoutV2 } from '@/lib/v2';
+In `evaluateNormalizedProposal()`, after the existing prominence check (lines 270-281), add:
+
+```text
+// Validate hero-to-smallest ratio
+const smallestCheck = validateSmallestCellRatio(heroPixelArea, contentAreas, tuning);
+
+if (!smallestCheck.valid) {
+  devLogger.log('v3', 'Hero too large vs smallest cells', {
+    ratio: smallestCheck.ratio.toFixed(1),
+    maxAllowed: tuning.hero_maxToSmallest,
+  });
+  return null;
+}
 ```
 
-**Lines 113-128**: Simplify conditional to remove V2 branch:
-```typescript
-// Before (nested ternary)
-const layout = algorithmVersion === 'v3'
-  ? generateCollageLayoutV3(...)
-  : algorithmVersion === 'v2'
-    ? generateCollageLayoutV2(...)
-    : generateCollageLayout(...);
+### 4. Add UI Control (`src/components/V3TuningSection.tsx`)
 
-// After (simple ternary)
-const layout = algorithmVersion === 'v3'
-  ? generateCollageLayoutV3(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: tuningOverride,
-    })
-  : generateCollageLayout(photosToUse, settings, { 
-      photoWeights,
-      randomize,
-      tuning: DEFAULT_TUNING,
-    });
-```
+Add new input to the V3 tuning panel:
 
-### 3. Delete `src/lib/v2/` directory
-
-Remove all 6 files in the V2 directory:
-- `index.ts`
-- `math.ts`
-- `pack.ts`
-- `score.ts`
-- `strategy.ts`
-- `types.ts`
+| Label | Range | Default | Tooltip |
+|-------|-------|---------|---------|
+| Max Hero/Smallest | 8-30 | 15 | Hero can't be more than Nx the smallest photos |
 
 ---
 
-## Verification
+## Files to Modify
 
-V3 independence confirmed:
-- No imports from `@/lib/v2` anywhere in the V3 code
-- V3 has its own complete type definitions (`src/lib/v3/types.ts`)
-- V3 has its own utility functions (`src/lib/v3/utils.ts`)
-- The comment "Reuses proven logic from v2" in utils.ts refers to copied logic, not imports
+| File | Changes |
+|------|---------|
+| `src/lib/v3/types.ts` | Add `hero_maxToSmallest` to interface and defaults |
+| `src/lib/v3/entities/hero.ts` | Add `validateSmallestCellRatio()` function |
+| `src/lib/v3/intersection.ts` | Call validation after prominence check |
+| `src/components/V3TuningSection.tsx` | Add UI input for new parameter |
 
 ---
 
-## Files Summary
+## Expected Behavior
 
-| File | Action |
-|------|--------|
-| `src/lib/v2/index.ts` | **Delete** |
-| `src/lib/v2/math.ts` | **Delete** |
-| `src/lib/v2/pack.ts` | **Delete** |
-| `src/lib/v2/score.ts` | **Delete** |
-| `src/lib/v2/strategy.ts` | **Delete** |
-| `src/lib/v2/types.ts` | **Delete** |
-| `src/components/DebugPanel.tsx` | **Modify** - Remove V2 from type and toggle |
-| `src/pages/Index.tsx` | **Modify** - Remove V2 import and conditional branch |
+With `hero_maxToSmallest: 15`:
+
+| Scenario | Ratio | Result |
+|----------|-------|--------|
+| Screenshot layout (tiny beside cells) | ~41× | REJECTED |
+| Good layout (reasonable beside cells) | ~10× | ACCEPTED |
+| Edge case (one small cell) | ~16× | REJECTED |
+
+The algorithm will naturally prefer:
+- Fewer photos in BESIDE region
+- "No beside" layouts (hero at top, all content below)
+- More balanced distributions
+
+---
+
+## Why Bottom 10% Average?
+
+Using the single smallest cell would be too strict - one unlucky cell could reject otherwise-good layouts.
+
+Using bottom 10% (minimum 1):
+- Catches systematic problems (all beside cells too small)
+- Tolerates minor outliers
+- Scales with photo count (bottom 2 of 20 photos, bottom 1 of 8 photos)
 

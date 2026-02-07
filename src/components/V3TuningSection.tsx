@@ -86,6 +86,16 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
               max={2.0}
               defaultValue={DEFAULT_V3_TUNING.hero_minProminence}
             />
+            <TuningInput
+              label="Max Hero/Smallest"
+              tooltip="Hero can't be more than Nx the size of the smallest photos (15 = hero ≤ 15× smallest)"
+              value={tuning.hero_maxToSmallest}
+              onChange={(v) => onTuningChange('hero_maxToSmallest', v)}
+              step={1}
+              min={8}
+              max={30}
+              defaultValue={DEFAULT_V3_TUNING.hero_maxToSmallest}
+            />
           </div>
           
           {/* Row 2: Canvas AR limits */}

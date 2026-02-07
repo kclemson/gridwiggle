@@ -21,7 +21,7 @@ import {
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findBestSplit } from './split-search';
 import { calculateContentStats } from './utils';
-import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
+import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -276,6 +276,17 @@ function evaluateNormalizedProposal(
     devLogger.log('v3', 'Prominence too low', {
       ratio: prominence.ratio.toFixed(2),
       required: tuning.hero_minProminence,
+    });
+    return null;
+  }
+  
+  // Validate hero-to-smallest ratio (prevent tiny content cells)
+  const smallestCheck = validateSmallestCellRatio(heroPixelArea, contentAreas, tuning);
+  
+  if (!smallestCheck.valid) {
+    devLogger.log('v3', 'Hero too large vs smallest cells', {
+      ratio: smallestCheck.ratio.toFixed(1),
+      maxAllowed: tuning.hero_maxToSmallest,
     });
     return null;
   }

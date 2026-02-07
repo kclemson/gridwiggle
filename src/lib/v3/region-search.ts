@@ -59,6 +59,7 @@ export interface RegionSearchResult {
 export function findValidRegionAssignment(
   photos: PhotoDimension[],
   heroAR: number,
+  heroPhotoId: string,
   normalizedGap: number,
   tuning: V3Tuning,
   randomize: boolean = false
@@ -169,7 +170,7 @@ export function findValidRegionAssignment(
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, null, belowResult, normalizedGap),
+          cells: buildRejectedCells(heroAR, heroPhotoId, null, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
@@ -192,7 +193,7 @@ export function findValidRegionAssignment(
       if (prominenceRatioNoAside < tuning.hero_minProminence) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, null, belowResult, normalizedGap),
+          cells: buildRejectedCells(heroAR, heroPhotoId, null, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
@@ -274,7 +275,7 @@ export function findValidRegionAssignment(
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, besideResult, belowResult, normalizedGap),
+          cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
@@ -301,7 +302,7 @@ export function findValidRegionAssignment(
       if (prominenceRatio < tuning.hero_minProminence) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, besideResult, belowResult, normalizedGap),
+          cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
@@ -390,6 +391,7 @@ export function findValidRegionAssignment(
  */
 function buildRejectedCells(
   heroAR: number,
+  heroPhotoId: string,
   besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number } | null,
   belowResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number },
   normalizedGap: number
@@ -399,7 +401,7 @@ function buildRejectedCells(
   
   // Hero cell (top-left position)
   cells.push({
-    photoId: 'hero',
+    photoId: heroPhotoId,
     x: borderOffset,
     y: borderOffset,
     width: heroAR,

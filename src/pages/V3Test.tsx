@@ -17,7 +17,6 @@ import { PhotoItem, CollageSettings } from '@/types/collage';
 import { Shuffle, Star, Image } from 'lucide-react';
 
 // Static settings matching production defaults
-const CANVAS_WIDTH = 480;
 const GAP_SIZE = 8;
 
 // Placeholder blob for synthetic photos (not used for CSS visualization)
@@ -124,7 +123,6 @@ export default function V3Test() {
     
     const result = generateCollageLayoutV3(photoItems, settings, {
       photoWeights,
-      canvasWidth: CANVAS_WIDTH,
     });
     
     // Capture logs after generation

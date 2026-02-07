@@ -59,7 +59,6 @@ export function clearRejections() {
  */
 export function findValidConfiguration(
   photos: PhotoDimension[],
-  canvasWidth: number,
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning = DEFAULT_V3_TUNING,
   randomize: boolean = false
@@ -70,7 +69,7 @@ export function findValidConfiguration(
   
   // If no hero, generate simple rows layout
   if (!heroPhoto) {
-    return generateSimpleRowsLayout(photos, canvasWidth, normalizedGap, tuning);
+    return generateSimpleRowsLayout(photos, normalizedGap, tuning);
   }
   
   // Get content statistics
@@ -93,7 +92,6 @@ export function findValidConfiguration(
       proposal,
       heroPhoto,
       contentPhotos,
-      canvasWidth,
       normalizedGap,
       tuning,
       randomize
@@ -133,7 +131,6 @@ function evaluateNormalizedProposal(
   proposal: NormalizedHeroProposal,
   heroPhoto: PhotoDimension,
   contentPhotos: PhotoDimension[],
-  canvasWidth: number,
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning,
   randomize: boolean
@@ -208,73 +205,34 @@ function evaluateNormalizedProposal(
   const normalizedWidth = heroRowWidth;
   const normalizedHeight = 1.0 + normalizedGap + belowResult.height;
   
-  // ============================================================================
-  // Bottom-Up: Derive scale factor from geometry
-  // ============================================================================
-  
-  // Find minimum normalized cell dimensions (content cells only)
-  const allNormalizedCells = [
-    ...besideResult.cells,
-    ...belowResult.cells,
-  ];
-  
-  let minNormalizedCellWidth = Infinity;
-  let minNormalizedCellHeight = Infinity;
-  
-  for (const cell of allNormalizedCells) {
-    minNormalizedCellWidth = Math.min(minNormalizedCellWidth, cell.width);
-    minNormalizedCellHeight = Math.min(minNormalizedCellHeight, cell.height);
-  }
-  
-  // Calculate minimum scale factor for cell size constraints
-  // pixelWidth = normalizedWidth × scale >= minCellWidth
-  // → scale >= minCellWidth / normalizedWidth
-  const scaleForWidth = allNormalizedCells.length > 0 
-    ? tuning.region_minWidth / minNormalizedCellWidth 
-    : 1;
-  const scaleForHeight = allNormalizedCells.length > 0 
-    ? tuning.region_minHeight / minNormalizedCellHeight 
-    : 1;
-  const minScale = Math.max(scaleForWidth, scaleForHeight);
-  
   // Include border in normalized canvas dimensions
   const normalizedWidthWithBorder = normalizedWidth + 2 * normalizedGap;
   const normalizedHeightWithBorder = normalizedHeight + 2 * normalizedGap;
   
-  // Use the larger of: minimum required scale, or preferred scale for target width
-  const preferredScale = canvasWidth / normalizedWidthWithBorder;
-  const scaleFactor = Math.max(minScale, preferredScale);
+  // Final canvas dimensions in normalized space (no pixel scaling)
+  const canvasWidth = normalizedWidthWithBorder;
+  const canvasHeight = normalizedHeightWithBorder;
   
-  // Derive actual canvas dimensions (includes border)
-  const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
-  const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
-  
-  devLogger.log('v3', 'Derived canvas dimensions', {
-    normalizedWidth: normalizedWidth.toFixed(2),
-    normalizedHeight: normalizedHeight.toFixed(2),
-    withBorder: `${normalizedWidthWithBorder.toFixed(2)} x ${normalizedHeightWithBorder.toFixed(2)}`,
-    minScale: minScale.toFixed(2),
-    preferredScale: preferredScale.toFixed(2),
-    scaleFactor: scaleFactor.toFixed(2),
-    actualWidth: Math.round(actualCanvasWidth),
-    actualHeight: Math.round(actualCanvasHeight),
+  devLogger.log('v3', 'Normalized canvas dimensions', {
+    normalizedWidth: normalizedWidth.toFixed(3),
+    normalizedHeight: normalizedHeight.toFixed(3),
+    withBorder: `${canvasWidth.toFixed(3)} x ${canvasHeight.toFixed(3)}`,
   });
   
-  // Convert all cells to pixels - gaps are already in normalized coords
-  const pixelCells = convertToPixels(
+  // Convert all cells to normalized coordinates (with border offset)
+  const cells = convertToNormalized(
     heroPhoto,
     proposal.position,
     heroAR,
     besideResult.cells,
     belowResult.cells,
     belowResult.height,
-    scaleFactor,
     normalizedGap,
     normalizedWidth
   );
   
   // Calculate canvas AR for validation
-  const canvasAR = actualCanvasWidth / actualCanvasHeight;
+  const canvasAR = canvasWidth / canvasHeight;
   
   // Validate canvas AR (with epsilon tolerance for floating-point precision)
   const AR_EPSILON = 0.01;
@@ -296,10 +254,10 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  // Validate hero prominence
-  const heroPixelArea = (heroAR * scaleFactor) * scaleFactor; // heroWidth × heroHeight in pixels
-  const contentAreas = pixelCells.slice(1).map(c => c.width * c.height);
-  const prominence = validateProminence(heroPixelArea, contentAreas, tuning);
+  // Validate hero prominence (area ratios are scale-invariant)
+  const heroArea = heroAR * 1.0; // heroWidth × heroHeight in normalized space
+  const contentAreas = cells.slice(1).map(c => c.width * c.height);
+  const prominence = validateProminence(heroArea, contentAreas, tuning);
   
   if (!prominence.valid) {
     devLogger.log('v3', 'Prominence too low', {
@@ -311,7 +269,7 @@ function evaluateNormalizedProposal(
   }
   
   // Validate hero-to-smallest ratio (prevent tiny content cells)
-  const smallestCheck = validateSmallestCellRatio(heroPixelArea, contentAreas, tuning);
+  const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, tuning);
   
   if (!smallestCheck.valid) {
     devLogger.log('v3', 'Hero too large vs smallest cells', {
@@ -322,13 +280,11 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  // Cell sizes are now guaranteed valid by construction (we derived scale from them)
-  
   // Score the configuration
-  const score = scoreConfiguration(prominence.ratio, pixelCells, tuning, randomize);
+  const score = scoreConfiguration(prominence.ratio, cells, tuning, randomize);
   
   // Create legacy-format proposal for ScoredConfiguration compatibility
-  const heroCell = pixelCells[0];
+  const heroCell = cells[0];
   const legacyProposal: HeroProposal = {
     rect: { x: heroCell.x, y: heroCell.y, width: heroCell.width, height: heroCell.height },
     mode: proposal.mode,
@@ -352,30 +308,29 @@ function evaluateNormalizedProposal(
       ]), 
       totalAssigned: contentPhotos.length 
     },
-    cells: pixelCells,
-    canvasHeight: actualCanvasHeight,
-    canvasWidth: actualCanvasWidth,
+    cells,
+    canvasHeight,
+    canvasWidth,
     prominenceRatio: prominence.ratio,
     score,
   };
 }
 
 // ============================================================================
-// Pixel Conversion
+// Normalized Coordinate Conversion
 // ============================================================================
 
 /**
- * Convert normalized cells to pixel cells.
- * Gaps are already included in normalized coordinates - just scale everything.
+ * Convert normalized cells to final layout coordinates.
+ * No pixel scaling - everything stays in normalized space.
  */
-function convertToPixels(
+function convertToNormalized(
   heroPhoto: PhotoDimension,
   position: string,
   heroAR: number,
   besideCells: { photoId: string; x: number; y: number; width: number; height: number }[],
   belowCells: { photoId: string; x: number; y: number; width: number; height: number }[],
   belowHeight: number,
-  scaleFactor: number,
   normalizedGap: number,
   normalizedWidth: number
 ): LayoutCell[] {
@@ -385,7 +340,7 @@ function convertToPixels(
   const heroNormalizedHeight = 1.0;
   
   // Border offset - all cells shift by normalizedGap to create edge padding
-  const borderOffset = normalizedGap * scaleFactor;
+  const borderOffset = normalizedGap;
   
   // Determine position type
   const isBottom = position === 'bottom-left' || position === 'bottom-right';
@@ -393,60 +348,60 @@ function convertToPixels(
   
   // Hero X position (add border offset)
   const heroX = isRight 
-    ? borderOffset + (normalizedWidth - heroNormalizedWidth) * scaleFactor 
+    ? borderOffset + (normalizedWidth - heroNormalizedWidth) 
     : borderOffset;
   
-  // Hero Y position (flip for bottom corners) - gap is in normalized coords
+  // Hero Y position (flip for bottom corners)
   const heroY = isBottom 
-    ? borderOffset + (belowHeight + normalizedGap) * scaleFactor 
+    ? borderOffset + (belowHeight + normalizedGap) 
     : borderOffset;
   
   cells.push({
     photoId: heroPhoto.id,
     x: heroX,
     y: heroY,
-    width: heroNormalizedWidth * scaleFactor,
-    height: heroNormalizedHeight * scaleFactor,
+    width: heroNormalizedWidth,
+    height: heroNormalizedHeight,
   });
   
   // BESIDE cells - offset based on hero position
   const besideOffsetX = isRight 
     ? borderOffset  // BESIDE is to the LEFT of hero
-    : borderOffset + (heroNormalizedWidth + normalizedGap) * scaleFactor;  // RIGHT of hero
+    : borderOffset + (heroNormalizedWidth + normalizedGap);  // RIGHT of hero
   
   // BESIDE Y offset (same row as hero)
   const besideOffsetY = isBottom 
-    ? borderOffset + (belowHeight + normalizedGap) * scaleFactor 
+    ? borderOffset + (belowHeight + normalizedGap) 
     : borderOffset;
   
   for (const cell of besideCells) {
     const cellX = isRight 
-      ? borderOffset + cell.x * scaleFactor  // LEFT of hero - add border + scale
-      : besideOffsetX + cell.x * scaleFactor;  // RIGHT of hero
+      ? borderOffset + cell.x  // LEFT of hero - add border
+      : besideOffsetX + cell.x;  // RIGHT of hero
     cells.push({
       photoId: cell.photoId,
       x: cellX,
-      y: besideOffsetY + cell.y * scaleFactor,
-      width: cell.width * scaleFactor,
-      height: cell.height * scaleFactor,
+      y: besideOffsetY + cell.y,
+      width: cell.width,
+      height: cell.height,
     });
   }
   
   // BELOW cells - full width, position depends on top/bottom
   const belowOffsetY = isBottom 
     ? borderOffset  // BELOW goes at top for bottom corners
-    : borderOffset + (1.0 + normalizedGap) * scaleFactor;  // BELOW goes below hero row for top corners
+    : borderOffset + (1.0 + normalizedGap);  // BELOW goes below hero row for top corners
 
   for (const cell of belowCells) {
     const cellY = isBottom 
-      ? borderOffset + cell.y * scaleFactor  // BELOW at top - add border + scale
-      : belowOffsetY + cell.y * scaleFactor;  // BELOW below hero
+      ? borderOffset + cell.y  // BELOW at top - add border
+      : belowOffsetY + cell.y;  // BELOW below hero
     cells.push({
       photoId: cell.photoId,
-      x: borderOffset + cell.x * scaleFactor,
+      x: borderOffset + cell.x,
       y: cellY,
-      width: cell.width * scaleFactor,
-      height: cell.height * scaleFactor,
+      width: cell.width,
+      height: cell.height,
     });
   }
   
@@ -498,10 +453,10 @@ function coefficientOfVariation(values: number[]): number {
 
 /**
  * Generate a layout with no hero - all photos in rows.
+ * Returns layout in normalized space (no pixel scaling).
  */
 function generateSimpleRowsLayout(
   photos: PhotoDimension[],
-  canvasWidth: number,
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning
 ): ScoredConfiguration | null {
@@ -522,62 +477,32 @@ function generateSimpleRowsLayout(
   // Simple rows always use deterministic packing (no hero = no shuffle)
   const normalizedResult = packToFillWidth(photos, 1.0, normalizedGap, rowCount, tuning, false);
   
-  // ============================================================================
-  // Bottom-Up: Derive scale factor from geometry
-  // ============================================================================
-  
-  // Find minimum normalized cell dimensions
-  let minNormalizedCellWidth = Infinity;
-  let minNormalizedCellHeight = Infinity;
-  
-  for (const cell of normalizedResult.cells) {
-    minNormalizedCellWidth = Math.min(minNormalizedCellWidth, cell.width);
-    minNormalizedCellHeight = Math.min(minNormalizedCellHeight, cell.height);
-  }
-  
-  // Calculate minimum scale factor for cell size constraints
-  const scaleForWidth = normalizedResult.cells.length > 0 
-    ? tuning.region_minWidth / minNormalizedCellWidth 
-    : 1;
-  const scaleForHeight = normalizedResult.cells.length > 0 
-    ? tuning.region_minHeight / minNormalizedCellHeight 
-    : 1;
-  const minScale = Math.max(scaleForWidth, scaleForHeight);
-  
   // Include border in normalized canvas dimensions
   const normalizedWidthWithBorder = 1.0 + 2 * normalizedGap;
   const normalizedHeightWithBorder = normalizedResult.height + 2 * normalizedGap;
   
-  // Use the larger of: minimum required scale, or preferred scale for target width
-  const preferredScale = canvasWidth / normalizedWidthWithBorder;
-  const scaleFactor = Math.max(minScale, preferredScale);
-  
-  // Derive actual canvas dimensions (includes border)
-  const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
-  const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
+  // Canvas dimensions in normalized space (no scaling)
+  const canvasWidth = normalizedWidthWithBorder;
+  const canvasHeight = normalizedHeightWithBorder;
   
   // Border offset - all cells shift by normalizedGap to create edge padding
-  const borderOffset = normalizedGap * scaleFactor;
+  const borderOffset = normalizedGap;
   
-  // Convert cells to pixels - offset by border, then scale
+  // Convert cells to normalized coordinates with border offset
   const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
     photoId: cell.photoId,
-    x: borderOffset + cell.x * scaleFactor,
-    y: borderOffset + cell.y * scaleFactor,
-    width: cell.width * scaleFactor,
-    height: cell.height * scaleFactor,
+    x: borderOffset + cell.x,
+    y: borderOffset + cell.y,
+    width: cell.width,
+    height: cell.height,
   }));
   
-  devLogger.log('v3', 'Simple rows: derived canvas dimensions', {
-    normalizedHeight: normalizedResult.height.toFixed(2),
-    withBorder: `${normalizedWidthWithBorder.toFixed(2)} x ${normalizedHeightWithBorder.toFixed(2)}`,
-    minScale: minScale.toFixed(2),
-    scaleFactor: scaleFactor.toFixed(2),
-    actualWidth: Math.round(actualCanvasWidth),
-    actualHeight: Math.round(actualCanvasHeight),
+  devLogger.log('v3', 'Simple rows: normalized canvas dimensions', {
+    normalizedHeight: normalizedResult.height.toFixed(3),
+    withBorder: `${canvasWidth.toFixed(3)} x ${canvasHeight.toFixed(3)}`,
   });
   
-  const canvasAR = actualCanvasWidth / actualCanvasHeight;
+  const canvasAR = canvasWidth / canvasHeight;
   
   // Validate canvas AR bounds
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
@@ -596,7 +521,7 @@ function generateSimpleRowsLayout(
     position: 'top-left',
   };
   
-  // Score based on area uniformity
+  // Score based on area uniformity (scale-invariant)
   const areas = cells.map(c => c.width * c.height);
   const areaUniformity = 1 / (1 + coefficientOfVariation(areas));
   
@@ -604,8 +529,8 @@ function generateSimpleRowsLayout(
     proposal: dummyProposal,
     distribution: { assignments: new Map([[0, photos.map(p => p.id)]]), totalAssigned: photos.length },
     cells,
-    canvasHeight: actualCanvasHeight,
-    canvasWidth: actualCanvasWidth,
+    canvasHeight,
+    canvasWidth,
     prominenceRatio: 1,
     score: areaUniformity,
   };

@@ -4,6 +4,8 @@
  * Packs photos into rows within a region.
  * Row count is derived from geometry, not specified.
  * Supports constraint-aware packing (maxCellArea, maxHeight).
+ * 
+ * All operations are in normalized space (hero height = 1.0).
  */
 
 import { PhotoDimension, RegionSpec, LayoutCell, V3Tuning } from './types';
@@ -110,9 +112,9 @@ export function packPhotosIntoRegion(
     };
   }
   
-  // Calculate row count bounds
-  const maxPhotosPerRow = Math.floor(region.width / tuning.region_minWidth);
-  const minRows = Math.max(1, Math.ceil(photos.length / maxPhotosPerRow));
+  // In normalized space, row count is bounded by photo count
+  // No pixel-based constraints - just ensure reasonable distribution
+  const minRows = 1;
   
   // Start with optimal row count
   let rowCount = pickRandomRowCount(photos, region.width, tuning);
@@ -181,7 +183,7 @@ function scaleToFillHeight(
   const rows: typeof scaledCells[] = [];
   scaledCells.forEach(cell => {
     const existingRow = rows.find(row => 
-      row.length > 0 && Math.abs(row[0].y - cell.y) < 1
+      row.length > 0 && Math.abs(row[0].y - cell.y) < 0.001 // Small threshold for normalized space
     );
     if (existingRow) {
       existingRow.push(cell);
@@ -259,33 +261,29 @@ function packWithRowCount(
 /**
  * Pick a random row count from the valid geometric range.
  * 
- * Row count is determined by physical constraints only.
- * Canvas AR is enforced at the intersection level (single source of truth).
+ * Row count is determined by photo count and desired density.
+ * In normalized space, there are no pixel-based minimums.
  * 
- * Physical constraints:
- * - minRows: ensures cells aren't narrower than region_minWidth
- * - maxRows: ceil(n/2) ensures at least 2 photos per row on average
+ * Heuristic: aim for 2-6 photos per row on average
  */
 function pickRandomRowCount(
   photos: PhotoDimension[],
-  regionWidth: number,
-  tuning: V3Tuning
+  _regionWidth: number,
+  _tuning: V3Tuning
 ): number {
   const n = photos.length;
   
-  // Physical constraint: cells can't be narrower than region_minWidth
-  const maxPhotosPerRow = Math.floor(regionWidth / tuning.region_minWidth);
-  const physicalMinRows = Math.max(1, Math.ceil(n / maxPhotosPerRow));
+  // Target 2-6 photos per row on average
+  const minPhotosPerRow = 2;
+  const maxPhotosPerRow = 6;
   
-  // Upper bound: at least 2 photos per row on average (prevents extreme pillar layouts)
-  const minRows = physicalMinRows;
-  const maxRows = Math.max(minRows, Math.min(n, Math.ceil(n / 2)));
+  const minRows = Math.max(1, Math.ceil(n / maxPhotosPerRow));
+  const maxRows = Math.max(minRows, Math.min(n, Math.ceil(n / minPhotosPerRow)));
   
   const chosen = randomInt(minRows, maxRows);
   
   devLogger.log('v3', 'Row count selection', {
     n,
-    physicalMinRows,
     minRows,
     maxRows,
     chosen,

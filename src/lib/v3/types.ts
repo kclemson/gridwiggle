@@ -11,7 +11,8 @@
 
 /**
  * Minimal tuning parameters for V3 layout.
- * 8 parameters that each serve a clear purpose.
+ * 6 parameters that each serve a clear purpose.
+ * All constraints are scale-invariant (ratios, not pixels).
  */
 export interface V3Tuning {
   // === Hero Prominence ===
@@ -19,12 +20,6 @@ export interface V3Tuning {
   hero_minProminence: number;
   /** Target for hero sizing math - hero area = contentArea * this (1.5) */
   hero_targetProminence: number;
-  
-  // === Region Viability ===
-  /** Minimum region height in pixels - below this is not viable (80) */
-  region_minHeight: number;
-  /** Minimum region width in pixels - below this is not viable (80) */
-  region_minWidth: number;
   
   // === Decomposition Thresholds ===
   /** Min content photos to attempt edge placement (8) */
@@ -56,8 +51,6 @@ export interface V3Tuning {
 export const DEFAULT_V3_TUNING: V3Tuning = {
   hero_minProminence: 1.3,
   hero_targetProminence: 1.5,
-  region_minHeight: 80,
-  region_minWidth: 80,
   decomp_edgeMinPhotos: 8,
   decomp_floatingMinPhotos: 15,
   row_flexPercent: 0.10,

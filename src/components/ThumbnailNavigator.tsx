@@ -116,7 +116,7 @@ export function ThumbnailNavigator({
                 className={cn(
                   "relative aspect-square rounded overflow-hidden transition-all",
                   "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-                  isSelected && "ring-2 ring-primary ring-offset-2"
+                  isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
                 )}
                 style={{ 
                   minHeight: THUMBNAIL_SIZE,

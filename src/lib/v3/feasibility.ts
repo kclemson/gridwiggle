@@ -97,7 +97,7 @@ export function canBesideCountMeetCanvasAR(
   const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
   
   // Best-case canvas AR (minimum width / maximum height)
-  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+  const minCanvasHeight = 1.0 + 2 * normalizedGap;
   const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
   const bestCaseAR = canvasWidth / minCanvasHeight;
   

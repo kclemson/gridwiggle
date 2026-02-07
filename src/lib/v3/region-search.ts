@@ -192,7 +192,7 @@ export function findValidRegionAssignment(
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
       // Canvas AR validation (post-pack check, no logging — outer loop already filtered)
-      const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+      const minCanvasHeight = 1.0 + 2 * normalizedGap;
       const canvasWidth = heroRowWidth + 2 * normalizedGap;
       const bestCaseAR = canvasWidth / minCanvasHeight;
       

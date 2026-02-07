@@ -1,122 +1,97 @@
 
-# UI Improvements: Progress Simplification, Image Optimization, Collapsible Carousel
+# Gap Threading Fix (Simplified Approach)
 
-## Overview
+## Design Decision
 
-Three improvements to enhance performance and reduce visual clutter:
+The gap slider value should be applied at the **final pixel conversion stage only**, not threaded through normalized space. This is cleaner because:
 
-1. **Simplify progress display** - Remove redundant progress bar and counter
-2. **Optimize image loading** - Create display-resolution previews to avoid loading full-res images
-3. **Add collapsible carousel** - Auto-collapse after processing to maximize collage space
+- Normalized space is purely about geometry and proportions
+- The actual pixel gap is a "rendering concern" 
+- Keeps the normalized packing math simple
 
----
+## Current Problem
 
-## 1. Simplify Progress Display
+The code uses a hardcoded `normalizedGap = 0.02` throughout, then scales it to pixels. The slider's actual value is never used.
 
-### What Changes
-Remove the purple progress bar and "X of Y photos processed" text from the processing view. The colored dots already communicate the same information more elegantly.
+## Solution
 
-### User Outcome
-A cleaner processing interface that doesn't repeat information. Users see the animated purple dot (currently processing), green dots (complete), and gray dots (pending).
-
-### Technical Changes
-
-**File**: `src/components/PhotoProcessingView.tsx`
-
-Remove:
-- The "X of Y photos processed" paragraph
-- The `<Progress>` bar component
-- The status text ("Loading image...")
-- Keep: header, current photo thumbnail, stats, and dots
+1. Keep normalized packing using a minimal gap (just enough for geometry)
+2. In `convertToPixels`, use the **actual pixel gap** directly instead of `normalizedGap × scaleFactor`
+3. Change the slider to be a generic 0-100 "spacing" control, then map to reasonable pixel values internally
 
 ---
 
-## 2. Display-Resolution Image Previews
+## Technical Changes
 
-### Current Problem
-Every `<img>` tag uses `photo.objectUrl`, which points to the full-resolution blob. When a user uploads 50 photos at 4000×3000 (12MP each), the browser is asked to decode and render 600MP+ of image data for the 180px carousel thumbnails.
+### 1. Remove Shape Dropdown
 
-### Solution
-Create a "display preview" version of each image when first loaded:
-- Scale down to max ~1200px on longest edge (sufficient for crop editor and collage preview)
-- Store as a separate `previewUrl` alongside the original blob
-- Use `previewUrl` for all rendering; reserve original blob for export only
+**File**: `src/components/CollageSettings.tsx`
+- Remove the Shape row entirely
+- Remove unused Select imports and shape-related variables
 
-### User Outcome
-- Faster photo loading and smoother UI
-- Less memory pressure (fewer browser crashes/slowdowns)
-- Same export quality (full-res used for download)
+### 2. Improve Color Swatch
 
-### Technical Changes
+**File**: `src/components/CollageSettings.tsx`
+- Add border: `border border-muted-foreground/30`
+- Make wider: `w-24` instead of `w-7`
+
+### 3. Change Gap Slider to Generic Spacing
+
+**File**: `src/components/CollageSettings.tsx`
+- Label: "Spacing" instead of "Gap"
+- Range: 0-100 (generic units, not pixels)
+- Remove the "Xpx" display
 
 **File**: `src/types/collage.ts`
-- Add `previewBlob?: Blob` and `previewUrl?: string` to `PhotoItem`
+- Keep `gapSize` as 0-100 range
 
-**File**: `src/lib/imageUtils.ts`
-- Add `createDisplayPreview(blob: Blob, maxSize: number): Promise<{blob: Blob, url: string}>`
-- Uses OffscreenCanvas (or fallback canvas) to scale image down
+### 4. Apply Pixel Gap at Conversion Stage
 
-**File**: `src/components/PhotoUploader.tsx`
-- After getting dimensions, call `createDisplayPreview()` to generate preview
-- Set both `objectUrl` (original) and `previewUrl` (scaled) on the PhotoItem
+**File**: `src/lib/v3/intersection.ts`
 
-**File**: `src/components/common/CroppedImage.tsx`
-- Accept optional `previewSrc` prop, fallback to `src` if not provided
-- Collage and carousel pass `photo.previewUrl ?? photo.objectUrl`
-
-**File**: `src/components/CropEditor.tsx`
-- Use `photo.previewUrl ?? photo.objectUrl` for the SVG image
-- Crop coordinates still work because they're in original-pixel space (viewBox handles the mapping)
-
-**File**: `src/lib/exportCollage.ts`
-- Continue using `photo.blob` (original full-res) for export
-
----
-
-## 3. Collapsible Carousel with Auto-Collapse
-
-### User Outcome
-After all photos finish processing, the carousel automatically collapses to give more screen space to the collage. Users can expand it if they want to use the carousel navigation.
-
-### Design
-- Use Radix Collapsible component (already installed via shadcn)
-- Collapsed state shows just a header bar: "Photos (55)" with a chevron
-- Expanded state shows the full carousel
-- Auto-collapses 500ms after processing completes (smooth transition)
-- Persist open/closed state in localStorage
-
-### Technical Changes
-
-**File**: `src/pages/Index.tsx`
-- Add `carouselOpen` state, initialized from localStorage
-- Watch for transition from `isProcessing=true` → `false`, then set `carouselOpen=false` after delay
-- Wrap `PhotoCarousel` in Collapsible component
-
-```text
-┌─────────────────────────────────────────────┐
-│  Photos (55)                           ▼    │  ← Click to expand
-├─────────────────────────────────────────────┤
-│  [Collapsed: shows nothing below header]    │
-└─────────────────────────────────────────────┘
-
-OR when expanded:
-
-┌─────────────────────────────────────────────┐
-│  Photos (55)                           ▲    │  ← Click to collapse
-├─────────────────────────────────────────────┤
-│  [Full carousel with photo + buttons]       │
-│  ← prev    [photo preview]    next →        │
-│  [Hero] [Edit] [Delete] [View All]          │
-└─────────────────────────────────────────────┘
+Update `findValidConfiguration` signature to receive gap:
+```tsx
+export function findValidConfiguration(
+  photos: PhotoDimension[],
+  canvasWidth: number,
+  gap: number,  // Already passed, just need to use it
+  tuning: V3Tuning
+)
 ```
 
----
+Update `convertToPixels` to receive actual pixel gap:
+```tsx
+function convertToPixels(
+  heroPhoto: PhotoDimension,
+  position: string,
+  heroAR: number,
+  besideCells: [...],
+  belowCells: [...],
+  belowHeight: number,
+  scaleFactor: number,
+  pixelGap: number,  // CHANGED: actual pixel gap, not normalized
+  normalizedWidth: number
+): LayoutCell[] {
+  // Use pixelGap directly for offsets instead of normalizedGap * scaleFactor
+  const heroY = isBottom 
+    ? belowHeight * scaleFactor + pixelGap  // Direct pixel gap
+    : 0;
+    
+  const besideOffsetX = heroNormalizedWidth * scaleFactor + pixelGap;  // Direct
+  // etc.
+}
+```
 
-## Implementation Sequence
+Map slider value (0-100) to pixels:
+```tsx
+// In the caller (e.g., Index.tsx or where layout is generated)
+const pixelGap = Math.round((gapSize / 100) * 32);  // 0-100 → 0-32px
+```
 
-1. **Progress simplification** (quick win)
-2. **Collapsible carousel** (medium - UI only)
-3. **Display previews** (larger - touches multiple files)
+### 5. Cleanup
+
+**File**: `src/pages/Index.tsx`
+- Remove `isShapeAvailable` import and usage in `handleRemovePhoto`
 
 ---
 
@@ -124,12 +99,7 @@ OR when expanded:
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoProcessingView.tsx` | Remove progress bar and counter |
-| `src/types/collage.ts` | Add `previewBlob` and `previewUrl` fields |
-| `src/lib/imageUtils.ts` | Add `createDisplayPreview()` function |
-| `src/components/PhotoUploader.tsx` | Generate display preview on upload |
-| `src/components/common/CroppedImage.tsx` | Accept and prefer preview URL |
-| `src/components/CropEditor.tsx` | Use preview URL for rendering |
-| `src/components/CollagePreview.tsx` | Pass preview URL to CroppedImage |
-| `src/components/PhotoCarousel.tsx` | Pass preview URL to CroppedImage |
-| `src/pages/Index.tsx` | Add collapsible carousel with auto-collapse |
+| `src/components/CollageSettings.tsx` | Remove Shape, improve swatch, rename to Spacing |
+| `src/lib/v3/intersection.ts` | Apply actual pixel gap at conversion stage |
+| `src/pages/Index.tsx` | Map spacing (0-100) to pixel gap, remove shape logic |
+| `src/types/collage.ts` | Update gapSize comment to reflect 0-100 range |

@@ -161,3 +161,89 @@ export function canBesideCountMeetCanvasAR(
   
   return { feasible, minHeroRowWidth };
 }
+
+/**
+ * Calculate geometrically valid range for besideCount.
+ * 
+ * Key insight: Hero AR determines how many photos can fit beside:
+ * - Tall portrait heroes (low AR) → can have MANY photos beside (provides width)
+ * - Wide landscape heroes (high AR) → should have FEW photos beside (already wide)
+ * 
+ * This replaces the hardcoded 0–12 limit with bounds derived from:
+ * 1. canvas_minAR: Minimum beside needed to avoid "too tall" canvas
+ * 2. canvas_maxAR: Maximum beside before canvas becomes "too wide"
+ * 3. Physical limit: Can't exceed total content photos
+ */
+export function calculateBesideCountRange(
+  heroAR: number,
+  totalContentCount: number,
+  avgContentAR: number,
+  normalizedGap: number,
+  tuning: V3Tuning
+): { minBeside: number; maxBeside: number } {
+  if (totalContentCount === 0) {
+    return { minBeside: 0, maxBeside: 0 };
+  }
+  
+  // === Lower Bound (minBeside) ===
+  // For narrow heroes with many photos, we may need beside width to avoid too-tall canvas
+  let minBeside = 0;
+  
+  if (heroAR < 1.0 && totalContentCount > 10) {
+    // Estimate: with 0 beside, how tall would canvas be?
+    // belowHeight ≈ sqrt(totalContentCount × avgContentAR / heroAR)
+    const estimatedBelowHeight = Math.sqrt(totalContentCount * avgContentAR / heroAR);
+    const estimatedTotalHeight = 1.0 + normalizedGap + estimatedBelowHeight + 2 * normalizedGap;
+    const estimatedCanvasAR = (heroAR + 2 * normalizedGap) / estimatedTotalHeight;
+    
+    if (estimatedCanvasAR < tuning.canvas_minAR) {
+      // Need wider canvas → need beside photos
+      // Approximate: how much width do we need to add?
+      const targetWidth = tuning.canvas_minAR * estimatedTotalHeight;
+      const widthNeeded = targetWidth - heroAR - 2 * normalizedGap;
+      
+      // Width from beside ≈ besideCount × avgContentAR / besideRows
+      // Assume 3-4 rows for initial estimate
+      const assumedBesideRows = 3;
+      minBeside = Math.ceil(widthNeeded * assumedBesideRows / avgContentAR);
+      minBeside = Math.max(0, Math.min(minBeside, totalContentCount - 1));
+    }
+  }
+  
+  // === Upper Bound (maxBeside) ===
+  
+  // Constraint 1: Canvas width limit (prevent too-wide)
+  // heroRowWidth = heroAR + gap + besideWidth
+  // canvasWidth = heroRowWidth + 2*gap
+  // canvasAR ≤ canvas_maxAR → canvasWidth ≤ canvas_maxAR × minHeight
+  // minHeight = 1.0 + 2*gap (hero row + borders, no BELOW)
+  const minCanvasHeight = 1.0 + 2 * normalizedGap;
+  const maxCanvasWidth = tuning.canvas_maxAR * minCanvasHeight;
+  const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
+  const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
+  
+  // besideWidth ≈ besideCount × avgContentAR / besideRows
+  // Assume minimum 2 rows for conservative estimate
+  const assumedMinRows = 2;
+  const maxBesideByWidth = maxBesideWidth > 0 
+    ? Math.floor(maxBesideWidth * assumedMinRows / avgContentAR)
+    : 0;
+  
+  // Constraint 2: Physical limit - can't exceed total photos
+  // Note: ALL photos beside (empty BELOW) is valid for portrait heroes!
+  const physicalMax = totalContentCount;
+  
+  // Final upper bound
+  const maxBeside = Math.max(minBeside, Math.min(physicalMax, maxBesideByWidth));
+  
+  devLogger.log('feasibility', 'Calculated besideCount range', {
+    heroAR: heroAR.toFixed(2),
+    totalContentCount,
+    avgContentAR: avgContentAR.toFixed(2),
+    minBeside,
+    maxBeside,
+    maxBesideByWidth,
+  });
+  
+  return { minBeside, maxBeside };
+}

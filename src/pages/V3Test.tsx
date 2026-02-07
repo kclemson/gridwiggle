@@ -186,7 +186,7 @@ export default function V3Test() {
   });
   
   // Toggle for showing rejected layouts
-  const [showRejected, setShowRejected] = useState(false);
+  const [showRejected, setShowRejected] = useState(true);
   
   // Capture stats (refreshed on shuffle/export/reset)
   const [captureStats, setCaptureStats] = useState(() => getCaptureStats());
@@ -249,7 +249,7 @@ export default function V3Test() {
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold">V3 Layout Test</h1>
             {!layout && rejectedLayout && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md animate-pulse-soft">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="font-medium text-sm">REJECTED: {rejectedLayout.reason.replace(/_/g, ' ')}</span>
               </div>
@@ -258,7 +258,7 @@ export default function V3Test() {
           <div className="flex items-center gap-2">
             <Button 
               onClick={() => setShowRejected(s => !s)}
-              variant={showRejected ? "default" : "outline"}
+              variant={showRejected && !layout && rejectedLayout ? "destructive" : showRejected ? "default" : "outline"}
               size="sm"
               className="gap-2"
             >
@@ -321,7 +321,7 @@ export default function V3Test() {
               </>
             ) : showRejected && scaledRejectedLayout ? (
               <div className="relative">
-                <div className="ring-4 ring-destructive rounded-lg overflow-hidden animate-pulse-soft">
+                <div className="ring-4 ring-destructive rounded-lg overflow-hidden">
                   <LayoutVisualization layout={scaledRejectedLayout} photos={photoSet.photos} />
                 </div>
                 <div className="mt-3 text-base font-medium text-foreground text-center">

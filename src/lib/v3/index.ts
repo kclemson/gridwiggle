@@ -94,8 +94,9 @@ export function generateCollageLayoutV3(
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
   const canvasWidth = providedCanvasWidth ?? 480;
   
-  // Map spacing slider (0-100) to actual pixel gap (0-32px)
-  const pixelGap = Math.round((settings.gapSize / 100) * 32);
+  // Map slider (0-100) directly to normalized gap (0 to 0.04)
+  // Middle of slider (~50) produces ~0.02, matching current default
+  const normalizedGap = (settings.gapSize / 100) * 0.04;
   
   devLogger.log('v3', 'Starting V3 layout generation', {
     photoCount: photos.length,
@@ -124,7 +125,7 @@ export function generateCollageLayoutV3(
   });
   
   // Find valid configuration through constraint intersection
-  const config = findValidConfiguration(dimensions, canvasWidth, pixelGap, tuning, randomize);
+  const config = findValidConfiguration(dimensions, canvasWidth, normalizedGap, tuning, randomize);
   
   if (!config) {
     devLogger.log('v3', 'No valid configuration found');

@@ -8,7 +8,7 @@
 import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING } from './types';
-import { findValidConfiguration } from './intersection';
+import { findValidConfiguration, getLastRejection, clearRejections } from './intersection';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -124,11 +124,24 @@ export function generateCollageLayoutV3(
     avgAR: dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length,
   });
   
+  // Clear rejection tracking before search
+  clearRejections();
+  
   // Find valid configuration through constraint intersection
   const config = findValidConfiguration(dimensions, canvasWidth, normalizedGap, tuning, randomize);
   
   if (!config) {
     devLogger.log('v3', 'No valid configuration found');
+    // Production logging - always emit on failure
+    const rejection = getLastRejection();
+    const avgAR = dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length;
+    console.warn('[V3 Layout] Generation failed', {
+      photoCount: photos.length,
+      heroCount,
+      avgAR: +avgAR.toFixed(2),
+      reason: rejection?.reason ?? 'No valid proposals',
+      ...rejection?.details,
+    });
     return null;
   }
   

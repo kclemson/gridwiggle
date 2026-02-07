@@ -129,6 +129,38 @@ export function validateProminence(
 }
 
 /**
+ * Validate that hero isn't too large compared to smallest content cells.
+ * Uses average of bottom 10% of content areas (minimum 1 photo).
+ * 
+ * This prevents layouts where the hero dominates so much that the smallest
+ * content photos become unreadably small thumbnails.
+ */
+export function validateSmallestCellRatio(
+  heroArea: number,
+  contentAreas: number[],
+  tuning: V3Tuning
+): { valid: boolean; ratio: number } {
+  if (contentAreas.length === 0) {
+    return { valid: true, ratio: 0 };
+  }
+  
+  // Sort ascending, take bottom 10% (min 1)
+  const sorted = [...contentAreas].sort((a, b) => a - b);
+  const bottomCount = Math.max(1, Math.ceil(sorted.length * 0.1));
+  const smallest = sorted.slice(0, bottomCount);
+  
+  // Average of smallest photos
+  const avgSmallest = smallest.reduce((s, v) => s + v, 0) / smallest.length;
+  
+  const ratio = heroArea / avgSmallest;
+  
+  return {
+    valid: ratio <= tuning.hero_maxToSmallest,
+    ratio,
+  };
+}
+
+/**
  * Find the hero photo from a list of photos.
  * Hero has weight > 1.
  */

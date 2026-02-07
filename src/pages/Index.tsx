@@ -327,18 +327,10 @@ export default function Index() {
     }
   }, [state.photos, state.layout, state.settings.gapColor]);
 
-  // Show loading state while initializing from IndexedDB
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
 
   // Auto-collapse carousel after processing completes
+  // NOTE: This must be before any early returns to satisfy Rules of Hooks
   useEffect(() => {
     if (wasProcessingRef.current && !isProcessing && state.photos.length > 0) {
       // Processing just finished - collapse after a short delay
@@ -360,6 +352,15 @@ export default function Index() {
   const editingPhoto = editingPhotoId 
     ? state.photos.find((p) => p.id === editingPhotoId) 
     : null;
+
+  // Show loading state while initializing from IndexedDB
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

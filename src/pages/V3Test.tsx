@@ -3,18 +3,29 @@
  * 
  * Dev-only page for rapid V3 algorithm iteration.
  * Uses synthetic photos (CSS rectangles) for fast testing.
+ * Auto-captures layout metadata to localStorage on every shuffle.
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
 import { devLogger, LogEntry } from '@/lib/devLogger';
+import { 
+  saveCapture, 
+  getCaptureStats, 
+  exportPendingCaptures, 
+  extractReasonFrequencies,
+  getLastRejection,
+  downloadJson,
+  V3LayoutCapture,
+} from '@/lib/v3CaptureStorage';
 import { SyntheticPhoto } from '@/test/layout/types';
-import { PhotoItem, CollageSettings } from '@/types/collage';
-import { Shuffle, Star, Image } from 'lucide-react';
+import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
+import { Shuffle, Star, Image, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
@@ -79,16 +90,109 @@ function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
 }
 
 /**
- * Generate a random photo set with 80% hero probability.
+ * Generate a random photo set with 95% hero probability.
  */
-function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number } {
+function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number; orientationBias: number } {
   const photoCount = TEST_PHOTO_COUNTS[Math.floor(Math.random() * TEST_PHOTO_COUNTS.length)];
   const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
   const hasHero = Math.random() < 0.95; // 95% hero - no-hero cases are easier
   const seed = Date.now(); // Use timestamp as pseudo-seed for reference
   
   const photos = generatePhotoSet(photoCount, orientationBias, hasHero);
-  return { photos, seed };
+  return { photos, seed, orientationBias };
+}
+
+/**
+ * Layout generation result (pure function output).
+ */
+interface LayoutResult {
+  layout: CollageLayout | null;
+  logs: LogEntry[];
+  durationMs: number;
+}
+
+/**
+ * Generate layout and capture logs/timing (pure function).
+ */
+function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
+  devLogger.clear();
+  const startTime = performance.now();
+  
+  const photoItems = photos.map(toPhotoItem);
+  const settings: CollageSettings = {
+    shape: 'auto',
+    gapColor: '#ffffff',
+    gapSize: GAP_SIZE,
+  };
+  
+  // Build photo weights (hero = priority 1 gets weight 2)
+  const photoWeights: Record<string, number> = {};
+  photos.forEach(p => {
+    if (p.priority === 1) {
+      photoWeights[p.id] = 2;
+    }
+  });
+  
+  const layout = generateCollageLayoutV3(photoItems, settings, { photoWeights });
+  const durationMs = performance.now() - startTime;
+  const logs = devLogger.getLogs();
+  
+  return { layout, logs, durationMs };
+}
+
+/**
+ * Build a capture object from photo set and layout result.
+ */
+function buildCapture(
+  photoSet: { photos: SyntheticPhoto[]; seed: number; orientationBias: number },
+  result: LayoutResult
+): Omit<V3LayoutCapture, 'exported'> {
+  const { photos, seed, orientationBias } = photoSet;
+  const { layout, logs, durationMs } = result;
+  
+  const heroPhoto = photos.find(p => p.priority === 1);
+  const avgAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
+  const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
+    extractReasonFrequencies(logs);
+  
+  const lastRejection = getLastRejection(logs);
+  
+  return {
+    photoCount: photos.length,
+    heroCount: heroPhoto ? 1 : 0,
+    heroAR: heroPhoto?.aspectRatio ?? null,
+    avgAR,
+    orientationBias,
+    seed,
+    
+    success: layout !== null,
+    canvasWidth: layout?.width ?? null,
+    canvasHeight: layout?.height ?? null,
+    canvasAR: layout ? layout.width / layout.height : null,
+    cellCount: layout?.cells.length ?? null,
+    
+    logCount: logs.length,
+    rejectCount,
+    rejectReasons,
+    feasibilityCount,
+    feasibilityReasons,
+    durationMs,
+    
+    failureReason: layout ? null : lastRejection?.reason ?? 'unknown',
+    failureDetails: layout ? null : lastRejection?.details ?? null,
+    
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Consolidated test state.
+ */
+interface TestState {
+  photoSet: { photos: SyntheticPhoto[]; seed: number; orientationBias: number };
+  layout: CollageLayout | null;
+  logs: LogEntry[];
+  durationMs: number;
 }
 
 // Thresholds for efficiency indicators
@@ -141,70 +245,47 @@ function DurationBadge({ durationMs }: { durationMs: number }) {
 }
 
 export default function V3Test() {
-  const [photoSet, setPhotoSet] = useState(() => generateRandomSet());
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [durationMs, setDurationMs] = useState(0);
+  // Consolidated state initialized with first generation
+  const [state, setState] = useState<TestState>(() => {
+    const photoSet = generateRandomSet();
+    const result = generateLayoutResult(photoSet.photos);
+    return { photoSet, ...result };
+  });
   
-  // Shuffle and regenerate
+  // Pending capture count (refreshed on shuffle/export)
+  const [pendingCount, setPendingCount] = useState(() => getCaptureStats().pending);
+  
+  // Shuffle: generate new set, run layout, capture to storage
   const handleShuffle = useCallback(() => {
-    devLogger.clear();
-    const newSet = generateRandomSet();
-    setPhotoSet(newSet);
-    // Logs will be captured after layout generation
+    const photoSet = generateRandomSet();
+    const result = generateLayoutResult(photoSet.photos);
+    
+    setState({ photoSet, ...result });
+    
+    // Capture to localStorage
+    saveCapture(buildCapture(photoSet, result));
+    setPendingCount(getCaptureStats().pending);
   }, []);
   
-  // Generate layout with timing
-  const layout = useMemo(() => {
-    devLogger.clear();
-    const startTime = performance.now();
+  // Export pending captures
+  const handleExport = useCallback(() => {
+    const { data, count } = exportPendingCaptures();
+    if (count === 0) return;
     
-    const photoItems = photoSet.photos.map(toPhotoItem);
-    const settings: CollageSettings = {
-      shape: 'auto',
-      gapColor: '#ffffff',
-      gapSize: GAP_SIZE,
-    };
-    
-    // Build photo weights (hero = priority 1 gets weight 2)
-    const photoWeights: Record<string, number> = {};
-    photoSet.photos.forEach(p => {
-      if (p.priority === 1) {
-        photoWeights[p.id] = 2;
-      }
-    });
-    
-    const result = generateCollageLayoutV3(photoItems, settings, {
-      photoWeights,
-    });
-    
-    const elapsed = performance.now() - startTime;
-    
-    // Capture logs and timing after generation
-    setLogs(devLogger.getLogs());
-    setDurationMs(elapsed);
-    
-    return result;
-  }, [photoSet]);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    downloadJson(data, `v3-captures-${timestamp}.json`);
+    setPendingCount(0);
+  }, []);
+  
+  // Destructure state for rendering
+  const { photoSet, layout, logs, durationMs } = state;
   
   // Stats
   const heroPhoto = photoSet.photos.find(p => p.priority === 1);
   const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
   
   // Log category breakdown
-  const logStats = useMemo(() => {
-    let rejectCount = 0;
-    let feasibilityCount = 0;
-    
-    for (const entry of logs) {
-      if (entry.level === 'warn' || entry.level === 'error' || entry.category.includes('reject')) {
-        rejectCount++;
-      } else if (entry.category === 'feasibility') {
-        feasibilityCount++;
-      }
-    }
-    
-    return { rejectCount, feasibilityCount };
-  }, [logs]);
+  const logStats = extractReasonFrequencies(logs);
   
   return (
     <div className="min-h-screen bg-background p-6">
@@ -212,10 +293,27 @@ export default function V3Test() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">V3 Layout Test</h1>
-          <Button onClick={handleShuffle} variant="outline" className="gap-2">
-            <Shuffle className="h-4 w-4" />
-            Shuffle
-          </Button>
+          <div className="flex items-center gap-2">
+            {pendingCount > 0 && (
+              <Badge variant="secondary" className="tabular-nums">
+                {pendingCount} pending
+              </Badge>
+            )}
+            <Button 
+              onClick={handleExport} 
+              variant="outline" 
+              size="sm"
+              disabled={pendingCount === 0}
+              className="gap-1.5"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Button onClick={handleShuffle} variant="outline" className="gap-2">
+              <Shuffle className="h-4 w-4" />
+              Shuffle
+            </Button>
+          </div>
         </div>
         
         {/* Stats */}

@@ -1,57 +1,69 @@
 
-# Add Prominent Spinner Feedback During Collage Generation
+
+# Fix: Spinner Not Animating During Generation
 
 ## The Problem
 
-When you click the refresh button, the canvas dims (opacity drops to 60%) and the tiny RefreshCw icon technically spins - but the generation is so fast (~10-50ms) and the icon so small (16px) that you don't perceive any spinner. The dimming alone feels like lag rather than intentional "working" feedback.
+The spinner appears but doesn't animate. This is because the **main thread is blocked** during layout generation, preventing CSS animation frames from running.
 
-## What Changes For You
+### What's Happening Now
 
-After this fix:
-- A **centered spinner overlay** appears on the dimmed canvas during generation
-- More obvious visual signal that work is happening
-- Matches the loading pattern used elsewhere in the app (photo processing, initial load)
+```text
+1. Click refresh → setIsGenerating(true)
+2. setTimeout(0) queues the work
+3. React paints the spinner (frame 1 - static)
+4. Layout algorithm runs synchronously (~10-50ms)
+   ⚠️ Main thread BLOCKED - no animation frames possible
+5. setIsGenerating(false) → spinner disappears
+```
+
+The spinner only exists for one paint frame before the thread blocks, so you never see it move.
+
+## The Solution
+
+Add a **small delay before starting the blocking work** to give the browser time to:
+1. Paint the spinner
+2. Start the CSS animation
+3. Run at least 1-2 animation frames
+
+Then the user sees motion before the freeze, which feels much more responsive.
 
 ## Technical Changes
 
 ### File: `src/pages/Index.tsx`
 
-Add a centered `Loader2` spinner overlay inside the collage container when generating:
+Change the setTimeout delay from 0ms to ~50ms:
 
-```text
-Current (lines 598-630):
-<div className={cn(
-  "relative overflow-hidden transition-opacity duration-150",
-  isGenerating && "opacity-60"
-)}>
-  <CollagePreview ... />
-  {/* Error overlay */}
-</div>
+```typescript
+// Current (line ~125-130):
+setIsGenerating(true);
+setTimeout(() => {
+  // ... layout generation
+}, 0);
 
-After:
-<div className={cn(
-  "relative overflow-hidden transition-opacity duration-150",
-  isGenerating && "opacity-60"
-)}>
-  <CollagePreview ... />
-  
-  {/* Generating overlay - spinner centered on canvas */}
-  {isGenerating && (
-    <div className="absolute inset-0 flex items-center justify-center z-10">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  )}
-  
-  {/* Error overlay */}
-</div>
+// After:
+setIsGenerating(true);
+setTimeout(() => {
+  // ... layout generation
+}, 50);  // Allow 2-3 animation frames before blocking
 ```
 
-This adds a prominent 32px spinning loader centered over the dimmed canvas, matching the pattern used in `PhotoThumbnail.tsx` for processing photos.
+### Why 50ms?
+
+- CSS animations run at 60fps = ~16.7ms per frame
+- 50ms gives the browser 2-3 frames to show spinner motion
+- Still feels instant (50ms is below human perception threshold for "delay")
+- The total time is still fast: 50ms wait + 10-50ms generation = 60-100ms total
+
+### Alternative: Web Worker (Future Enhancement)
+
+For truly non-blocking generation, we could move the layout algorithm to a Web Worker. This would allow the spinner to animate continuously. However, this is a larger refactor and the 50ms delay is sufficient for now.
 
 ## Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `Loader2` spinner overlay inside collage container when `isGenerating` is true |
+| `src/pages/Index.tsx` | Change `setTimeout(..., 0)` to `setTimeout(..., 50)` in `regenerateCollage` |
 
-This is a 5-line addition that provides the prominent visual feedback you're expecting.
+This is a 1-character fix that makes the spinner visibly animate before the layout generation blocks the thread.
+

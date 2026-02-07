@@ -5,7 +5,7 @@ import { V3Tuning } from '@/lib/v3/types';
 import { V3TuningSection } from '@/components/V3TuningSection';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
-export type AlgorithmVersion = 'v1' | 'v2' | 'v3';
+export type AlgorithmVersion = 'v1' | 'v3';
 
 interface DebugPanelProps {
   logs: LogEntry[];
@@ -137,9 +137,6 @@ export function DebugPanel({
             >
               <ToggleGroupItem value="v1" className="text-xs font-mono px-2 h-6">
                 v1
-              </ToggleGroupItem>
-              <ToggleGroupItem value="v2" className="text-xs font-mono px-2 h-6">
-                v2
               </ToggleGroupItem>
               <ToggleGroupItem 
                 value="v3" 

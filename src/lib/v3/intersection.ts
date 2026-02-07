@@ -226,6 +226,10 @@ function evaluateNormalizedProposal(
   // Use the belowRowCount that was validated during region search
   const belowRowCount = regionAssignment.belowRowCount;
   
+  // For rejection diagnostics - extract early so available to all validation points
+  const besideCount = regionAssignment.besidePhotos.length;
+  const besideRowCount = regionAssignment.besideRowCount;
+  
   // Pack BELOW at hero row width
   const belowResult = packToFillWidth(
     regionAssignment.belowPhotos,
@@ -276,37 +280,47 @@ function evaluateNormalizedProposal(
   
   if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
     const rejectedCells = computeRejectedCells();
+    const details = { 
+      canvasAR: +canvasAR.toFixed(2), 
+      allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+      besideCount,
+      besideRowCount,
+      belowRowCount,
+      heroAR: +heroAR.toFixed(2),
+    };
     setRejectedLayout({
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
       reason: 'canvas_too_tall',
-      details: { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR },
+      details,
       timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Canvas too tall', {
-      canvasAR: canvasAR.toFixed(2),
-      minAR: tuning.canvas_minAR,
-    });
-    setRejection('Canvas too tall', { canvasAR: +canvasAR.toFixed(2), minAR: tuning.canvas_minAR });
+    devLogger.warn('layout-reject', 'Canvas too tall', details);
+    setRejection('Canvas too tall', details);
     return null;
   }
   
   if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
     const rejectedCells = computeRejectedCells();
+    const details = { 
+      canvasAR: +canvasAR.toFixed(2), 
+      allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+      besideCount,
+      besideRowCount,
+      belowRowCount,
+      heroAR: +heroAR.toFixed(2),
+    };
     setRejectedLayout({
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
       reason: 'canvas_too_wide',
-      details: { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR },
+      details,
       timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Canvas too wide', {
-      canvasAR: canvasAR.toFixed(2),
-      maxAR: tuning.canvas_maxAR,
-    });
-    setRejection('Canvas too wide', { canvasAR: +canvasAR.toFixed(2), maxAR: tuning.canvas_maxAR });
+    devLogger.warn('layout-reject', 'Canvas too wide', details);
+    setRejection('Canvas too wide', details);
     return null;
   }
   
@@ -321,19 +335,25 @@ function evaluateNormalizedProposal(
   
   if (!prominence.valid) {
     const rejectedCells = computeRejectedCells();
+    const details = { 
+      prominenceRatio: +prominence.ratio.toFixed(2), 
+      required: tuning.hero_minProminence,
+      besideCount,
+      besideRowCount,
+      belowRowCount,
+      heroAR: +heroAR.toFixed(2),
+      canvasAR: +canvasAR.toFixed(2),
+    };
     setRejectedLayout({
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
       reason: 'prominence_too_low',
-      details: { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence },
+      details,
       timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Prominence too low', {
-      ratio: prominence.ratio.toFixed(2),
-      required: tuning.hero_minProminence,
-    });
-    setRejection('Prominence too low', { ratio: +prominence.ratio.toFixed(2), required: tuning.hero_minProminence });
+    devLogger.warn('layout-reject', 'Prominence too low', details);
+    setRejection('Prominence too low', details);
     return null;
   }
   
@@ -345,24 +365,27 @@ function evaluateNormalizedProposal(
     // Include smallest 3 areas for debugging
     const sortedAreas = contentAreas.sort((a, b) => a - b);
     const smallestAreas = sortedAreas.slice(0, 3).map(a => +a.toFixed(4));
+    const details = { 
+      ratio: +smallestCheck.ratio.toFixed(1), 
+      maxAllowed: tuning.hero_maxToSmallest,
+      heroArea: +heroArea.toFixed(3),
+      smallestAreas,
+      besideCount,
+      besideRowCount,
+      belowRowCount,
+      heroAR: +heroAR.toFixed(2),
+      canvasAR: +canvasAR.toFixed(2),
+    };
     setRejectedLayout({
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
       reason: 'hero_too_large_vs_smallest_cells',
-      details: { 
-        ratio: +smallestCheck.ratio.toFixed(1), 
-        maxAllowed: tuning.hero_maxToSmallest,
-        heroArea: +heroArea.toFixed(3),
-        smallestAreas,
-      },
+      details,
       timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Hero too large vs smallest cells', {
-      ratio: smallestCheck.ratio.toFixed(1),
-      maxAllowed: tuning.hero_maxToSmallest,
-    });
-    setRejection('Hero too large vs smallest cells', { ratio: +smallestCheck.ratio.toFixed(1), maxAllowed: tuning.hero_maxToSmallest });
+    devLogger.warn('layout-reject', 'Hero too large vs smallest cells', details);
+    setRejection('Hero too large vs smallest cells', details);
     return null;
   }
   
@@ -603,25 +626,23 @@ function generateSimpleRowsLayout(
   
   // Validate canvas AR bounds
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+    const details = { 
+      canvasAR: +canvasAR.toFixed(2), 
+      allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+      rowCount,
+      photoCount: photos.length,
+    };
     // Capture rejected layout for visualization
     setRejectedLayout({
       cells,
       canvasWidth,
       canvasHeight,
       reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-      details: { 
-        canvasAR: +canvasAR.toFixed(2), 
-        minAR: tuning.canvas_minAR,
-        maxAR: tuning.canvas_maxAR,
-      },
+      details,
       timestamp: Date.now(),
     });
     
-    devLogger.log('layout', 'Simple rows layout outside AR bounds', {
-      canvasAR: canvasAR.toFixed(2),
-      minAR: tuning.canvas_minAR,
-      maxAR: tuning.canvas_maxAR,
-    });
+    devLogger.log('layout', 'Simple rows layout outside AR bounds', details);
     return null;
   }
   

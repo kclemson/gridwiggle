@@ -15,6 +15,7 @@ import {
   isStorageAvailable,
   StoredPhoto
 } from '@/lib/photoStorage';
+import { remoteLogger } from '@/lib/remoteLogger';
 
 const STORAGE_KEY = 'smart-collage-state';
 const SAVE_DEBOUNCE_MS = 300;
@@ -155,23 +156,29 @@ export function useCollageState() {
     let mounted = true;
 
     async function initialize() {
+      remoteLogger.info('indexeddb', 'Starting initialization', {});
+      
       // Check if IndexedDB is available
       const available = await isStorageAvailable();
       if (!available) {
         setStorageAvailable(false);
-        // Silent - storageAvailable flag can be used by UI if needed
+        remoteLogger.warn('indexeddb', 'Storage not available', {});
       }
 
       // Load metadata from localStorage
       const persisted = loadMetadataFromStorage();
+      remoteLogger.info('indexeddb', 'Metadata loaded', { photoCount: persisted.photos.length });
 
       // Load blobs from IndexedDB
       let storedPhotos: StoredPhoto[] = [];
       try {
         storedPhotos = await getAllPhotos();
+        remoteLogger.info('indexeddb', 'Blobs loaded', { blobCount: storedPhotos.length });
       } catch (e) {
         console.error('Failed to load photos from IndexedDB:', e);
-        // Silent - start fresh, user can re-upload
+        remoteLogger.error('indexeddb', 'Load failed', { 
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
 
       if (!mounted) return;
@@ -199,6 +206,10 @@ export function useCollageState() {
         photos,
         settings: persisted.settings,
         layout: persisted.layout,
+      });
+      remoteLogger.info('indexeddb', 'Initialization complete', { 
+        hydratedCount: photos.length,
+        hasLayout: !!persisted.layout,
       });
       setIsLoading(false);
     }
@@ -237,6 +248,10 @@ export function useCollageState() {
         succeeded.push(photo);
       } catch (e) {
         console.error('Failed to save photo to IndexedDB:', photo.id, e);
+        remoteLogger.error('indexeddb', 'Save failed', { 
+          photoId: photo.id, 
+          error: e instanceof Error ? e.message : String(e),
+        });
         failed.push(photo);
         // Remove from state on failure
         setState((prev) => ({

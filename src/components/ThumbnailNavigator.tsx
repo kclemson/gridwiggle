@@ -126,9 +126,11 @@ export function ThumbnailNavigator({
                 {isLoaded ? (
                   <>
                     <div className="w-full h-full rounded overflow-hidden">
-                      {crop ? (
+                    {crop ? (
                         <CroppedImage
                           src={photo.objectUrl}
+                          previewSrc={photo.previewUrl}
+                          thumbnailSrc={photo.thumbnailUrl}
                           crop={crop}
                           originalWidth={photo.originalWidth}
                           originalHeight={photo.originalHeight}
@@ -136,7 +138,7 @@ export function ThumbnailNavigator({
                         />
                       ) : (
                         <img
-                          src={photo.objectUrl}
+                          src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
                           alt=""
                           className="w-full h-full object-cover"
                         />

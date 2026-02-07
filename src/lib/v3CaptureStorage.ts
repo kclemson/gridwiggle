@@ -165,6 +165,17 @@ export function getLastRejection(logs: LogEntry[]): { reason: string; details: R
 }
 
 /**
+ * Clear all captures from localStorage.
+ */
+export function clearCaptures(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn('Failed to clear V3 captures from localStorage', e);
+  }
+}
+
+/**
  * Trigger a JSON download of the given data.
  */
 export function downloadJson(data: unknown, filename: string): void {

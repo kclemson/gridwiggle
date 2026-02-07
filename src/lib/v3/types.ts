@@ -44,7 +44,7 @@ export interface V3Tuning {
   row_maxHeightRatio: number;
   
   // === Hero-to-Smallest Constraint ===
-  /** Max hero area relative to avg of smallest content photos (15 = hero ≤ 15× smallest) */
+  /** Max hero area relative to avg of smallest content photos (45 = hero ≤ 45× smallest) */
   hero_maxToSmallest: number;
 }
 
@@ -58,7 +58,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   canvas_maxAR: 2.0,
   row_arBudgetJitter: 0.2,
   row_maxHeightRatio: 1.8,
-  hero_maxToSmallest: 22,
+  hero_maxToSmallest: 45,
 };
 
 // ============================================================================

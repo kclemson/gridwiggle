@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Trash2 } from 'lucide-react';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getEditorInitialCrop } from '@/lib/cropUtils';
 
@@ -10,6 +11,7 @@ interface CropEditorProps {
   photo: PhotoItem;
   onClose: () => void;
   onSave: (photoId: string, crop: CropRegion, priority: PhotoPriority) => void;
+  onDelete: (photoId: string) => void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface CropEditorProps {
  * Uses the same coordinate system as CroppedImage for pixel-perfect alignment.
  * All crop coordinates are in original image pixels.
  */
-export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
+export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   
   // Initialize crop from photo props on mount using centralized utility
@@ -33,6 +35,23 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
   
   // Track viewScale for sizing handles in screen pixels
   const [viewScale, setViewScale] = useState(1);
+  
+  // Store initial values for change detection
+  const initialCrop = useRef<CropRegion>(getEditorInitialCrop(photo));
+  const initialIsHero = useRef(photo.priority === 1);
+  
+  // Detect if any changes were made
+  const hasChanges = useMemo(() => {
+    const cropChanged = 
+      crop.x !== initialCrop.current.x ||
+      crop.y !== initialCrop.current.y ||
+      crop.width !== initialCrop.current.width ||
+      crop.height !== initialCrop.current.height;
+    
+    const heroChanged = isHero !== initialIsHero.current;
+    
+    return cropChanged || heroChanged;
+  }, [crop, isHero]);
 
   // Update viewScale from actual rendered SVG dimensions
   useEffect(() => {
@@ -129,8 +148,14 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
 
   const handleSave = () => {
     const priority: PhotoPriority = isHero ? 1 : 3;
-    onSave(photo.id, crop, priority);
+    // Close immediately for responsiveness
     onClose();
+    // State update happens after close - user doesn't see the delay
+    onSave(photo.id, crop, priority);
+  };
+  
+  const handleDelete = () => {
+    onDelete(photo.id);
   };
 
   // Handle size in viewBox units so it appears as ~28px on screen
@@ -304,21 +329,29 @@ export function CropEditor({ photo, onClose, onSave }: CropEditorProps) {
         </div>
 
         <DialogFooter className="px-4 py-3 border-t border-border shrink-0 flex-col sm:flex-row gap-3">
-          <div className="flex items-center gap-3 mr-auto">
+          <Button 
+            variant="ghost" 
+            onClick={handleDelete}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+          >
+            <Trash2 className="h-4 w-4 mr-1.5" />
+            Delete Photo
+          </Button>
+          <div className="flex items-center gap-3">
             <Checkbox 
               id="hero-toggle"
               checked={isHero} 
               onCheckedChange={(checked) => setIsHero(checked === true)} 
             />
             <Label htmlFor="hero-toggle" className="text-sm">
-              Make this a hero photo so it is larger in the collage
+              Hero
             </Label>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={!hasChanges}>
               Save
             </Button>
           </div>

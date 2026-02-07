@@ -115,8 +115,11 @@ export default function Index() {
     try {
       devLogger.clear();
       
-      // Use v1 or v3 algorithm based on selection
-      const layout = algorithmVersion === 'v3'
+      // V3 is the production algorithm
+      // In dev mode, algorithmVersion toggle in DebugPanel can override
+      const useV3 = !import.meta.env.DEV || algorithmVersion === 'v3';
+
+      const layout = useV3
         ? generateCollageLayoutV3(photosToUse, settings, { 
             photoWeights,
             randomize,

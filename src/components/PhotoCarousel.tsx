@@ -35,7 +35,7 @@ export function PhotoCarousel({
 }: PhotoCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     startIndex: currentIndex,
-    loop: false,
+    loop: true,
   });
 
   // Sync currentIndex to embla

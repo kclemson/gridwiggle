@@ -1,105 +1,82 @@
 
-
-# Fix: Spacing Slider Not Working for Non-Hero Layouts
-
-## What's Happening
-
-When you move the spacing slider, nothing changes because the layout algorithm ignores your gap setting when there's no hero photo.
-
-The logs show `heroCount: 0`, which means the "simple rows" layout path is being used. This path has a bug where it uses a hardcoded gap value (`0.02`) instead of your actual spacing setting.
+# Fix Spacing: Add Edge Padding via CSS
 
 ## What You'll Experience After This Fix
 
-- Moving the spacing slider immediately updates the gaps between photos
-- Works for both hero layouts (already working) and regular layouts (broken until now)
+1. **Zero gap works**: When slider is at 0, photos touch each other AND touch the edges
+2. **Edge padding matches inter-photo gap**: The background color appears around all edges at the same width as between photos
 
 ---
 
-## Technical Details
+## The Simple Approach
 
-### Root Cause
+Instead of modifying the layout algorithm's coordinate math, we just wrap the collage in a container with CSS padding. The layout algorithm outputs cells starting at (0,0) - we add the edge padding purely in the presentation layer.
 
-In `src/lib/v3/intersection.ts`, the `generateSimpleRowsLayout` function:
+## Technical Changes
 
+### File 1: `src/components/CollagePreview.tsx`
+
+**Add `gap` prop** (line 115-122):
 ```typescript
-function generateSimpleRowsLayout(
-  photos: PhotoDimension[],
-  canvasWidth: number,
-  gap: number,        // ← receives pixel gap but NEVER USES IT
-  tuning: V3Tuning
-): ScoredConfiguration | null {
-  // ...
-  const estimatedNormalizedGap = 0.02;  // ← hardcoded, ignores actual gap
+interface CollagePreviewProps {
+  photos: PhotoItem[];
+  layout: CollageLayout;
+  gapColor: string;
+  gap: number;  // NEW: pixel gap for edge padding
+  onSwapPhotos: (photoId1: string, photoId2: string) => void;
+  onCellClick?: (photoId: string) => void;
+  onToggleHero?: (photoId: string) => void;
+}
 ```
 
-The `gap` parameter (0-32px from slider) is passed in but completely ignored.
+**Add padding to container** (lines 230-239):
 
-### The Fix
+The container needs padding, and the aspect ratio needs to account for the padding-expanded dimensions:
 
-**Step 1: Calculate proper normalized gap from pixel gap**
-
-Similar to how `evaluateNormalizedProposal` works, we need to:
-1. Use a small fixed normalized gap for geometry/packing calculations (so row distribution stays stable)
-2. Apply the actual pixel gap when converting cells to final positions
-
-**Step 2: Add gap offset when converting cells to pixels**
-
-Currently cells are just scaled:
 ```typescript
-x: cell.x * scaleFactor,
-y: cell.y * scaleFactor,
+// Compute padded dimensions for aspect ratio
+const paddedWidth = layout.width + (2 * gap);
+const paddedHeight = layout.height + (2 * gap);
+
+<div
+  ref={collageRef}
+  className="relative mx-auto"
+  style={{
+    maxWidth: effectiveMaxWidth + (2 * gap),  // Expand max for padding
+    width: '100%',
+    aspectRatio: `${paddedWidth} / ${paddedHeight}`,
+    backgroundColor: gapColor,
+    padding: gap,  // Edge padding = inter-photo gap
+  }}
+>
 ```
 
-This doesn't account for gaps between rows. Need to add:
+### File 2: `src/pages/Index.tsx`
+
+**Pass `gap` to CollagePreview** (lines 520-527):
+
 ```typescript
-// Track cumulative gap offset for each row
-y: cell.y * scaleFactor + (rowIndex * pixelGap),
+<CollagePreview
+  photos={state.photos}
+  layout={state.layout}
+  gapColor={state.settings.gapColor}
+  gap={state.settings.gapSize}  // NEW
+  onSwapPhotos={handleSwapPhotos}
+  onCellClick={setEditingPhotoId}
+  onToggleHero={handleToggleHero}
+/>
 ```
 
-### Files to Change
+---
+
+## Summary
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/intersection.ts` | Update `generateSimpleRowsLayout` to apply pixel gap when converting cells |
+| `CollagePreview.tsx` line 118 | Add `gap: number` to props interface |
+| `CollagePreview.tsx` line 129 | Destructure `gap` from props |
+| `CollagePreview.tsx` lines 217-221 | Compute padded dimensions for aspect ratio |
+| `CollagePreview.tsx` lines 233-238 | Add `padding: gap` and use padded aspect ratio |
+| `Index.tsx` line 523 | Pass `gap={state.settings.gapSize}` |
 
-### Code Changes
-
-**Lines 486-555 in `generateSimpleRowsLayout`:**
-
-1. Change cell conversion to apply pixel gaps between rows
-2. Update canvas height calculation to include gap space
-
-```typescript
-// Current (broken):
-const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
-  photoId: cell.photoId,
-  x: cell.x * scaleFactor,
-  y: cell.y * scaleFactor,
-  width: cell.width * scaleFactor,
-  height: cell.height * scaleFactor,
-}));
-
-// Fixed:
-// Track which row each cell is in to apply correct gap offset
-const cells: LayoutCell[] = normalizedResult.cells.map(cell => {
-  // Determine row index from Y position (cells in same row have same Y)
-  // rowHeight is approximately 1/rowCount of total height
-  const approxRowHeight = normalizedResult.height / rowCount;
-  const rowIndex = Math.round(cell.y / approxRowHeight);
-  
-  return {
-    photoId: cell.photoId,
-    x: cell.x * scaleFactor,
-    y: cell.y * scaleFactor + (rowIndex * gap), // Add gap offset per row
-    width: cell.width * scaleFactor,
-    height: cell.height * scaleFactor,
-  };
-});
-
-// Update canvas height to include gaps
-const totalGapHeight = (rowCount - 1) * gap;
-const actualCanvasHeight = normalizedResult.height * scaleFactor + totalGapHeight;
-```
-
-This mirrors how the hero layout applies gaps - geometry is calculated in normalized space, then pixel gaps are added during the final conversion.
-
+This is a presentation-layer-only fix - no changes to the layout algorithm needed.

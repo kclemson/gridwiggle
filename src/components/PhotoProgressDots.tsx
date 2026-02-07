@@ -13,7 +13,7 @@ export function PhotoProgressDots({
   className,
 }: PhotoProgressDotsProps) {
   return (
-    <div className={cn("flex gap-1 flex-wrap", className)}>
+    <div className={cn("flex gap-1 flex-wrap justify-center", className)}>
       {photos.map((photo) => {
         const isProcessing = photo.id === currentlyProcessingId;
         const isComplete = !photo.isProcessing && !photo.error;

@@ -1,80 +1,79 @@
 
 
-## Add Reset Button for Capture Storage
+## Fix: Remove Hardcoded Minimum BELOW Height
 
 ### Design Intent
-Allow clearing all pending captures when the algorithm changes, preventing stale/irrelevant logs from being included in exported analysis data.
+Allow "all photos beside hero" layouts by removing an incorrect assumption that BELOW must always have some content.
 
 ### User Outcome
-A "Reset" button appears next to Export that clears all captures from localStorage and resets the pending counter to 0.
+Portrait heroes with low photo counts can now generate valid layouts where all photos stack in multiple rows beside the hero, with nothing below.
+
+---
+
+## Root Cause
+
+Two places hardcode `0.2` as minimum BELOW height when estimating canvas AR:
+
+| File | Line | Current Code |
+|------|------|--------------|
+| `src/lib/v3/feasibility.ts` | ~100 | `const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;` |
+| `src/lib/v3/region-search.ts` | ~195 | `const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;` |
+
+This is a hardcoded assumption, not a tuning parameter, because there's no valid design reason for it. The minimum should be `0` - an empty BELOW region is perfectly valid.
+
+---
+
+## The Fix
+
+Remove the `0.2` from both places:
+
+```typescript
+// Before:
+const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+
+// After:
+const minCanvasHeight = 1.0 + 2 * normalizedGap;
+```
+
+The existing code already handles empty BELOW correctly:
+- `packToFillWidth([])` returns `{ height: 0 }` 
+- Validation checks `belowPhotos.length > 0 && result.cells.length === 0` 
+- Canvas AR calculation works with `belowResult.height = 0` 
+
+---
+
+## Why Not a Tuning Parameter?
+
+This isn't a "dial" that users would ever want to adjust - it's a bug. There's no scenario where you'd want to force a minimum BELOW height:
+- If you want more content below, you adjust canvas AR constraints
+- If you want taller layouts, you adjust `canvas_minAR`
+
+Adding it to tuning would just be documenting a mistake. The clean fix is removal.
 
 ---
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/lib/v3CaptureStorage.ts` | Add `clearCaptures()` function |
-| `src/pages/V3Test.tsx` | Add Reset button with confirmation |
+| File | Change |
+|------|--------|
+| `src/lib/v3/feasibility.ts` | Remove `+ 0.2` from minCanvasHeight calculation |
+| `src/lib/v3/region-search.ts` | Remove `+ 0.2` from minCanvasHeight calculation |
 
 ---
 
-## Technical Details
+## Expected Result
 
-### v3CaptureStorage.ts
-
-Add a simple clear function:
-
-```typescript
-/**
- * Clear all captures from localStorage.
- */
-export function clearCaptures(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (e) {
-    console.warn('Failed to clear V3 captures from localStorage', e);
-  }
-}
-```
-
-### V3Test.tsx
-
-Add handler and button in the header:
-
-```typescript
-// Import
-import { clearCaptures } from '@/lib/v3CaptureStorage';
-import { Trash2 } from 'lucide-react';
-
-// Handler
-const handleReset = useCallback(() => {
-  clearCaptures();
-  setPendingCount(0);
-}, []);
-```
-
-Button placement in header (between pending badge and Export):
+Portrait hero (AR=0.67) with 5 photos beside in 3 rows:
 
 ```text
-[47 pending] [Reset] [Export] [Shuffle]
++----------+--------+
+|          | Row 1  |
+|   HERO   +--------+
+|  (tall)  | Row 2  |
+|          +--------+
+|          | Row 3  |
++----------+--------+
 ```
 
-```tsx
-<Button 
-  onClick={handleReset}
-  variant="ghost"
-  size="sm"
-  disabled={pendingCount === 0}
-  className="gap-1.5 text-muted-foreground hover:text-destructive"
->
-  <Trash2 className="h-4 w-4" />
-  Reset
-</Button>
-```
-
-The button is:
-- Disabled when pending count is 0 (nothing to reset)
-- Uses ghost variant with muted styling (secondary action)
-- Hover state changes to destructive color as visual warning
+Canvas AR = ~1.17 (valid within 0.67-2.0 range)
 

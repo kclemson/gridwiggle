@@ -54,7 +54,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   decomp_edgeMinPhotos: 8,
   decomp_floatingMinPhotos: 15,
   row_flexPercent: 0.10,
-  canvas_minAR: 0.67,
+  canvas_minAR: 0.6,
   canvas_maxAR: 2.0,
   row_arBudgetJitter: 0.2,
   row_maxHeightRatio: 1.8,

@@ -60,8 +60,6 @@ export interface GenerateLayoutV3Options {
   photoWeights?: Record<string, number>;
   /** Tuning parameter overrides */
   tuning?: Partial<V3Tuning>;
-  /** Canvas width - caller provides based on container */
-  canvasWidth?: number;
   /** Shuffle photos for variety (refresh button) */
   randomize?: boolean;
 }
@@ -87,12 +85,10 @@ export function generateCollageLayoutV3(
   const { 
     photoWeights = {}, 
     tuning: tuningOverrides,
-    canvasWidth: providedCanvasWidth,
     randomize = false,
   } = options;
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
-  const canvasWidth = providedCanvasWidth ?? 480;
   
   // Map slider (0-100) directly to normalized gap (0 to 0.04)
   // Middle of slider (~50) produces ~0.02, matching current default
@@ -100,7 +96,6 @@ export function generateCollageLayoutV3(
   
   devLogger.log('v3', 'Starting V3 layout generation', {
     photoCount: photos.length,
-    canvasWidth,
     tuning: {
       hero_targetProminence: tuning.hero_targetProminence,
       hero_minProminence: tuning.hero_minProminence,
@@ -128,7 +123,7 @@ export function generateCollageLayoutV3(
   clearRejections();
   
   // Find valid configuration through constraint intersection
-  const config = findValidConfiguration(dimensions, canvasWidth, normalizedGap, tuning, randomize);
+  const config = findValidConfiguration(dimensions, normalizedGap, tuning, randomize);
   
   if (!config) {
     devLogger.log('v3', 'No valid configuration found');
@@ -150,23 +145,22 @@ export function generateCollageLayoutV3(
     position: config.proposal.position,
     prominenceRatio: config.prominenceRatio.toFixed(2),
     score: config.score.toFixed(3),
-    canvasHeight: Math.round(config.canvasHeight),
   });
   
   // Convert to CollageLayout format
+  // Cells are in normalized space - just pass through (rounding for cleaner output)
   const cells: CollageCell[] = config.cells.map(cell => ({
     photoId: cell.photoId,
-    x: Math.round(cell.x),
-    y: Math.round(cell.y),
-    width: Math.round(cell.width),
-    height: Math.round(cell.height),
+    x: cell.x,
+    y: cell.y,
+    width: cell.width,
+    height: cell.height,
   }));
   
   devLogger.log('v3', 'Final layout dimensions', {
-    inputWidth: canvasWidth,
-    outputWidth: Math.round(config.canvasWidth),
-    outputHeight: Math.round(config.canvasHeight),
-    outputAR: (config.canvasWidth / config.canvasHeight).toFixed(2),
+    width: config.canvasWidth.toFixed(3),
+    height: config.canvasHeight.toFixed(3),
+    aspectRatio: (config.canvasWidth / config.canvasHeight).toFixed(2),
   });
   
   return {

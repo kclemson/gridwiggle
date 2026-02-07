@@ -3,6 +3,10 @@
  * 
  * Manages canvas space and performs sub-rectangle decomposition.
  * The hero "carves" the canvas into 2-4 content regions.
+ * 
+ * Note: This module works in normalized space (hero height = 1.0).
+ * No pixel-based constraints - all viability is handled through
+ * scale-invariant ratios (canvas AR, prominence, etc.)
  */
 
 import { 
@@ -11,7 +15,6 @@ import {
   DecompositionResult,
   V3Tuning 
 } from '../types';
-import { isRegionViable } from '../utils';
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -41,19 +44,19 @@ export function decomposeCanvas(
 ): DecompositionResult {
   switch (mode) {
     case 'corner':
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
+      return decomposeCorner(canvasWidth, heroRect, gap, position);
     case 'edge':
       devLogger.log('v3', 'Edge mode fallback', {
         position,
         reason: 'Edge decomposition not yet implemented, using corner',
       });
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
+      return decomposeCorner(canvasWidth, heroRect, gap, position);
     case 'floating':
       devLogger.log('v3', 'Floating mode fallback', {
         position,
         reason: 'Floating decomposition not yet implemented, using corner',
       });
-      return decomposeCorner(canvasWidth, heroRect, gap, tuning, position);
+      return decomposeCorner(canvasWidth, heroRect, gap, position);
     default:
       return { regions: [], valid: false, invalidReason: `Unknown mode: ${mode}` };
   }
@@ -62,12 +65,13 @@ export function decomposeCanvas(
 /**
  * Corner decomposition: Hero in corner, content beside and below.
  * Position determines which side the BESIDE region is on.
+ * 
+ * All dimensions are in normalized space - no pixel-based viability checks.
  */
 function decomposeCorner(
   canvasWidth: number,
   heroRect: RegionSpec,
   gap: number,
-  tuning: V3Tuning,
   position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right' | 'center'
 ): DecompositionResult {
   const regions: RegionSpec[] = [];
@@ -86,7 +90,8 @@ function decomposeCorner(
     besideWidth = heroRect.x - gap;
   }
   
-  if (besideWidth > tuning.region_minWidth) {
+  // Only add BESIDE region if it has positive width
+  if (besideWidth > 0) {
     regions.push({
       x: besideX,
       y: heroRect.y,
@@ -106,41 +111,22 @@ function decomposeCorner(
     height: Infinity, // Unbounded - actual height determined by row packing
   });
   
-  // Validate regions meet minimum viability
-  const allViable = regions.every(r => 
-    isRegionViable(r.width, r.height, tuning.region_minWidth, tuning.region_minHeight)
-  );
-  
-  if (!allViable) {
-    const tooNarrow = regions.find(r => r.width < tuning.region_minWidth);
-    const tooShort = regions.find(r => r.height < tuning.region_minHeight);
-    
-    return {
-      regions,
-      valid: false,
-      invalidReason: tooNarrow 
-        ? `Region too narrow: ${Math.round(tooNarrow.width)}px < ${tuning.region_minWidth}px`
-        : `Region too short: ${Math.round(tooShort?.height ?? 0)}px < ${tuning.region_minHeight}px`,
-    };
-  }
-  
+  // In normalized space, all regions with positive dimensions are valid
+  // Viability is enforced through canvas AR and prominence constraints at the intersection level
   return { regions, valid: true };
 }
 
 /**
  * Check if a set of regions can accommodate a minimum number of photos.
- * Uses region_minWidth to estimate max photos per row.
+ * In normalized space, any region with positive dimensions can hold photos.
  */
 export function canRegionsAccommodate(
   regions: RegionSpec[],
   photoCount: number,
-  tuning: V3Tuning
+  _tuning: V3Tuning
 ): boolean {
-  // Rough estimate: each region can fit at least 1 photo if it meets minimum dimensions
-  // More sophisticated check during actual distribution
-  const viableRegions = regions.filter(r => 
-    isRegionViable(r.width, r.height, tuning.region_minWidth, tuning.region_minHeight)
-  );
+  // In normalized space, any positive-dimension region can hold at least one photo
+  const viableRegions = regions.filter(r => r.width > 0 && (r.height > 0 || !Number.isFinite(r.height)));
   
   return viableRegions.length > 0 && photoCount > 0;
 }

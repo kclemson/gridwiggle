@@ -2,6 +2,7 @@
  * ContentPool Entity
  * 
  * Evaluates region viability and provides content statistics.
+ * Works in normalized space (hero height = 1.0).
  */
 
 import { 
@@ -10,7 +11,7 @@ import {
   ContentStats,
   V3Tuning
 } from '../types';
-import { calculateContentStats, isRegionViable } from '../utils';
+import { calculateContentStats } from '../utils';
 
 // ============================================================================
 // Content Statistics
@@ -29,6 +30,7 @@ export function getContentStats(photos: PhotoDimension[]): ContentStats {
 
 /**
  * Evaluate if a region can viably hold at least one photo.
+ * In normalized space, any positive-dimension region is viable.
  */
 export interface RegionEvaluation {
   viable: boolean;
@@ -39,15 +41,15 @@ export interface RegionEvaluation {
 export function evaluateRegion(
   region: RegionSpec,
   photos: PhotoDimension[],
-  tuning: V3Tuning
+  _tuning: V3Tuning
 ): RegionEvaluation {
-  // For unbounded regions, check width only
-  const heightToCheck = Number.isFinite(region.height) ? region.height : tuning.region_minHeight;
+  // In normalized space, any region with positive dimensions is viable
+  const heightToCheck = Number.isFinite(region.height) ? region.height : 1.0;
   
-  if (!isRegionViable(region.width, heightToCheck, tuning.region_minWidth, tuning.region_minHeight)) {
+  if (region.width <= 0 || heightToCheck <= 0) {
     return {
       viable: false,
-      reason: `Region ${Math.round(region.width)}x${Math.round(heightToCheck)} below minimum ${tuning.region_minWidth}x${tuning.region_minHeight}`,
+      reason: `Region has non-positive dimensions: ${region.width.toFixed(3)} x ${heightToCheck.toFixed(3)}`,
       estimatedCapacity: 0,
     };
   }
@@ -57,8 +59,9 @@ export function evaluateRegion(
   }
   
   // Estimate capacity based on region area vs average photo area
+  // In normalized space, photos have area ~ meanAR × 1 (at row height = 1)
   const stats = calculateContentStats(photos);
-  const avgPhotoArea = (tuning.region_minHeight * tuning.region_minHeight) * stats.meanAR;
+  const avgPhotoArea = stats.meanAR; // height=1, width=meanAR
   const regionArea = region.width * heightToCheck;
   const estimatedCapacity = Math.floor(regionArea / avgPhotoArea);
   

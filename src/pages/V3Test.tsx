@@ -9,10 +9,11 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
-import { CaptureControls } from '@/components/debug/CaptureControls';
+import { CaptureControls, RejectionBadge } from '@/components/debug';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
+import { getLastRejectedLayout, clearRejectedLayout } from '@/lib/v3/intersection';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { 
   saveCapture, 
@@ -26,7 +27,8 @@ import {
 } from '@/lib/v3CaptureStorage';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
-import { Shuffle, Star, Image } from 'lucide-react';
+import type { RejectedLayout } from '@/lib/v3/types';
+import { Shuffle, Star, Image, Eye, EyeOff } from 'lucide-react';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
@@ -73,6 +75,7 @@ interface LayoutResult {
   layout: CollageLayout | null;
   logs: LogEntry[];
   durationMs: number;
+  rejectedLayout: RejectedLayout | null;
 }
 
 /**
@@ -80,6 +83,7 @@ interface LayoutResult {
  */
 function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
   devLogger.clear();
+  clearRejectedLayout(); // Clear previous rejected layout
   const startTime = performance.now();
   
   const photoItems = photos.map(toPhotoItem);
@@ -100,8 +104,9 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
   const layout = generateCollageLayoutV3(photoItems, settings, { photoWeights });
   const durationMs = performance.now() - startTime;
   const logs = devLogger.getLogs();
+  const rejectedLayout = getLastRejectedLayout();
   
-  return { layout, logs, durationMs };
+  return { layout, logs, durationMs, rejectedLayout };
 }
 
 /**
@@ -112,7 +117,7 @@ function buildCapture(
   result: LayoutResult
 ): Omit<V3LayoutCapture, 'exported'> {
   const { photos, seed, orientationBias } = photoSet;
-  const { layout, logs, durationMs } = result;
+  const { layout, logs, durationMs, rejectedLayout } = result;
   
   const heroPhoto = photos.find(p => p.priority === 1);
   const avgAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
@@ -145,6 +150,17 @@ function buildCapture(
     failureReason: layout ? null : lastRejection?.reason ?? 'unknown',
     failureDetails: layout ? null : lastRejection?.details ?? null,
     
+    // Rejected layout geometry for visualization
+    rejectedCells: rejectedLayout?.cells?.map(c => ({
+      photoId: c.photoId,
+      x: c.x,
+      y: c.y,
+      width: c.width,
+      height: c.height,
+    })) ?? null,
+    rejectedCanvasWidth: rejectedLayout?.canvasWidth ?? null,
+    rejectedCanvasHeight: rejectedLayout?.canvasHeight ?? null,
+    
     capturedAt: new Date().toISOString(),
   };
 }
@@ -157,6 +173,7 @@ interface TestState {
   layout: CollageLayout | null;
   logs: LogEntry[];
   durationMs: number;
+  rejectedLayout: RejectedLayout | null;
 }
 
 export default function V3Test() {
@@ -166,6 +183,9 @@ export default function V3Test() {
     const result = generateLayoutResult(photoSet.photos);
     return { photoSet, ...result };
   });
+  
+  // Toggle for showing rejected layouts
+  const [showRejected, setShowRejected] = useState(false);
   
   // Capture stats (refreshed on shuffle/export/reset)
   const [captureStats, setCaptureStats] = useState(() => getCaptureStats());
@@ -199,11 +219,26 @@ export default function V3Test() {
   }, []);
   
   // Destructure state for rendering
-  const { photoSet, layout, logs, durationMs } = state;
+  const { photoSet, layout, logs, durationMs, rejectedLayout } = state;
   
   // Stats
   const heroPhoto = photoSet.photos.find(p => p.priority === 1);
   const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
+  
+  // Scale rejected layout from normalized space to pixels (1000 base)
+  const scaledRejectedLayout = rejectedLayout?.cells && rejectedLayout.canvasWidth && rejectedLayout.canvasHeight
+    ? {
+        width: Math.round(rejectedLayout.canvasWidth * 1000),
+        height: Math.round(rejectedLayout.canvasHeight * 1000),
+        cells: rejectedLayout.cells.map(c => ({
+          photoId: c.photoId,
+          x: Math.round(c.x * 1000),
+          y: Math.round(c.y * 1000),
+          width: Math.round(c.width * 1000),
+          height: Math.round(c.height * 1000),
+        })),
+      }
+    : null;
   
   return (
     <div className="min-h-screen bg-background p-6">
@@ -212,6 +247,15 @@ export default function V3Test() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">V3 Layout Test</h1>
           <div className="flex items-center gap-2">
+            <Button 
+              onClick={() => setShowRejected(s => !s)}
+              variant={showRejected ? "default" : "outline"}
+              size="sm"
+              className="gap-2"
+            >
+              {showRejected ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              {showRejected ? "Showing Rejected" : "Show Rejected"}
+            </Button>
             <CaptureControls
               pendingCount={captureStats.pending}
               successCount={captureStats.pendingSuccessCount}
@@ -234,7 +278,7 @@ export default function V3Test() {
           </div>
           {heroPhoto && (
             <div className="flex items-center gap-1">
-              <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+              <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
               <span>Hero AR: {heroPhoto.aspectRatio.toFixed(2)}</span>
             </div>
           )}
@@ -257,16 +301,31 @@ export default function V3Test() {
           {/* Right: Canvas */}
           <div className="border rounded-lg p-4 bg-card order-1 lg:order-2">
             {layout ? (
-              <LayoutVisualization layout={layout} photos={photoSet.photos} />
+              <>
+                <LayoutVisualization layout={layout} photos={photoSet.photos} />
+                <div className="mt-3 text-base font-medium text-foreground text-center">
+                  Canvas: {layout.width}×{layout.height}px ({(layout.width / layout.height).toFixed(2)} AR, 1:{(layout.height / layout.width).toFixed(2)})
+                </div>
+              </>
+            ) : showRejected && scaledRejectedLayout ? (
+              <div className="relative">
+                <div className="ring-2 ring-destructive rounded-lg overflow-hidden">
+                  <LayoutVisualization layout={scaledRejectedLayout} photos={photoSet.photos} />
+                </div>
+                <div className="mt-3 text-base font-medium text-foreground text-center">
+                  Canvas: {scaledRejectedLayout.width}×{scaledRejectedLayout.height}px ({(scaledRejectedLayout.width / scaledRejectedLayout.height).toFixed(2)} AR)
+                </div>
+                <RejectionBadge 
+                  reason={rejectedLayout?.reason ?? 'unknown'} 
+                  details={rejectedLayout?.details ?? {}} 
+                />
+              </div>
             ) : (
               <div className="h-48 flex items-center justify-center text-muted-foreground">
-                Layout generation failed
-              </div>
-            )}
-            
-            {layout && (
-              <div className="mt-3 text-base font-medium text-foreground text-center">
-                Canvas: {layout.width}×{layout.height}px ({(layout.width / layout.height).toFixed(2)} AR, 1:{(layout.height / layout.width).toFixed(2)})
+                {rejectedLayout 
+                  ? `Layout rejected: ${rejectedLayout.reason.replace(/_/g, ' ')}${!rejectedLayout.cells ? ' (no cell data)' : ''}`
+                  : 'Layout generation failed'
+                }
               </div>
             )}
           </div>

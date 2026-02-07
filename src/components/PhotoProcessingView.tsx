@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { PhotoProgressDots } from './PhotoProgressDots';
 
 interface PhotoProcessingViewProps {
@@ -43,19 +43,15 @@ export function PhotoProcessingView({
         </div>
       )}
 
-      {/* Stats */}
-      <div className="flex justify-center gap-6 text-sm">
-        <div className="flex items-center gap-1.5 text-emerald-600">
-          <CheckCircle2 className="h-4 w-4" />
-          <span>{stats.completed} ready</span>
-        </div>
-        {stats.errors > 0 && (
+      {/* Error count only - ready count is in header */}
+      {stats.errors > 0 && (
+        <div className="flex justify-center text-sm">
           <div className="flex items-center gap-1.5 text-destructive">
             <AlertCircle className="h-4 w-4" />
             <span>{stats.errors} failed</span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Processing queue preview - small dots */}
       <div className="flex justify-center">

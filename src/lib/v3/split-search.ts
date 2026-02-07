@@ -110,6 +110,21 @@ export function findBestSplit(
         continue;
       }
       
+      // Check prominence before accepting this split
+      const belowAreas = belowResult.cells.map(c => c.width * c.height);
+      const heroAreaNoAside = heroAR * 1.0;
+      const maxContentAreaNoAside = Math.max(...belowAreas, 0);
+      const prominenceRatioNoAside = maxContentAreaNoAside > 0 ? heroAreaNoAside / maxContentAreaNoAside : Infinity;
+      
+      if (prominenceRatioNoAside < tuning.hero_minProminence) {
+        devLogger.log('v3-split', 'Split rejected (no BESIDE): prominence too low', {
+          besideCount: 0,
+          prominenceRatio: prominenceRatioNoAside.toFixed(2),
+          required: tuning.hero_minProminence,
+        });
+        continue;
+      }
+      
       // Score this split (empty BESIDE result)
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
       const score = scoreSplit(heroAR, emptyBesideResult, belowResult, normalizedGap, tuning);
@@ -176,6 +191,25 @@ export function findBestSplit(
         continue;
       }
       
+      // Check prominence before accepting this split
+      const allCellAreas = [
+        ...besideResult.cells.map(c => c.width * c.height),
+        ...belowResult.cells.map(c => c.width * c.height),
+      ];
+      const heroArea = heroAR * 1.0;
+      const maxContentArea = Math.max(...allCellAreas, 0);
+      const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+      
+      if (prominenceRatio < tuning.hero_minProminence) {
+        devLogger.log('v3-split', 'Split rejected: prominence too low', {
+          besideCount,
+          besideRowCount,
+          prominenceRatio: prominenceRatio.toFixed(2),
+          required: tuning.hero_minProminence,
+        });
+        continue;
+      }
+      
       // Score this split
       const score = scoreSplit(
         heroAR,
@@ -191,6 +225,7 @@ export function findBestSplit(
         besideWidth: besideResult.width.toFixed(2),
         belowHeight: belowResult.height.toFixed(2),
         canvasAR: canvasAR.toFixed(2),
+        prominenceRatio: prominenceRatio.toFixed(2),
         score: score.toFixed(3),
       });
       

@@ -1,6 +1,6 @@
 /**
  * Region Search
- * 
+ *
  * Finds valid distributions of photos across content regions.
  * Uses normalized space packing to evaluate candidate assignments.
  */

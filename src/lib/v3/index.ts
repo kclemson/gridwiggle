@@ -11,6 +11,10 @@ import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING } from './types';
 import { findValidConfiguration, getLastRejection, clearRejections } from './intersection';
 import { devLogger } from '@/lib/devLogger';
 
+// Virtual canvas base unit - normalized dimensions are scaled to this
+// for meaningful pixel values in preview/export calculations
+const VIRTUAL_CANVAS_BASE = 1000;
+
 // ============================================================================
 // Photo Extraction
 // ============================================================================
@@ -148,13 +152,13 @@ export function generateCollageLayoutV3(
   });
   
   // Convert to CollageLayout format
-  // Cells are in normalized space - just pass through (rounding for cleaner output)
+  // Scale from normalized space to virtual canvas for meaningful pixel values
   const cells: CollageCell[] = config.cells.map(cell => ({
     photoId: cell.photoId,
-    x: cell.x,
-    y: cell.y,
-    width: cell.width,
-    height: cell.height,
+    x: cell.x * VIRTUAL_CANVAS_BASE,
+    y: cell.y * VIRTUAL_CANVAS_BASE,
+    width: cell.width * VIRTUAL_CANVAS_BASE,
+    height: cell.height * VIRTUAL_CANVAS_BASE,
   }));
   
   devLogger.log('v3', 'Final layout dimensions', {
@@ -164,8 +168,8 @@ export function generateCollageLayoutV3(
   });
   
   return {
-    width: Math.round(config.canvasWidth),
-    height: Math.round(config.canvasHeight),
+    width: Math.round(config.canvasWidth * VIRTUAL_CANVAS_BASE),
+    height: Math.round(config.canvasHeight * VIRTUAL_CANVAS_BASE),
     cells,
   };
 }

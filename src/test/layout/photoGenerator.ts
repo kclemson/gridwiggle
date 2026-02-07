@@ -4,7 +4,7 @@ import { SyntheticPhoto } from './types';
  * Aspect ratio bounds for sampling.
  */
 const MIN_ASPECT = 0.5;   // 9:16 portrait
-const MAX_ASPECT = 2.0;   // 16:9 landscape
+const MAX_ASPECT = 3.0;   // Panorama
 
 /**
  * Photo counts designed to expose edge cases in row-packing math.
@@ -68,8 +68,16 @@ export function generatePhotoSet(
     let aspectRatio: number;
     
     if (isHero) {
-      // Hero biased toward landscape/square
-      aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+      // Hero spans from square to panorama
+      // 70% chance: moderate landscape (AR 1.0-1.8)
+      // 30% chance: wide panorama (AR 2.0-3.0)
+      if (Math.random() < 0.3) {
+        // Wide panorama hero - enables beside=0 layouts
+        aspectRatio = 2.0 + Math.random() * 1.0;
+      } else {
+        // Standard landscape-biased hero
+        aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
+      }
     } else {
       aspectRatio = sampleAspectRatio(orientationBias);
     }

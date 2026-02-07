@@ -16,7 +16,7 @@ import { generateCollageLayout, reflowAfterSwap } from '@/lib/collageLayout';
 import { generateCollageLayoutV3 } from '@/lib/v3';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING, isShapeAvailable } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, DEFAULT_TUNING } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { cn } from '@/lib/utils';
 import { 
@@ -200,18 +200,12 @@ export default function Index() {
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
-    const remainingCount = state.photos.length - 1;
-    
-    // Reset to auto if current shape is no longer available for the remaining count
-    if (!isShapeAvailable(state.settings.shape, remainingCount)) {
-      updateSettings({ shape: 'auto' });
-    }
     
     if (state.layout) {
       const remainingPhotos = state.photos.filter(p => p.id !== photoId);
       regenerateCollage({ photos: remainingPhotos });
     }
-  }, [removePhoto, state.layout, state.photos, state.settings.shape, updateSettings, regenerateCollage]);
+  }, [removePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
@@ -522,8 +516,6 @@ export default function Index() {
                     <CollageSettings
                       settings={state.settings}
                       onUpdate={handleUpdateSettings}
-                      photoCount={state.photos.length}
-                      hasHeroes={state.photos.some(p => p.priority === 1)}
                     />
                   </>
                 )}

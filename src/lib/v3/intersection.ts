@@ -120,8 +120,9 @@ function evaluateNormalizedProposal(
   const heroAR = heroPhoto.aspectRatio;
   
   // Calculate normalized gap (as fraction of hero height)
-  // We'll refine this after we know the scale factor
-  const estimatedNormalizedGap = 0.02; // ~2% of hero height
+  // Use a small fixed normalized gap for layout geometry calculations
+  // The actual pixel gap will be applied at the final conversion stage
+  const normalizedGapForLayout = 0.02; // ~2% of hero height for geometry calculations
   
   devLogger.log('v3', 'Evaluating normalized proposal', {
     mode: proposal.mode,
@@ -139,7 +140,7 @@ function evaluateNormalizedProposal(
   const splitResult = findBestSplit(
     contentPhotos,
     heroAR,
-    estimatedNormalizedGap,
+    normalizedGapForLayout,
     tuning
   );
   
@@ -164,11 +165,11 @@ function evaluateNormalizedProposal(
     besideResult = packToFillHeight(
       splitResult.besidePhotos,
       1.0,
-      estimatedNormalizedGap,
+      normalizedGapForLayout,
       splitResult.besideRowCount,
       tuning
     );
-    heroRowWidth = heroAR + estimatedNormalizedGap + besideResult.width;
+    heroRowWidth = heroAR + normalizedGapForLayout + besideResult.width;
   }
   
   // Use the belowRowCount that was validated during split search
@@ -178,14 +179,14 @@ function evaluateNormalizedProposal(
   const belowResult = packToFillWidth(
     splitResult.belowPhotos,
     heroRowWidth,
-    estimatedNormalizedGap,
+    normalizedGapForLayout,
     belowRowCount,
     tuning
   );
   
   // Calculate total normalized canvas
   const normalizedWidth = heroRowWidth;
-  const normalizedHeight = 1.0 + estimatedNormalizedGap + belowResult.height;
+  const normalizedHeight = 1.0 + normalizedGapForLayout + belowResult.height;
   
   // ============================================================================
   // Bottom-Up: Derive scale factor from geometry
@@ -234,7 +235,8 @@ function evaluateNormalizedProposal(
     actualHeight: Math.round(actualCanvasHeight),
   });
   
-  // Convert all cells to pixels
+  // Convert all cells to pixels using ACTUAL pixel gap (not normalized gap)
+  // This is where the user's gap setting gets applied
   const pixelCells = convertToPixels(
     heroPhoto,
     proposal.position,
@@ -243,7 +245,8 @@ function evaluateNormalizedProposal(
     belowResult.cells,
     belowResult.height,
     scaleFactor,
-    estimatedNormalizedGap,  // Use same gap as packing phase
+    gap,  // ACTUAL pixel gap from user setting
+    normalizedGapForLayout,
     normalizedWidth
   );
   
@@ -344,7 +347,8 @@ function convertToPixels(
   belowCells: { photoId: string; x: number; y: number; width: number; height: number }[],
   belowHeight: number,
   scaleFactor: number,
-  normalizedGap: number,  // Now receives normalized gap directly
+  pixelGap: number,  // ACTUAL pixel gap from user setting
+  normalizedGapForLayout: number,  // Normalized gap used for layout calculation
   normalizedWidth: number
 ): LayoutCell[] {
   const cells: LayoutCell[] = [];
@@ -363,8 +367,9 @@ function convertToPixels(
     : 0;
   
   // Hero Y position (flip for bottom corners)
+  // Use actual pixel gap for final spacing
   const heroY = isBottom 
-    ? (belowHeight + normalizedGap) * scaleFactor 
+    ? belowHeight * scaleFactor + pixelGap 
     : 0;
   
   cells.push({
@@ -381,33 +386,42 @@ function convertToPixels(
     // BESIDE is to the LEFT of hero
     besideOffsetX = 0;
   } else {
-    // BESIDE is to the RIGHT of hero
-    besideOffsetX = heroNormalizedWidth + normalizedGap;
+    // BESIDE is to the RIGHT of hero - use pixel gap
+    besideOffsetX = heroNormalizedWidth * scaleFactor + pixelGap;
   }
   
-  // BESIDE Y offset (same row as hero)
-  const besideOffsetY = isBottom ? (belowHeight + normalizedGap) : 0;
+  // BESIDE Y offset (same row as hero) - use pixel gap
+  const besideOffsetY = isBottom ? belowHeight * scaleFactor + pixelGap : 0;
   
   for (const cell of besideCells) {
+    // besideOffsetX is already in pixels; cell.x needs scaling
+    const cellX = isRight 
+      ? cell.x * scaleFactor  // LEFT of hero - just scale
+      : besideOffsetX + cell.x * scaleFactor;  // RIGHT of hero - offset is in pixels
     cells.push({
       photoId: cell.photoId,
-      x: (besideOffsetX + cell.x) * scaleFactor,
-      y: (besideOffsetY + cell.y) * scaleFactor,
+      x: cellX,
+      y: besideOffsetY + cell.y * scaleFactor,
       width: cell.width * scaleFactor,
       height: cell.height * scaleFactor,
     });
   }
   
   // BELOW cells - full width, position depends on top/bottom
+  // Use pixel gap for final spacing
   const belowOffsetY = isBottom 
     ? 0  // BELOW goes at top for bottom corners
-    : 1.0 + normalizedGap;  // BELOW goes below hero row for top corners
-  
+    : 1.0 * scaleFactor + pixelGap;  // BELOW goes below hero row for top corners (in pixels)
+
   for (const cell of belowCells) {
+    // belowOffsetY is already in pixels for top corners
+    const cellY = isBottom 
+      ? cell.y * scaleFactor  // BELOW at top - just scale
+      : belowOffsetY + cell.y * scaleFactor;  // BELOW below hero - offset in pixels
     cells.push({
       photoId: cell.photoId,
       x: cell.x * scaleFactor,
-      y: (belowOffsetY + cell.y) * scaleFactor,
+      y: cellY,
       width: cell.width * scaleFactor,
       height: cell.height * scaleFactor,
     });

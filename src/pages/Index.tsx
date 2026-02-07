@@ -525,7 +525,7 @@ export default function Index() {
                       </p>
                     )}
 
-                    <div className="relative rounded-xl overflow-hidden border border-border bg-surface p-4">
+                    <div className="relative overflow-hidden">
                       <CollagePreview
                         photos={state.photos}
                         layout={state.layout}

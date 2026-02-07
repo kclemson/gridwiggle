@@ -111,10 +111,10 @@ describe('CroppedImage', () => {
       const img = container.querySelector('img');
       const style = img?.getAttribute('style') || '';
       
-      // Expected translateX: (-100 / 500) * 100 = -20%
-      // Expected translateY: (-50 / 400) * 100 = -12.5%
-      expect(style).toContain('-20%');
-      expect(style).toContain('-12.5%');
+      // Expected translateX: (-100 / 1000) * 100 = -10%
+      // Expected translateY: (-50 / 750) * 100 = -6.667%
+      expect(style).toContain('-10%');
+      expect(style).toMatch(/-6\.6+%/);
     });
 
     it('sets maxWidth and maxHeight to none', () => {

@@ -85,8 +85,8 @@ export const CroppedImage = memo(function CroppedImage({
   
   const scaleX = (originalWidth / crop.width) * 100;
   const scaleY = (originalHeight / crop.height) * 100;
-  const translateX = (-crop.x / crop.width) * 100;
-  const translateY = (-crop.y / crop.height) * 100;
+  const translateX = (-crop.x / originalWidth) * 100;
+  const translateY = (-crop.y / originalHeight) * 100;
 
   return (
     <div className={cn('relative overflow-hidden w-full h-full', className)}>

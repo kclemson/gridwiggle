@@ -1,178 +1,119 @@
 
 
-## Create Feasibility Module for Early Bounds Checking
+## Add Canvas AR Feasibility Check
 
 ### Design Intent
-Introduce a dedicated `feasibility.ts` module that provides **pre-validators** - pure functions that algebraically estimate whether a configuration is worth attempting. This mirrors the existing `validateProminence` / `validateSmallestCellRatio` pattern in `hero.ts`, but runs *before* expensive packing operations.
+Extend the feasibility module to predict whether a given hero row width will produce a valid canvas aspect ratio, *before* we spend time packing the BELOW region.
 
 ### User Outcomes
-- Fewer wasted packing attempts → faster layout generation
-- No change to valid output variety - we're only skipping provably-invalid candidates
-- Consistent pattern: `canMeet*` for pre-checks, `validate*` for post-checks
+- Skip BELOW packing when heroRowWidth is provably too large
+- Faster layout generation by avoiding doomed configurations
+- Same output variety - we're only skipping mathematically invalid candidates
 
 ---
 
-## Architectural Pattern
+## The Math
 
-The feasibility module follows the same structure as the existing validators:
+Canvas AR is calculated as:
+```
+canvasAR = (heroRowWidth + 2*border) / (heroHeight + gap + belowHeight + 2*border)
+```
 
-| Phase | Module | Function Pattern | Returns |
-|-------|--------|------------------|---------|
-| Pre-pack | `feasibility.ts` | `canMeetProminence(...)` | `{ feasible: boolean; estimate: number }` |
-| Post-pack | `entities/hero.ts` | `validateProminence(...)` | `{ valid: boolean; ratio: number }` |
+In normalized space where `heroHeight = 1.0`:
+```
+canvasAR = (heroRowWidth + 2*gap) / (1.0 + gap + belowHeight + 2*gap)
+```
 
-This makes the contract clear:
-- **`canMeet*`** = algebraic estimate, may have false positives (allows some failures through)
-- **`validate*`** = exact check after packing, authoritative
+### When is canvasAR too high (too wide)?
+
+For `canvasAR ≤ maxAR`:
+```
+heroRowWidth + 2*gap ≤ maxAR × (1.0 + gap + belowHeight + 2*gap)
+```
+
+The minimum belowHeight is ~0 (very few photos in many rows). So the *minimum* canvas height is roughly:
+```
+minHeight ≈ 1.0 + 3*gap ≈ 1.09
+```
+
+Therefore, the **maximum heroRowWidth** that could possibly satisfy maxAR:
+```
+maxHeroRowWidth ≈ maxAR × 1.09 + 2*gap
+```
+
+For `maxAR = 2.0` and `gap = 0.03`:
+```
+maxHeroRowWidth ≈ 2.0 × 1.09 + 0.06 ≈ 2.24
+```
+
+If `heroRowWidth > 2.24`, the canvas will be too wide no matter what.
+
+### When is canvasAR too low (too tall)?
+
+For `canvasAR ≥ minAR`:
+```
+heroRowWidth + 2*gap ≥ minAR × (1.0 + gap + belowHeight + 2*gap)
+```
+
+The maximum belowHeight is harder to bound algebraically, but we can estimate based on photo count and typical AR. This is a looser bound and may have more false positives.
 
 ---
 
 ## Changes
 
-### New File: `src/lib/v3/feasibility.ts`
+### File: `src/lib/v3/feasibility.ts`
+
+Add a new function:
 
 ```typescript
 /**
- * Feasibility Pre-validators
+ * Check if canvas AR can possibly be valid for a given hero row width.
  * 
- * Algebraic estimates to prune search space BEFORE expensive packing.
- * These are optimistic bounds - may allow some failures through,
- * but never reject valid configurations.
+ * This is a quick check BEFORE packing BELOW.
+ * Only checks the "too wide" case since that's tighter.
  */
-
-import { PhotoDimension, V3Tuning } from './types';
-import { devLogger } from '@/lib/devLogger';
-
-/**
- * Check if prominence can possibly be achieved for a given beside count.
- * 
- * Algebraic estimate:
- * - Hero area = heroAR × 1.0 (fixed in normalized space)
- * - Max beside cell area ≈ (besideWidth / besideCount) × (1 / besideRowCount)
- * - For few photos in 1 row, each photo is ~50% of hero row height
- * 
- * This is conservative (optimistic) - allows some failures through
- * but never rejects valid configurations.
- */
-export function canMeetProminence(
-  heroAR: number,
-  besideCount: number,
-  besideRowCount: number,
-  avgBesideAR: number,
+export function canMeetCanvasAR(
+  heroRowWidth: number,
+  normalizedGap: number,
   tuning: V3Tuning
-): { feasible: boolean; estimatedRatio: number } {
-  // No beside photos = prominence will be determined by BELOW
-  // We can't predict that here, so allow it
-  if (besideCount === 0) {
-    return { feasible: true, estimatedRatio: Infinity };
+): { feasible: boolean; reason?: string } {
+  // Minimum canvas height (hero + gap + minimal below + border)
+  // Conservative estimate: belowHeight could be as low as 0.2
+  const minCanvasHeight = 1.0 + normalizedGap + 0.2 + 2 * normalizedGap;
+  const canvasWidth = heroRowWidth + 2 * normalizedGap;
+  
+  // Best-case AR (tallest canvas = lowest AR for given width)
+  const bestCaseAR = canvasWidth / minCanvasHeight;
+  
+  // If even the best case exceeds maxAR, this heroRowWidth won't work
+  if (bestCaseAR > tuning.canvas_maxAR * 1.1) { // 10% margin for safety
+    return { 
+      feasible: false, 
+      reason: `heroRowWidth ${heroRowWidth.toFixed(2)} → min AR ${bestCaseAR.toFixed(2)} > max ${tuning.canvas_maxAR}`
+    };
   }
   
-  const heroArea = heroAR * 1.0;
-  
-  // Estimate: each beside photo gets roughly equal share of the region
-  // Region height = 1.0 (hero height), split into besideRowCount rows
-  // Region width = sum of all beside ARs × row height
-  const rowHeight = 1.0 / besideRowCount;
-  
-  // The largest beside cell is likely the one with the highest AR
-  // But we use average as a conservative estimate
-  const estimatedCellWidth = avgBesideAR * rowHeight;
-  const estimatedCellArea = estimatedCellWidth * rowHeight;
-  
-  // This is the estimated largest cell area
-  // Reality may be different due to row distribution
-  const estimatedRatio = heroArea / estimatedCellArea;
-  
-  // Use 80% of required threshold as feasibility gate
-  // This is conservative - allows marginal cases through for exact check
-  const feasibilityThreshold = tuning.hero_minProminence * 0.8;
-  const feasible = estimatedRatio >= feasibilityThreshold;
-  
-  if (!feasible) {
-    devLogger.log('feasibility', 'Prominence unlikely', {
-      besideCount,
-      besideRowCount,
-      estimatedRatio: estimatedRatio.toFixed(2),
-      threshold: feasibilityThreshold.toFixed(2),
-    });
-  }
-  
-  return { feasible, estimatedRatio };
+  return { feasible: true };
 }
 ```
-
----
 
 ### File: `src/lib/v3/region-search.ts`
 
-Add feasibility check before entering the expensive row-count loop:
+Add the canvas AR feasibility check after packing BESIDE but before packing BELOW:
 
-**Change 1: Import feasibility (add to imports at top)**
-```typescript
-import { canMeetProminence } from './feasibility';
-```
-
-**Change 2: Add early check after selecting beside photos (around line 76)**
-
-Before the `for (let besideRowCount = minRows...)` loop, add:
+**After line 184** (`heroRowWidth = heroAR + normalizedGap + besideResult.width`):
 
 ```typescript
-// Early feasibility check for beside configurations
-if (besideCount > 0) {
-  const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
-  
-  // Check if prominence is achievable with 1 row (worst case)
-  const worstCaseFeasibility = canMeetProminence(
-    heroAR,
+// Early canvas AR feasibility check
+const canvasARFeasibility = canMeetCanvasAR(heroRowWidth, normalizedGap, tuning);
+if (!canvasARFeasibility.feasible) {
+  devLogger.log('region', 'Skipping (canvas AR infeasible)', {
     besideCount,
-    1, // worst case: 1 row = largest possible cells
-    avgBesideAR,
-    tuning
-  );
-  
-  if (!worstCaseFeasibility.feasible) {
-    devLogger.log('region', 'Skipping besideCount (prominence infeasible)', {
-      besideCount,
-      estimatedRatio: worstCaseFeasibility.estimatedRatio.toFixed(2),
-    });
-    continue; // Skip entire besideCount iteration
-  }
-}
-```
-
----
-
-### Bonus: Early-exit for randomize mode
-
-Also add early-exit when we have enough candidates (low-risk, simple):
-
-**Change 3: After pushing to validRegionAssignments (around line 238)**
-
-```typescript
-validRegionAssignments.push({
-  besidePhotos,
-  belowPhotos,
-  besideRowCount,
-  belowRowCount,
-  score,
-});
-
-// Early exit for randomize mode - we don't need exhaustive search
-if (randomize && validRegionAssignments.length >= 8) {
-  devLogger.log('region', 'Early exit (enough candidates for randomize)', {
-    candidates: validRegionAssignments.length,
+    besideRowCount,
+    heroRowWidth: heroRowWidth.toFixed(2),
+    reason: canvasARFeasibility.reason,
   });
-  break;
-}
-```
-
-**Change 4: Also break outer loop if we hit the limit**
-
-After the inner `for (besideRowCount...)` loop ends, add:
-```typescript
-// Check if we should exit outer loop too
-if (randomize && validRegionAssignments.length >= 8) {
-  break;
+  continue;
 }
 ```
 
@@ -182,17 +123,12 @@ if (randomize && validRegionAssignments.length >= 8) {
 
 | Change | File | Impact |
 |--------|------|--------|
-| Create feasibility module | `src/lib/v3/feasibility.ts` | New file with `canMeetProminence` |
-| Import and use feasibility check | `src/lib/v3/region-search.ts` | Skip infeasible besideCount values |
-| Early-exit for randomize | `src/lib/v3/region-search.ts` | Stop after 8 valid candidates |
+| Add `canMeetCanvasAR` function | `src/lib/v3/feasibility.ts` | New pre-validator |
+| Use canvas AR check before BELOW packing | `src/lib/v3/region-search.ts` | Skip ~2-4 iterations per layout |
 
 ### Expected Impact
 
-| Metric | Before | After (Est.) |
-|--------|--------|--------------|
-| besideCount iterations skipped | 0 | 2-4 per layout |
-| Packing operations saved | 0 | 4-12 per layout |
-| Time for randomize mode | ~200ms | ~100ms |
+When heroAR is large (landscape hero) with many beside photos in 1 row, the heroRowWidth can exceed 3-4 units. These configurations are doomed to fail the canvas AR check - now we skip them before the expensive BELOW packing.
 
 ---
 
@@ -200,6 +136,6 @@ if (randomize && validRegionAssignments.length >= 8) {
 
 | File | Changes |
 |------|---------|
-| `src/lib/v3/feasibility.ts` | **NEW** - Pre-validator module |
-| `src/lib/v3/region-search.ts` | Import feasibility, add early check, add early-exit |
+| `src/lib/v3/feasibility.ts` | Add `canMeetCanvasAR` function |
+| `src/lib/v3/region-search.ts` | Import and use `canMeetCanvasAR` after BESIDE packing |
 

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
-import { Loader2, CheckCircle2, AlertCircle, Wand2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { PhotoProgressDots } from './PhotoProgressDots';
 
 interface PhotoProcessingViewProps {
   photos: PhotoItem[];
@@ -45,7 +45,7 @@ export function PhotoProcessingView({
 
       {/* Stats */}
       <div className="flex justify-center gap-6 text-sm">
-        <div className="flex items-center gap-1.5 text-green-600">
+        <div className="flex items-center gap-1.5 text-emerald-600">
           <CheckCircle2 className="h-4 w-4" />
           <span>{stats.completed} ready</span>
         </div>
@@ -58,25 +58,12 @@ export function PhotoProcessingView({
       </div>
 
       {/* Processing queue preview - small dots */}
-      <div className="flex justify-center gap-1 flex-wrap max-w-xs mx-auto">
-        {photos.map((photo) => {
-          const isProcessing = photo.id === currentlyProcessingId;
-          const isComplete = !photo.isProcessing && !photo.error;
-          const hasError = !!photo.error;
-          
-          return (
-            <div
-              key={photo.id}
-              className={cn(
-                "w-2 h-2 rounded-full transition-colors",
-                isProcessing && "bg-primary animate-pulse",
-                isComplete && "bg-green-500",
-                hasError && "bg-destructive",
-                !isProcessing && !isComplete && !hasError && "bg-muted-foreground/30"
-              )}
-            />
-          );
-        })}
+      <div className="flex justify-center">
+        <PhotoProgressDots 
+          photos={photos}
+          currentlyProcessingId={currentlyProcessingId}
+          className="max-w-xs justify-center"
+        />
       </div>
     </div>
   );

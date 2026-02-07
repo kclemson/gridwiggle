@@ -4,6 +4,7 @@ import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoCarousel } from '@/components/PhotoCarousel';
 import { ThumbnailNavigator } from '@/components/ThumbnailNavigator';
 import { PhotoProcessingView } from '@/components/PhotoProcessingView';
+import { PhotoProgressDots } from '@/components/PhotoProgressDots';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
@@ -59,14 +60,11 @@ export default function Index() {
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
   
-  // Collapsible carousel state - default open, auto-collapses after processing
+  // Collapsible carousel state - default collapsed, user can expand
   const [carouselOpen, setCarouselOpen] = useState(() => {
     const saved = localStorage.getItem('carouselOpen');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
-  
-  // Track previous processing state for auto-collapse
-  const wasProcessingRef = useRef(false);
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -338,19 +336,6 @@ export default function Index() {
 
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
 
-  // Auto-collapse carousel after processing completes
-  // NOTE: This must be before any early returns to satisfy Rules of Hooks
-  useEffect(() => {
-    if (wasProcessingRef.current && !isProcessing && state.photos.length > 0) {
-      // Processing just finished - collapse after a short delay
-      const timer = setTimeout(() => {
-        setCarouselOpen(false);
-        localStorage.setItem('carouselOpen', 'false');
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-    wasProcessingRef.current = isProcessing;
-  }, [isProcessing, state.photos.length]);
   
   // Persist carousel open state
   const handleCarouselOpenChange = (open: boolean) => {
@@ -417,28 +402,39 @@ export default function Index() {
               />
             </div>
 
-            {/* Processing view or Collapsible Photo carousel */}
-            {isProcessing ? (
-              <PhotoProcessingView
-                photos={state.photos}
-                currentlyProcessingId={currentlyProcessingId}
-              />
-            ) : (
-              <Collapsible open={carouselOpen} onOpenChange={handleCarouselOpenChange}>
-                <CollapsibleTrigger asChild>
-                  <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
-                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Photos ({state.photos.length})
-                    </h3>
-                    <ChevronDown 
-                      className={cn(
-                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                        carouselOpen && "rotate-180"
-                      )} 
+            {/* Collapsible Photo carousel with progress dots in header */}
+            <Collapsible open={carouselOpen} onOpenChange={handleCarouselOpenChange}>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Photos ({state.photos.length})
+                  </h3>
+                  
+                  {/* Show progress dots when processing */}
+                  {isProcessing && (
+                    <PhotoProgressDots 
+                      photos={state.photos}
+                      currentlyProcessingId={currentlyProcessingId}
+                      className="flex-1 justify-center mx-3"
                     />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+                  )}
+                  
+                  <ChevronDown 
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                      carouselOpen && "rotate-180"
+                    )} 
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+                {/* Show processing view when expanded and processing */}
+                {isProcessing ? (
+                  <PhotoProcessingView
+                    photos={state.photos}
+                    currentlyProcessingId={currentlyProcessingId}
+                  />
+                ) : (
                   <PhotoCarousel
                     photos={state.photos}
                     currentIndex={carouselIndex}
@@ -453,9 +449,9 @@ export default function Index() {
                     onToggleHero={handleToggleHero}
                     onViewAll={() => setNavigatorOpen(true)}
                   />
-                </CollapsibleContent>
-              </Collapsible>
-            )}
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}
@@ -483,14 +479,11 @@ export default function Index() {
                 ) : (
                   // Layout exists - show collage preview with shuffle/download
                   <>
-                    {/* Header row with title, centered hint, and action icons */}
+                    {/* Header row with title and action icons */}
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
                         Collage
                       </h3>
-                      <span className="text-xs text-muted-foreground font-normal italic">
-                        Drag to rearrange • Tap ★ to feature
-                      </span>
                       <div className="flex items-center gap-1">
                         <Button 
                           variant="ghost" 

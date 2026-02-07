@@ -1,74 +1,79 @@
 
 
-## Fix: Misleading "Layout generated" Log
+## Quiet Production Console Logging
 
-### The Problem
-The log `[layout] Layout generated` is emitted **unconditionally** after the worker returns, regardless of whether layout generation succeeded or failed. This creates a confusing disconnect between the console (which says "generated") and the UI (which shows an error).
+### Design Intent
+Reduce console noise in production while maintaining full remote telemetry. Only critical failures that users/developers need to see should appear in the browser console.
 
-**Current flow in `src/pages/Index.tsx` lines 183-210:**
-```text
-1. Worker returns result (layout may be null)
-2. Log "Layout generated" with cells: 0  ← ALWAYS runs
-3. Check if layout exists
-   - If yes: apply layout, clear error
-   - If no: show error in UI
-```
+### User Outcomes
+- **Production**: Console only shows layout failures with actionable error info
+- **Development**: No change - all logs still visible for debugging
+- **Remote logging**: Unchanged - all events still sent to the edge function for monitoring
 
-### The Solution
-Move the "Layout generated" log **inside** the success branch, so it only logs when a layout is actually produced. Optionally add a separate log for failures.
+---
 
 ### Changes
 
-**`src/pages/Index.tsx` (around lines 183-210)**
+**`src/lib/remoteLogger.ts`**
 
-**Before:**
+Update the `log()` method to conditionally output to console:
+
 ```typescript
-remoteLogger.info('layout', 'Layout generated', {
-  cells: layout?.cells.length ?? 0,
-  durationMs: result.durationMs,
-  usedWorker: result.usedWorker,
+const isDev = import.meta.env.DEV;
+
+export const remoteLogger = {
+  log(level: 'info' | 'warn' | 'error', category: string, message: string, data?: Record<string, unknown>) {
+    // In production: only log errors to console
+    // In development: log everything to console
+    if (isDev || level === 'error') {
+      const consoleFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+      consoleFn(`[${category}] ${message}`, data ?? '');
+    }
+    
+    // Always buffer for remote sending (unchanged)
+    logBuffer.push({
+      timestamp: Date.now(),
+      level,
+      category,
+      message,
+      data,
+    });
+    
+    // ... rest unchanged
+  },
+  // ...
+};
+```
+
+**`src/pages/Index.tsx`**
+
+Update the layout failure log to use `error` level so it appears in prod console:
+
+```typescript
+// Line 208: Change from info to error
+remoteLogger.error('layout', 'Layout generation failed', {
+  durationMs: workerResult?.durationMs,
+  usedWorker: workerResult?.usedWorker ?? false,
+  reason: workerResult?.failure?.reason ?? 'unknown',
 });
-
-// ... later ...
-
-if (layout) {
-  setLayout(layout);
-  setLayoutError(null);
-  remoteLogger.info('layout', 'Layout applied', { cells: layout.cells.length });
-} else if (state.layout) {
-  setLayoutError("Couldn't generate a new layout...");
-}
 ```
 
-**After:**
-```typescript
-// Remove unconditional log here
+---
 
-// ... later ...
+### Behavior Matrix
 
-if (layout) {
-  setLayout(layout);
-  setLayoutError(null);
-  remoteLogger.info('layout', 'Layout generated', {
-    cells: layout.cells.length,
-    durationMs: result.durationMs,
-    usedWorker: result.usedWorker,
-  });
-} else {
-  remoteLogger.info('layout', 'Layout generation failed', {
-    durationMs: result.durationMs,
-    usedWorker: result.usedWorker,
-    reason: result.failure?.reason ?? 'unknown',
-  });
-  if (state.layout) {
-    setLayoutError("Couldn't generate a new layout...");
-  }
-}
-```
+| Environment | Log Level | Console Output | Remote Send |
+|-------------|-----------|----------------|-------------|
+| Dev         | info      | ✅             | ✅          |
+| Dev         | warn      | ✅             | ✅          |
+| Dev         | error     | ✅             | ✅          |
+| **Prod**    | info      | ❌             | ✅          |
+| **Prod**    | warn      | ❌             | ✅          |
+| **Prod**    | error     | ✅             | ✅          |
 
-### User Outcome
-- Console logs now accurately reflect success vs failure
-- `[layout] Layout generated` only appears when a layout is actually produced
-- `[layout] Layout generation failed` appears when generation returns null
-- No more confusing mismatch between console and UI state
+---
+
+### Files Modified
+1. `src/lib/remoteLogger.ts` - Add dev check for console output
+2. `src/pages/Index.tsx` - Change layout failure from `info` → `error`
 

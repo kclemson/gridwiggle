@@ -219,17 +219,22 @@ function evaluateNormalizedProposal(
     : 1;
   const minScale = Math.max(scaleForWidth, scaleForHeight);
   
+  // Include border in normalized canvas dimensions
+  const normalizedWidthWithBorder = normalizedWidth + 2 * normalizedGap;
+  const normalizedHeightWithBorder = normalizedHeight + 2 * normalizedGap;
+  
   // Use the larger of: minimum required scale, or preferred scale for target width
-  const preferredScale = canvasWidth / normalizedWidth;
+  const preferredScale = canvasWidth / normalizedWidthWithBorder;
   const scaleFactor = Math.max(minScale, preferredScale);
   
-  // Derive actual canvas dimensions
-  const actualCanvasWidth = normalizedWidth * scaleFactor;
-  const actualCanvasHeight = normalizedHeight * scaleFactor;
+  // Derive actual canvas dimensions (includes border)
+  const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
+  const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
   
   devLogger.log('v3', 'Derived canvas dimensions', {
     normalizedWidth: normalizedWidth.toFixed(2),
     normalizedHeight: normalizedHeight.toFixed(2),
+    withBorder: `${normalizedWidthWithBorder.toFixed(2)} x ${normalizedHeightWithBorder.toFixed(2)}`,
     minScale: minScale.toFixed(2),
     preferredScale: preferredScale.toFixed(2),
     scaleFactor: scaleFactor.toFixed(2),
@@ -356,19 +361,22 @@ function convertToPixels(
   const heroNormalizedWidth = heroAR;
   const heroNormalizedHeight = 1.0;
   
+  // Border offset - all cells shift by normalizedGap to create edge padding
+  const borderOffset = normalizedGap * scaleFactor;
+  
   // Determine position type
   const isBottom = position === 'bottom-left' || position === 'bottom-right';
   const isRight = position === 'top-right' || position === 'bottom-right' || position === 'right';
   
-  // Hero X position
+  // Hero X position (add border offset)
   const heroX = isRight 
-    ? (normalizedWidth - heroNormalizedWidth) * scaleFactor 
-    : 0;
+    ? borderOffset + (normalizedWidth - heroNormalizedWidth) * scaleFactor 
+    : borderOffset;
   
   // Hero Y position (flip for bottom corners) - gap is in normalized coords
   const heroY = isBottom 
-    ? (belowHeight + normalizedGap) * scaleFactor 
-    : 0;
+    ? borderOffset + (belowHeight + normalizedGap) * scaleFactor 
+    : borderOffset;
   
   cells.push({
     photoId: heroPhoto.id,
@@ -380,15 +388,17 @@ function convertToPixels(
   
   // BESIDE cells - offset based on hero position
   const besideOffsetX = isRight 
-    ? 0  // BESIDE is to the LEFT of hero
-    : (heroNormalizedWidth + normalizedGap) * scaleFactor;  // RIGHT of hero
+    ? borderOffset  // BESIDE is to the LEFT of hero
+    : borderOffset + (heroNormalizedWidth + normalizedGap) * scaleFactor;  // RIGHT of hero
   
   // BESIDE Y offset (same row as hero)
-  const besideOffsetY = isBottom ? (belowHeight + normalizedGap) * scaleFactor : 0;
+  const besideOffsetY = isBottom 
+    ? borderOffset + (belowHeight + normalizedGap) * scaleFactor 
+    : borderOffset;
   
   for (const cell of besideCells) {
     const cellX = isRight 
-      ? cell.x * scaleFactor  // LEFT of hero - just scale
+      ? borderOffset + cell.x * scaleFactor  // LEFT of hero - add border + scale
       : besideOffsetX + cell.x * scaleFactor;  // RIGHT of hero
     cells.push({
       photoId: cell.photoId,
@@ -401,16 +411,16 @@ function convertToPixels(
   
   // BELOW cells - full width, position depends on top/bottom
   const belowOffsetY = isBottom 
-    ? 0  // BELOW goes at top for bottom corners
-    : (1.0 + normalizedGap) * scaleFactor;  // BELOW goes below hero row for top corners
+    ? borderOffset  // BELOW goes at top for bottom corners
+    : borderOffset + (1.0 + normalizedGap) * scaleFactor;  // BELOW goes below hero row for top corners
 
   for (const cell of belowCells) {
     const cellY = isBottom 
-      ? cell.y * scaleFactor  // BELOW at top - just scale
+      ? borderOffset + cell.y * scaleFactor  // BELOW at top - add border + scale
       : belowOffsetY + cell.y * scaleFactor;  // BELOW below hero
     cells.push({
       photoId: cell.photoId,
-      x: cell.x * scaleFactor,
+      x: borderOffset + cell.x * scaleFactor,
       y: cellY,
       width: cell.width * scaleFactor,
       height: cell.height * scaleFactor,
@@ -511,25 +521,33 @@ function generateSimpleRowsLayout(
     : 1;
   const minScale = Math.max(scaleForWidth, scaleForHeight);
   
+  // Include border in normalized canvas dimensions
+  const normalizedWidthWithBorder = 1.0 + 2 * normalizedGap;
+  const normalizedHeightWithBorder = normalizedResult.height + 2 * normalizedGap;
+  
   // Use the larger of: minimum required scale, or preferred scale for target width
-  const preferredScale = canvasWidth / 1.0; // normalizedWidth = 1.0
+  const preferredScale = canvasWidth / normalizedWidthWithBorder;
   const scaleFactor = Math.max(minScale, preferredScale);
   
-  // Derive actual canvas dimensions - gaps already in normalized coords, just scale
-  const actualCanvasWidth = 1.0 * scaleFactor;
-  const actualCanvasHeight = normalizedResult.height * scaleFactor;
+  // Derive actual canvas dimensions (includes border)
+  const actualCanvasWidth = normalizedWidthWithBorder * scaleFactor;
+  const actualCanvasHeight = normalizedHeightWithBorder * scaleFactor;
   
-  // Convert cells to pixels - pure scaling, no extra gap offsets
+  // Border offset - all cells shift by normalizedGap to create edge padding
+  const borderOffset = normalizedGap * scaleFactor;
+  
+  // Convert cells to pixels - offset by border, then scale
   const cells: LayoutCell[] = normalizedResult.cells.map(cell => ({
     photoId: cell.photoId,
-    x: cell.x * scaleFactor,
-    y: cell.y * scaleFactor,
+    x: borderOffset + cell.x * scaleFactor,
+    y: borderOffset + cell.y * scaleFactor,
     width: cell.width * scaleFactor,
     height: cell.height * scaleFactor,
   }));
   
   devLogger.log('v3', 'Simple rows: derived canvas dimensions', {
     normalizedHeight: normalizedResult.height.toFixed(2),
+    withBorder: `${normalizedWidthWithBorder.toFixed(2)} x ${normalizedHeightWithBorder.toFixed(2)}`,
     minScale: minScale.toFixed(2),
     scaleFactor: scaleFactor.toFixed(2),
     actualWidth: Math.round(actualCanvasWidth),

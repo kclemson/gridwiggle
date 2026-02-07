@@ -116,7 +116,6 @@ interface CollagePreviewProps {
   photos: PhotoItem[];
   layout: CollageLayout;
   gapColor: string;
-  gap: number;  // Pixel gap for edge padding
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
@@ -131,7 +130,6 @@ export function CollagePreview({
   photos, 
   layout, 
   gapColor, 
-  gap,
   onSwapPhotos,
   onCellClick,
   onToggleHero,
@@ -217,13 +215,11 @@ export function CollagePreview({
   }, [touchDragId, onSwapPhotos]);
 
   // Calculate max width that ensures height stays ≤ 500px
-  // Account for edge padding in dimensions
-  const paddedWidth = layout.width + (2 * gap);
-  const paddedHeight = layout.height + (2 * gap);
+  // Layout dimensions already include border padding from algorithm
   const maxPreviewHeight = 500;
-  const aspectRatio = paddedWidth / paddedHeight;
+  const aspectRatio = layout.width / layout.height;
   const heightConstrainedWidth = maxPreviewHeight * aspectRatio;
-  const effectiveMaxWidth = Math.min(paddedWidth, heightConstrainedWidth);
+  const effectiveMaxWidth = Math.min(layout.width, heightConstrainedWidth);
 
   return (
     <div 
@@ -238,9 +234,9 @@ export function CollagePreview({
         style={{
           maxWidth: effectiveMaxWidth,
           width: '100%',
-          aspectRatio: `${paddedWidth} / ${paddedHeight}`,
+          aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
-          padding: gap,
+          // No padding needed - layout includes border in coordinates
         }}
       >
         {layout.cells.map((cell) => {

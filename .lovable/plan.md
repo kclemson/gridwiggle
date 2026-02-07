@@ -1,61 +1,83 @@
 
 
-## Expand Hero AR Range in Test Generator
+## Update Test Photo Counts and Hero Probability
 
 ### Design Intent
-Allow the test generator to produce wider heroes (AR up to 3.0) so we can observe `beside=0` layouts where the hero spans the full canvas width.
+Ensure comprehensive test coverage by including:
+- Small sets (5, 6) for simpler layout validation
+- Missing edge-case values (16, 20, 30) for mathematical diversity
+- Focused hero testing (95% hero probability)
 
 ### User Outcomes
-- V3 test page will occasionally generate very wide heroes (panorama-style)
-- This exposes the `beside=0` layout path that's currently unreachable due to narrow hero sampling
-- Helps debug and validate the full-width hero geometry before adding edge mode
+- V3Test shuffle will occasionally produce very small sets (5-6 photos)
+- Better coverage across the full range of realistic photo counts
+- Rare no-hero cases (5%) since those layouts are already well-handled
 
-### The Change
+---
 
-**File: `src/test/layout/photoGenerator.ts`**
+### Changes
 
-**Current behavior** (line 70-72):
+#### File 1: `src/test/layout/photoGenerator.ts`
+
+**Current (line 11):**
 ```typescript
-if (isHero) {
-  // Hero biased toward landscape/square
-  aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
-}
-```
-- Bias range: 0.3 to 0.7
-- Resulting AR range: ~0.9 to ~1.6
-- Never wide enough for `beside=0` with 20+ photos
-
-**New behavior**:
-```typescript
-if (isHero) {
-  // Hero spans from square to panorama
-  // 70% chance: moderate landscape (AR 1.0-1.8)
-  // 30% chance: wide panorama (AR 2.0-3.0)
-  if (Math.random() < 0.3) {
-    // Wide panorama hero - enables beside=0 layouts
-    aspectRatio = 2.0 + Math.random() * 1.0;  // 2.0 to 3.0
-  } else {
-    // Standard landscape-biased hero
-    aspectRatio = sampleAspectRatio(0.3 + Math.random() * 0.4);
-  }
-}
+export const TEST_PHOTO_COUNTS = [8, 9, 10, 12, 14, 17, 23, 35, 50] as const;
 ```
 
-Also update the `MAX_ASPECT` constant to accommodate wider heroes:
+**New:**
 ```typescript
-const MAX_ASPECT = 3.0;   // Panorama (was 2.0)
+export const TEST_PHOTO_COUNTS = [5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35, 50] as const;
 ```
 
-### Why These Numbers
+Added values:
+| Count | Rationale |
+|-------|-----------|
+| 5 | Minimum practical set, tests sparse layouts |
+| 6 | Small set, 2×3 or 3×2 grid potential |
+| 16 | Power of 2, clean factorization |
+| 20 | Common real-world set size |
+| 30 | Common real-world set size |
 
-For `beside=0` to be valid with canvas AR ≥ 0.67:
-- With 20 content photos and belowHeight ~1.5, heroAR needs to be ≥ 2.0
-- With 30 content photos and belowHeight ~2.0, heroAR needs to be ≥ 2.5
-- AR 3.0 covers most realistic test cases
+---
+
+#### File 2: `src/pages/V3Test.tsx`
+
+**Change 1: Import TEST_PHOTO_COUNTS (add to imports)**
+```typescript
+import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
+```
+
+**Change 2: Update generateRandomSet function (lines 83-87)**
+
+Current:
+```typescript
+const photoCount = Math.floor(Math.random() * 41) + 10; // 10-50
+const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
+const hasHero = Math.random() < 0.8; // 80% hero
+```
+
+New:
+```typescript
+const photoCount = TEST_PHOTO_COUNTS[Math.floor(Math.random() * TEST_PHOTO_COUNTS.length)];
+const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
+const hasHero = Math.random() < 0.95; // 95% hero - no-hero cases are easier
+```
+
+---
+
+### Summary
+
+| Setting | Current | New |
+|---------|---------|-----|
+| Photo counts | Uniform 10-50 | `[5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35, 50]` |
+| Hero probability | 80% | 95% |
+
+---
 
 ### Files Modified
 
 | File | Change |
 |------|--------|
-| `src/test/layout/photoGenerator.ts` | Update `MAX_ASPECT` to 3.0; add 30% chance for wide panorama hero (AR 2.0-3.0) |
+| `src/test/layout/photoGenerator.ts` | Expand `TEST_PHOTO_COUNTS` to include 5, 6, 16, 20, 30 |
+| `src/pages/V3Test.tsx` | Use `TEST_PHOTO_COUNTS`; increase hero probability to 95% |
 

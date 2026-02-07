@@ -65,9 +65,13 @@ export function findValidRegionAssignment(
   // Collect all valid assignments instead of tracking best
   const validRegionAssignments: RegionAssignment[] = [];
   
+  // Calculate avgContentAR once before the loop
+  const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
+  
   devLogger.log('region', 'Starting region assignment search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
+    avgContentAR: avgContentAR.toFixed(2),
     searchRange: `${minBesidePhotos} to ${maxBesidePhotos} beside photos`,
     randomize,
   });
@@ -79,9 +83,9 @@ export function findValidRegionAssignment(
     
     // Early feasibility checks for beside configurations
     if (besideCount > 0) {
-      // Canvas AR feasibility check at besideCount level
+      // Canvas AR feasibility check at besideCount level (now accounts for BELOW height)
       const canvasARFeasibility = canBesideCountMeetCanvasAR(
-        heroAR, besidePhotos, normalizedGap, tuning
+        heroAR, besidePhotos, photos.length, avgContentAR, normalizedGap, tuning
       );
       if (!canvasARFeasibility.feasible) {
         continue; // Skip entire besideCount — no row config can work

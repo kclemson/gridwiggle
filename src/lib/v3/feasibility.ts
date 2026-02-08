@@ -235,11 +235,20 @@ export function calculateBesideCountRange(
   for (let testBeside = 0; testBeside <= maxTestBeside; testBeside++) {
     const testBelowCount = totalContentCount - testBeside;
     
-    // Estimate BELOW height geometrically
-    // belowHeight ≈ √(belowCount × avgContentAR / width)
-    // Use heroAR as width estimate (conservative - actual width may be wider)
+    // Estimate BESIDE width contribution
+    // besideWidth ≈ besideCount × avgContentAR / besideRows
+    const assumedBesideRows = testBeside > 0 ? Math.max(2, Math.ceil(testBeside / 4)) : 0;
+    const estimatedBesideWidth = testBeside > 0
+      ? (testBeside * avgContentAR) / assumedBesideRows
+      : 0;
+    
+    // Estimate hero row width INCLUDING beside contribution
+    // This is the key fix: wider hero row → shorter BELOW → more room for beside
+    const estimatedHeroRowWidth = heroAR + (testBeside > 0 ? normalizedGap + estimatedBesideWidth : 0);
+    
+    // Estimate BELOW height at the correct width
     const estimatedBelowHeight = testBelowCount > 0
-      ? Math.sqrt(testBelowCount * avgContentAR / heroAR)
+      ? Math.sqrt(testBelowCount * avgContentAR / estimatedHeroRowWidth)
       : 0;
     
     // Actual canvas height includes hero row + gap + below + borders
@@ -249,17 +258,11 @@ export function calculateBesideCountRange(
     const maxCanvasWidth = effectiveMaxAR * estimatedCanvasHeight;
     const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
     
-    // Available width for BESIDE (beside is stacked, so divide by row count)
-    const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
+    // Check if this beside configuration fits within the width limit
+    const requiredHeroRowWidth = estimatedHeroRowWidth;
     
-    // How many photos can fit in that width? (estimate rows based on beside count)
-    const assumedBesideRows = testBeside > 0 ? Math.max(2, Math.ceil(testBeside / 4)) : 1;
-    const fitsInWidth = maxBesideWidth > 0
-      ? Math.floor(maxBesideWidth * assumedBesideRows / avgContentAR)
-      : 0;
-    
-    // If this besideCount fits, update max
-    if (testBeside <= fitsInWidth) {
+    // If this besideCount fits within the allowed width, update max
+    if (requiredHeroRowWidth <= maxHeroRowWidth) {
       maxBesideByWidth = testBeside;
     }
   }

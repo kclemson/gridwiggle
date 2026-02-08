@@ -1,155 +1,70 @@
 
-# Make Photo Strip Clickable + Add Generate Button
+# Increase Default Gap Size
 
 ## Problem Summary
 
-1. Users can only click the "View All" button, but the entire photo strip should be clickable as an intuitive entry point
-2. When there's no collage layout (error recovery scenario), users have no way to trigger generation since the Generate button was removed with the carousel
+The current default gap size of 8 (on a 0-100 slider) produces gaps so thin they're nearly invisible, as shown in your screenshot.
 
 ---
 
 ## Design Intent
 
 **What behavior do we want?**
-- Clicking anywhere on the photo strip opens the View All navigator (same as clicking the button)
-- A "Generate Collage" button appears next to "View All" only when no layout exists (recovery mechanism)
+- Default gap is visually noticeable without being excessive
+- ~2-3x the current width for better visual separation between photos
 
 **What will users experience?**
-- More intuitive interaction - the strip itself invites clicking
-- Clear recovery path if layout generation fails
+- New collages start with more visible spacing between photos
+- Existing collages retain their saved settings (no disruption)
 
 ---
 
-## Implementation Details
+## Technical Analysis
 
-### Update PhotoStrip Component
+**Current math:**
+```
+normalizedGap = (gapSize / 100) * 0.04
+```
 
-**File: `src/components/PhotoStrip.tsx`**
+| gapSize | normalizedGap | Visible result |
+|---------|---------------|----------------|
+| 8 (current) | 0.0032 (0.32%) | Nearly invisible |
+| 16 | 0.0064 (0.64%) | 2x current |
+| 20 | 0.0080 (0.80%) | 2.5x current |
+| 24 | 0.0096 (0.96%) | 3x current |
 
-Changes:
-- Wrap the strip `div` in a `button` element with `onClick={onViewAll}`
-- Add cursor pointer and hover state to strip
-- Add optional `onGenerate` and `showGenerateButton` props
-- Conditionally render "Generate Collage" button next to "View All"
+**Recommendation**: Change default from `8` to `20` (2.5x bigger)
+
+This positions the slider knob near the lower quarter of the range, giving clear visual separation while leaving room to increase or decrease.
+
+---
+
+## Implementation
+
+**File: `src/hooks/useCollageState.ts`**
+
+Single line change at line 32:
 
 ```typescript
-interface PhotoStripProps {
-  photos: PhotoItem[];
-  autoCroppedCount: number;
-  onViewAll: () => void;
-  onGenerate?: () => void;           // NEW
-  showGenerateButton?: boolean;       // NEW
-  isGenerating?: boolean;             // NEW
-}
-```
-
-The strip container becomes clickable:
-```tsx
-{/* Photo strip - clickable to view all */}
-<button
-  type="button"
-  onClick={onViewAll}
-  className="h-14 w-full overflow-hidden rounded-lg bg-muted/30 
-             cursor-pointer hover:bg-muted/50 transition-colors"
->
-  <div className="flex h-full gap-0.5">
-    {photos.map((photo) => (...))}
-  </div>
-</button>
-```
-
-Action buttons row:
-```tsx
-<div className="flex justify-center gap-2">
-  <Button variant="outline" size="sm" onClick={onViewAll}>
-    <Grid3X3 className="h-4 w-4 mr-1.5" />
-    View All
-  </Button>
-  {showGenerateButton && onGenerate && (
-    <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
-      {isGenerating ? (
-        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-      ) : (
-        <Wand2 className="h-4 w-4 mr-1.5" />
-      )}
-      Generate Collage
-    </Button>
-  )}
-</div>
-```
-
-### Update Index.tsx
-
-**File: `src/pages/Index.tsx`**
-
-Pass the new props to PhotoStrip:
-
-```tsx
-<PhotoStrip
-  photos={state.photos}
-  autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
-  onViewAll={() => setNavigatorOpen(true)}
-  onGenerate={handleCreateCollage}           // NEW
-  showGenerateButton={!state.layout}         // NEW - only when no layout
-  isGenerating={isGenerating}                // NEW
-/>
+const defaultSettings: CollageSettings = {
+  shape: 'auto',
+  gapColor: '#000000',
+  gapSize: 20,  // Changed from 8
+};
 ```
 
 ---
 
-## File Changes Summary
+## File Changes
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoStrip.tsx` | Make strip clickable, add Generate button props |
-| `src/pages/Index.tsx` | Pass `onGenerate`, `showGenerateButton`, `isGenerating` props |
+| `src/hooks/useCollageState.ts` | Line 32: `gapSize: 8` → `gapSize: 20` |
 
 ---
 
-## Visual Comparison
+## Backward Compatibility
 
-**Before (no layout):**
-```
-PHOTOS (16) · 16 auto-cropped
-
-[img][img][img][img][img]...  ← not clickable
-
-        [View All]
-        
-        (nothing below - no way to generate)
-```
-
-**After (no layout):**
-```
-PHOTOS (16) · 16 auto-cropped
-
-[img][img][img][img][img]...  ← clickable! hover state
-        ↓
-   opens View All
-
-  [View All]  [✨ Generate Collage]
-```
-
-**After (with layout):**
-```
-PHOTOS (16) · 16 auto-cropped
-
-[img][img][img][img][img]...  ← clickable!
-
-        [View All]            ← no Generate button (layout exists)
-        
-  ─────────────────────────
-  COLLAGE    [🔄] [⬇]
-  [collage preview...]
-```
-
----
-
-## Edge Cases
-
-| Scenario | Behavior |
-|----------|----------|
-| Layout exists | Only "View All" button shown |
-| No layout (initial/error) | Both "View All" and "Generate Collage" shown |
-| Generating in progress | Generate button disabled with spinner |
-| < 2 photos | PhotoStrip not shown at all (existing logic) |
+- Existing users with saved collages keep their current `gapSize` value (persisted in localStorage)
+- Only new collages (or after clearing data) will use the new default
+- No migration needed

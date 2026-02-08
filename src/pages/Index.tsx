@@ -528,24 +528,25 @@ export default function Index() {
   }, [state.layout, heroScale]);
 
   // Commit hero scale on slider release - writes scaled dimensions to layout state
-  const handleHeroScaleCommit = useCallback(() => {
-    if (!state.layout || heroScale === 1.0) return;
+  // Takes scale value directly from slider event to avoid stale state race condition
+  const handleHeroScaleCommit = useCallback((scale: number) => {
+    if (!state.layout || scale === 1.0) return;
     
     const newLayout = {
-      width: Math.round(state.layout.width * heroScale),
-      height: Math.round(state.layout.height * heroScale),
+      width: Math.round(state.layout.width * scale),
+      height: Math.round(state.layout.height * scale),
       cells: state.layout.cells.map(cell => ({
         ...cell,
-        x: Math.round(cell.x * heroScale),
-        y: Math.round(cell.y * heroScale),
-        width: Math.round(cell.width * heroScale),
-        height: Math.round(cell.height * heroScale),
+        x: Math.round(cell.x * scale),
+        y: Math.round(cell.y * scale),
+        width: Math.round(cell.width * scale),
+        height: Math.round(cell.height * scale),
       })),
     };
     
     setLayout(newLayout);
     // heroScale will reset to 1.0 via the useEffect watching state.layout
-  }, [state.layout, heroScale, setLayout]);
+  }, [state.layout, setLayout]);
 
   // Load dimensions + previews WITHOUT smart crop (for mobile upload)
   const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {

@@ -10,7 +10,7 @@ interface CollageSettingsProps {
   /** Called on every slider drag for live preview */
   onHeroScaleChange?: (scale: number) => void;
   /** Called when user releases slider - commit the scale */
-  onHeroScaleCommit?: () => void;
+  onHeroScaleCommit?: (scale: number) => void;
   /** Whether a hero photo exists in the current layout */
   hasHero?: boolean;
 }

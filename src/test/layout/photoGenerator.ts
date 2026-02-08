@@ -7,25 +7,53 @@ const MIN_ASPECT = 0.5;   // 9:16 portrait
 const MAX_ASPECT = 3.0;   // Panorama
 
 /**
+ * Common real-world aspect ratios with weights.
+ * Based on DSLR (3:2), phone (4:3), widescreen (16:9), and square formats.
+ */
+const COMMON_ASPECT_RATIOS = [
+  { ar: 1.50, weight: 25 },  // 3:2 DSLR landscape (most common)
+  { ar: 1.33, weight: 20 },  // 4:3 phone landscape
+  { ar: 0.75, weight: 20 },  // 4:3 phone portrait
+  { ar: 0.67, weight: 15 },  // 3:2 DSLR portrait
+  { ar: 1.78, weight: 10 },  // 16:9 widescreen
+  { ar: 0.56, weight: 5 },   // 9:16 vertical video
+  { ar: 1.00, weight: 5 },   // Square (rare in practice)
+];
+
+/**
  * Photo counts designed to expose edge cases in row-packing math.
  */
 export const TEST_PHOTO_COUNTS = [5, 6, 8, 9, 10, 12, 14, 16, 17, 20, 23, 30, 35] as const;
 
 /**
- * Sample an aspect ratio using triangular distribution.
+ * Sample an aspect ratio from common camera/device ratios.
  * orientationBias: -1 (portrait) to +1 (landscape), 0 = balanced
  */
 export function sampleAspectRatio(orientationBias: number): number {
-  // Center shifts from 0.75 (portrait-ish) to 1.25 (landscape-ish)
-  const center = 1.0 + orientationBias * 0.5;
-  const spread = 0.5;
+  // Adjust weights based on orientation bias
+  // bias < 0 = more portrait, bias > 0 = more landscape
+  const adjustedRatios = COMMON_ASPECT_RATIOS.map(({ ar, weight }) => {
+    const isLandscape = ar > 1.0;
+    const multiplier = isLandscape 
+      ? 1 + orientationBias  // boost landscape when bias > 0
+      : 1 - orientationBias; // boost portrait when bias < 0
+    return { ar, weight: weight * Math.max(0.1, multiplier) };
+  });
   
-  // Triangular distribution: sum of two uniforms shifted and scaled
-  const u = Math.random();
-  const v = Math.random();
-  const sample = center + spread * (u - v);
+  // Weighted random selection
+  const totalWeight = adjustedRatios.reduce((s, r) => s + r.weight, 0);
+  let roll = Math.random() * totalWeight;
   
-  return Math.max(MIN_ASPECT, Math.min(MAX_ASPECT, sample));
+  for (const { ar, weight } of adjustedRatios) {
+    roll -= weight;
+    if (roll <= 0) {
+      // Add ±10% jitter for variety
+      const jitter = 1 + (Math.random() - 0.5) * 0.2;
+      return Math.max(MIN_ASPECT, Math.min(MAX_ASPECT, ar * jitter));
+    }
+  }
+  
+  return 1.33; // Fallback
 }
 
 /**

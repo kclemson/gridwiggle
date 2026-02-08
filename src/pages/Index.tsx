@@ -273,15 +273,18 @@ export default function Index() {
             reason: result.rejectedLayout.reason,
             details: result.rejectedLayout.details,
           });
+          // Clear layout so rejection visualization renders
+          setLayout(null);
+          setLayoutError("Layout rejected. Try shuffling or adjusting photos.");
         } else {
           setRejectedLayout(null);
-        }
-        
-        if (state.layout) {
-          setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
-        } else {
-          setLayout(null);
-          setLayoutError("Couldn't generate a layout with these photos.");
+          if (state.layout) {
+            // No geometry to show - keep old layout with error message
+            setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
+          } else {
+            setLayout(null);
+            setLayoutError("Couldn't generate a layout with these photos.");
+          }
         }
       }
     } catch (error) {

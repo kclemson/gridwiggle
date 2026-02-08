@@ -15,7 +15,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
-import { SoftRejectionBadge } from '@/components/debug';
+import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
@@ -706,9 +706,7 @@ export default function Index() {
 
                     <div className={cn(
                       "relative overflow-hidden transition-opacity duration-150",
-                      isGenerating && "opacity-60",
-                      // Dev-only amber ring for soft rejections
-                      import.meta.env.DEV && softRejection && "ring-2 ring-amber-500 rounded-lg"
+                      isGenerating && "opacity-60"
                     )}>
                       <CollagePreview
                         photos={state.photos}
@@ -727,9 +725,9 @@ export default function Index() {
                       )}
                     </div>
                     
-                    {/* Dev-only soft rejection badge */}
+                    {/* Dev-only layout info panel */}
                     {import.meta.env.DEV && softRejection && (
-                      <SoftRejectionBadge 
+                      <LayoutInfoPanel 
                         reason={softRejection.reason} 
                         details={softRejection.details} 
                       />

@@ -28,7 +28,7 @@ import {
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import type { RejectedLayout } from '@/lib/v3/types';
-import { Shuffle, Star, Image, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Shuffle, Star, Image, Eye, EyeOff, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
@@ -188,6 +188,9 @@ export default function V3Test() {
   // Toggle for showing rejected layouts
   const [showRejected, setShowRejected] = useState(true);
   
+  // Batch shuffle progress
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  
   // Capture stats (refreshed on shuffle/export/reset)
   const [captureStats, setCaptureStats] = useState(() => getCaptureStats());
   
@@ -200,6 +203,39 @@ export default function V3Test() {
     
     // Capture to localStorage
     saveCapture(buildCapture(photoSet, result));
+    setCaptureStats(getCaptureStats());
+  }, []);
+  
+  // Batch shuffle: run 25 iterations, capture all to storage
+  const handleShuffle25 = useCallback(async () => {
+    const BATCH_SIZE = 25;
+    setBatchProgress({ current: 0, total: BATCH_SIZE });
+    
+    let lastState: TestState | null = null;
+    
+    for (let i = 0; i < BATCH_SIZE; i++) {
+      const photoSet = generateRandomSet();
+      const result = generateLayoutResult(photoSet.photos);
+      
+      // Capture to localStorage
+      saveCapture(buildCapture(photoSet, result));
+      
+      // Update progress
+      setBatchProgress({ current: i + 1, total: BATCH_SIZE });
+      
+      // Keep last state for display
+      lastState = { photoSet, ...result };
+      
+      // Yield to UI to show progress
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    
+    // Display final result
+    if (lastState) {
+      setState(lastState);
+    }
+    
+    setBatchProgress(null);
     setCaptureStats(getCaptureStats());
   }, []);
   
@@ -272,7 +308,30 @@ export default function V3Test() {
               onReset={handleReset}
               variant="full"
             />
-            <Button onClick={handleShuffle} variant="outline" className="gap-2">
+            <Button 
+              onClick={handleShuffle25} 
+              variant="outline" 
+              className="gap-2"
+              disabled={batchProgress !== null}
+            >
+              {batchProgress ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {batchProgress.current}/{batchProgress.total}
+                </>
+              ) : (
+                <>
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle 25
+                </>
+              )}
+            </Button>
+            <Button 
+              onClick={handleShuffle} 
+              variant="outline" 
+              className="gap-2"
+              disabled={batchProgress !== null}
+            >
               <Shuffle className="h-4 w-4" />
               Shuffle
             </Button>

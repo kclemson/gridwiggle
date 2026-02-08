@@ -272,35 +272,13 @@ export function findValidRegionAssignment(
         // Continue processing - don't skip
       }
       
-      // Check prominence before accepting this split
-      const belowAreas = belowResult.cells.map(c => c.width * c.height);
-      const heroAreaNoAside = heroAR * 1.0;
-      const maxContentAreaNoAside = Math.max(...belowAreas, 0);
-      const prominenceRatioNoAside = maxContentAreaNoAside > 0 ? heroAreaNoAside / maxContentAreaNoAside : Infinity;
-      
-      // Get effective prominence threshold (lower for small photo counts)
-      const effectiveMinProminenceNoAside = getEffectiveMinProminence(photos.length, tuning);
-      
-      if (prominenceRatioNoAside < effectiveMinProminenceNoAside) {
-        // Capture rejected pack for visualization
-        lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, heroPhotoId, null, belowResult, normalizedGap),
-          canvasWidth: normalizedWidthWithBorder,
-          canvasHeight: normalizedHeightWithBorder,
-          reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatioNoAside.toFixed(2), required: effectiveMinProminenceNoAside, besideCount: `0 (${minBeside}-${maxBeside})`, besideRowCount: `0`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
-        };
-        devLogger.warn('region-reject', 'Prominence too low (no BESIDE)', {
-          besideCount: 0,
-          prominenceRatio: prominenceRatioNoAside.toFixed(2),
-          required: effectiveMinProminenceNoAside,
-        }, {
-          cells: lastRejectedPack.cells,
-          canvasWidth: lastRejectedPack.canvasWidth,
-          canvasHeight: lastRejectedPack.canvasHeight,
-        });
-        continue;
-      }
+      // Per-row prominence: with 0 beside, hero has no row competition
+      // Prominence auto-passes (no photos in hero row to compete with)
+      // This aligns with the per-row model used in intersection.ts
+      devLogger.log('region', 'Per-row prominence auto-pass (no BESIDE)', {
+        besideCount: 0,
+        belowCount: belowPhotos.length,
+      });
       
       // Score this assignment (empty BESIDE result)
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
@@ -421,17 +399,23 @@ export function findValidRegionAssignment(
         // Continue processing - don't skip
       }
       
-      // Check prominence before accepting this split
-      const allCellAreas = [
-        ...besideResult.cells.map(c => c.width * c.height),
-        ...belowResult.cells.map(c => c.width * c.height),
-      ];
+      // Per-row prominence: hero competes only with beside region (its row)
+      // This aligns with the per-row model used in intersection.ts
+      const besideAreas = besideResult.cells.map(c => c.width * c.height);
       const heroArea = heroAR * 1.0;
-      const maxContentArea = Math.max(...allCellAreas, 0);
-      const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+      const maxBesideArea = Math.max(...besideAreas, 0);
+      const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
       
       // Get effective prominence threshold (lower for small photo counts)
-      const effectiveMinProminence = getEffectiveMinProminence(photos.length, tuning);
+      const effectiveMinProminence = getEffectiveMinProminence(besidePhotos.length, tuning);
+      
+      devLogger.log('region', 'Per-row prominence check (with BESIDE)', {
+        heroArea: +heroArea.toFixed(3),
+        besideCount: besidePhotos.length,
+        maxBesideArea: +maxBesideArea.toFixed(3),
+        prominenceRatio: +prominenceRatio.toFixed(2),
+        threshold: effectiveMinProminence,
+      });
       
       if (prominenceRatio < effectiveMinProminence) {
         // Capture rejected pack for visualization
@@ -442,7 +426,7 @@ export function findValidRegionAssignment(
           reason: 'prominence_too_low',
           details: { prominenceRatio: +prominenceRatio.toFixed(2), required: effectiveMinProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
         };
-        devLogger.warn('region-reject', 'Prominence too low', {
+        devLogger.warn('region-reject', 'Prominence too low (per-row)', {
           besideCount,
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),

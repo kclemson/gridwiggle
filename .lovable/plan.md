@@ -1,87 +1,84 @@
 
-# Fix: iOS Safari Smart Crop - Remove WASM Path Override
+# iOS Safari Memory Crash Fix: Garbage Collection Delay Between Photos
 
 ## The Problem
 
-The current fix broke iOS Safari with a new error:
+You're seeing:
+1. **Long processing time** between photo 1 and 2 (single-threaded mode is working but slower)
+2. **Crash on photo 2** (memory isn't being released between photos)
+
+The current flow in `processSmartCrops` runs a tight sequential loop:
+
+```text
+for (const photo of photos) {
+  await getSmartCrop(...);  // Photo 1 - memory allocated
+  // No break - immediately starts photo 2
+  await getSmartCrop(...);  // Photo 2 - MORE memory allocated, CRASH
+}
 ```
-t._OrtGetInputOutputMetadata is not a function
-```
 
-This happens because we're overriding `wasmPaths` to point to `onnxruntime-web@1.21.0` binaries, but `@huggingface/transformers` v3.8.1 uses a **different internal ONNX version** with different function signatures.
-
-## Root Cause Analysis
-
-| What we did | Why it fails |
-|-------------|--------------|
-| Set `wasmPaths` to onnxruntime-web@1.21.0 | transformers.js expects its bundled ONNX version's API |
-| `_OrtGetInputOutputMetadata` is missing | The 1.21.0 binaries have different exported functions |
-
-The GitHub issue #1242 fix was for a different transformers.js version. The actual fix we need is simpler:
-- **Don't override wasmPaths** - let transformers.js use its bundled binaries
-- **Do set numThreads = 1** - this alone may fix the memory leak
-- **Do force device = "wasm"** - prevent WebGPU attempts on Safari
+iOS Safari's JavaScript engine doesn't get a chance to garbage collect between photos. The single-threading fix reduced peak memory per photo, but without GC pauses, memory accumulates across photos.
 
 ## The Solution
 
-Remove the `wasmPaths` override entirely. The single-threaded mode should be sufficient to prevent the memory leak, and the bundled binaries will have the correct API.
+Add a deliberate pause between photos to allow garbage collection. This is a documented pattern for memory-intensive browser operations.
 
 ---
 
 ## Implementation
 
-### File: `src/workers/visionWorker.ts`
+### File: `src/pages/Index.tsx`
+
+Add a GC delay function and call it between photos:
 
 ```typescript
-import { pipeline, RawImage, env } from "@huggingface/transformers";
+// Helper to give browser time to garbage collect between heavy operations
+const gcDelay = () => new Promise(resolve => setTimeout(resolve, 100));
 
-// Detect Safari (both iOS and macOS) - all Safari versions share the JavaScriptCore bug
-const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-if (isSafari) {
-  // Fix iOS Safari memory leak (GitHub issue #1242)
-  // Safari's JavaScriptCore has a bug with threaded WASM that causes memory bloat
-  // Single-threaded execution avoids the leak while keeping bundled binaries
-  env.backends.onnx.wasm.numThreads = 1;
+// Inside processSmartCrops, after each photo completes:
+for (const photo of photos) {
+  // ... existing processing code ...
   
-  // NOTE: Do NOT override wasmPaths - the bundled binaries have the correct API
-  // Overriding to external CDN versions causes "_OrtGetInputOutputMetadata is not a function"
+  completed++;
+  setSmartCropProgress((completed / total) * 100);
+  
+  // Give browser time to GC between photos (critical for iOS Safari)
+  if (completed < total) {
+    await gcDelay();
+  }
 }
-
-// ... rest unchanged
 ```
 
-### Changes Summary
+### Why 100ms?
 
-| Setting | Before | After |
-|---------|--------|-------|
-| `numThreads` | `1` (Safari only) | `1` (Safari only) - **keep** |
-| `wasmPaths` | Override to CDN 1.21.0 | **Remove** - use bundled |
-| Device selection | `isSafari ? "wasm" : ...` | **Keep** - still needed |
+- Short enough that users won't notice (100ms × 4 photos = 400ms extra)
+- Long enough for a GC cycle to run (Safari typically needs 50-100ms)
+- Matches the pattern used in the existing ThumbnailNavigator batch loading
 
 ---
 
-## Why This Should Work
-
-1. **Single-threaded execution** was the key fix in the GitHub issue - it prevents the memory leak
-2. **Bundled binaries** have matching API versions - no function signature mismatch
-3. **Forced WASM device** prevents Safari from attempting WebGPU (which would fail)
-
----
-
-## Files Modified
+## Changes Summary
 
 | File | Change |
 |------|--------|
-| `src/workers/visionWorker.ts` | Remove `wasmPaths` override, keep `numThreads = 1` |
+| `src/pages/Index.tsx` | Add `gcDelay()` call between photo processing iterations |
 
 ---
 
-## Fallback Plan
+## Technical Context
 
-If the memory leak persists after removing wasmPaths:
-1. The existing `handleError` in `smartCropService.ts` will catch crashes
-2. It returns a graceful fallback with `skipCrop: true`
-3. Photos will still work, just without AI cropping
+This follows the architecture pattern documented in your memory: "memory-safe-processing" - processing in small batches with GC delays. The current code processes photos sequentially but without the delay component.
 
-But single-threading alone should fix the leak based on the GitHub issue discussion.
+The delay works because:
+1. `setTimeout` yields to the event loop
+2. This allows Safari's GC to run
+3. Memory from photo 1 is released before photo 2 starts
+
+---
+
+## Expected Outcome
+
+After implementation:
+- Photo 1 completes → 100ms pause → Photo 2 starts (with freed memory)
+- All 4 photos complete without crashing
+- Total extra time: ~300ms (imperceptible to users)

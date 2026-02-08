@@ -1,237 +1,129 @@
 
 
-# Tier Coherence Scoring: F-ratio Test Matrix
+# Relaxing Constraints for More Variety
 
-## The Core Idea
+## Problem Diagnosis
 
-**F-ratio** measures how well areas cluster into distinct groups:
+The uniformity in photo sizes comes from two places where we're being **too tight**:
 
-```text
-F = (Between-tier variance) / (Within-tier variance)
+1. **AR Budget Jitter is too small** (`row_arBudgetJitter = 0.2`)
+2. **Row count range has a hidden cap** (`Math.ceil(n / 2)`)
+
+Both already exist as knobs - we just need to relax them.
+
+---
+
+## Root Cause 1: Conservative Jitter
+
+In `distributeByARBudget()`, each row targets a "jittered" AR budget:
+
+```
+jitteredTarget = baseRowAR × (1 ± jitter)
 ```
 
-- **High F**: Clear tiers (e.g., 1 large hero, 5 medium, 20 small) - areas are tightly grouped with distinct separation
-- **Low F**: Either too uniform (all same size) OR too chaotic (random sizes everywhere)
+With `jitter = 0.2`, row heights vary by only ±20%. This produces rows that are all **roughly the same height** - the "wall of uniformity."
 
-This single metric replaces uniformity + parity with one that *rewards* hierarchy rather than penalizing it.
+**Fix**: Increase `row_arBudgetJitter` from `0.2` to `0.4` (or even `0.5`).
+
+This means:
+- One row might be 60% of base budget → tall row with fewer photos
+- Another might be 140% of base budget → short row with many photos
+- Natural size hierarchy emerges without any new parameters
 
 ---
 
-## Algorithm Walkthrough
+## Root Cause 2: Row Count Cap
 
-```text
-Input: [0.25, 0.22, 0.08, 0.07, 0.06, 0.05, 0.04, 0.04, 0.03, 0.03] (cell areas as % of canvas)
+In `calculateBelowRowCount()`, line 357:
 
-Step 1: Sort descending (already done)
-
-Step 2: Split into K=3 equal-sized tiers
-  Tier 1 (Large):  [0.25, 0.22, 0.08]     → mean = 0.183
-  Tier 2 (Medium): [0.07, 0.06, 0.05]     → mean = 0.060  
-  Tier 3 (Small):  [0.04, 0.04, 0.03, 0.03] → mean = 0.035
-
-Step 3: Calculate grand mean
-  grandMean = (0.25+0.22+...+0.03) / 10 = 0.087
-
-Step 4: Between-tier variance (how spread apart are tier means?)
-  betweenVar = [(0.183-0.087)² + (0.060-0.087)² + (0.035-0.087)²] / 3
-             = [0.0092 + 0.0007 + 0.0027] / 3 = 0.0042
-
-Step 5: Within-tier variance (how scattered within each tier?)
-  withinVar_1 = [(0.25-0.183)² + (0.22-0.183)² + (0.08-0.183)²] / 3 = 0.0056
-  withinVar_2 = [(0.07-0.06)² + (0.06-0.06)² + (0.05-0.06)²] / 3 = 0.00007
-  withinVar_3 = [(0.04-0.035)² + ...] / 4 = 0.00003
-  withinVar = average of above = 0.0019
-
-Step 6: F-ratio
-  F = betweenVar / withinVar = 0.0042 / 0.0019 = 2.2
-
-Step 7: Normalize to 0-1 score
-  score = min(1.0, F / 5) = 0.44
+```typescript
+const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
 ```
 
----
+That `Math.ceil(n / 2)` means for 46 photos, maxRows is capped at 23 - but more importantly, it artificially limits variety when minRows is high.
 
-## Test Matrix: Expected F-ratio Scores
+For example, if constraints say `minRows = 5, maxRows = 4` (from the cap), the range collapses to just `[5, 5]` - no variety at all.
 
-### Scenario A: Landscape Hero (AR 1.73), 46 photos
-
-| besideCount | Area Distribution Pattern | Expected F | Score | Why |
-|-------------|---------------------------|------------|-------|-----|
-| 0 | All 45 content similar size | ~0.5 | 0.10 | No hierarchy - too uniform |
-| 2 | Hero huge, 2 small beside, 43 medium below | ~1.5 | 0.30 | Weak hierarchy - 2 cells don't form a tier |
-| 4 | Hero + 4 beside (small), 41 below (medium) | ~2.5 | 0.50 | Emerging 3-tier structure |
-| 8 | Hero, 8 beside (small), 37 below (medium-large) | ~4.0 | 0.80 | Clear 3-tier hierarchy |
-| 12 | Hero, 12 beside (very small), 33 below (large) | ~3.5 | 0.70 | Good but beside gets cramped |
-| 16 | Hero, 16 beside (tiny), 29 below (huge) | ~2.5 | 0.50 | Too extreme - within-tier variance rises |
-
-**Sweet spot: 6-10 beside** - creates distinct Large/Medium/Small tiers without extremes
-
-### Scenario B: Portrait Hero (AR 0.6), 46 photos
-
-| besideCount | Area Distribution Pattern | Expected F | Score | Why |
-|-------------|---------------------------|------------|-------|-----|
-| 0 | Hero + 45 content uniform | ~0.8 | 0.16 | Hero alone creates weak hierarchy |
-| 3 | Hero, 3 beside (small), 42 below | ~2.0 | 0.40 | Modest 3-tier |
-| 6 | Hero, 6 beside (small), 39 below | ~3.5 | 0.70 | Good balance |
-| 10 | Hero, 10 beside (cramped), 35 below | ~3.0 | 0.60 | Beside getting squished |
-| 14 | Hero, 14 beside (very cramped), 31 below | ~2.0 | 0.40 | Beside tier too uniform-tiny |
-
-**Sweet spot: 4-8 beside** - portrait heroes have less width for beside, so fewer fit naturally
-
-### Scenario C: Square Hero (AR 1.0), 20 photos
-
-| besideCount | Area Distribution Pattern | Expected F | Score | Why |
-|-------------|---------------------------|------------|-------|-----|
-| 0 | Hero + 19 uniform | ~0.6 | 0.12 | Weak - hero alone |
-| 2 | Hero, 2 beside, 17 below | ~1.8 | 0.36 | Emerging hierarchy |
-| 4 | Hero, 4 beside, 15 below | ~3.2 | 0.64 | Good 3-tier |
-| 6 | Hero, 6 beside, 13 below | ~3.8 | 0.76 | Strong hierarchy |
-| 8 | Hero, 8 beside, 11 below | ~3.0 | 0.60 | Below tier getting thin |
-
-**Sweet spot: 4-7 beside**
-
-### Scenario D: Wide Hero (AR 2.5), 30 photos
-
-| besideCount | Area Distribution Pattern | Expected F | Score | Why |
-|-------------|---------------------------|------------|-------|-----|
-| 0 | Hero + 29 uniform | ~0.4 | 0.08 | Very flat |
-| 4 | Hero, 4 beside, 25 below | ~2.2 | 0.44 | Emerging |
-| 8 | Hero, 8 beside, 21 below | ~4.2 | 0.84 | Strong - wide hero leaves room |
-| 12 | Hero, 12 beside, 17 below | ~4.5 | 0.90 | Excellent 3-tier |
-| 16 | Hero, 16 beside, 13 below | ~3.5 | 0.70 | Below tier too small |
-
-**Sweet spot: 8-14 beside** - wide heroes can accommodate more beside naturally
-
-### Scenario E: Low Photo Count (10 photos)
-
-| Hero AR | besideCount | Area Distribution | Expected F | Score |
-|---------|-------------|-------------------|------------|-------|
-| 1.73 | 0 | Hero + 9 uniform | ~0.5 | 0.10 |
-| 1.73 | 2 | Hero, 2, 7 | ~2.5 | 0.50 |
-| 1.73 | 4 | Hero, 4, 5 | ~3.5 | 0.70 |
-| 0.6 | 0 | Hero + 9 uniform | ~0.6 | 0.12 |
-| 0.6 | 2 | Hero, 2, 7 | ~2.2 | 0.44 |
-| 0.6 | 4 | Hero, 4, 5 | ~2.8 | 0.56 |
-
----
-
-## Why This Works for Multi-Hero
-
-The F-ratio operates on **all cell areas across the canvas** regardless of which region they came from:
-
-```text
-Future: Hero1 + Beside1 + Hero2 + Beside2 + Below
-        ↓
-All areas fed into F-ratio together
-        ↓
-Rewards distinct size tiers across entire composition
-```
-
-No comparison of "beside count vs total" - just pure area distribution analysis.
-
----
-
-## Edge Cases
-
-| Scenario | Expected Behavior |
-|----------|-------------------|
-| All photos same AR | F-ratio rewards layouts that create size variety through row structure |
-| Very mixed ARs (0.5-2.5) | Natural variety → F-ratio less critical, most configs score OK |
-| 2 photos only | Not enough for tiers → fallback scoring or skip F-ratio |
-| 50+ photos | More cells = more reliable tier detection |
+**Fix**: Remove the `Math.ceil(n / 2)` cap entirely. Let the geometric constraints (`maxRowsByMinAR`, `minRowsByMaxAR`, `minRowsByCellSize`) determine the valid range naturally.
 
 ---
 
 ## Implementation
 
-### File: `src/lib/v3/region-search.ts`
+### File: `src/lib/v3/types.ts`
 
-Replace `scoreRegionAssignment()` with:
-
+Change line 69:
 ```typescript
-/**
- * Calculate tier coherence (F-ratio) for cell areas.
- * Measures how well areas cluster into distinct size tiers.
- * 
- * High F = clear hierarchy (good for hero layouts)
- * Low F = too uniform OR too chaotic
- */
-function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
-  if (areas.length < tierCount * 2) {
-    // Not enough cells for meaningful tiers - neutral score
-    return 0.5;
-  }
-  
-  const sorted = [...areas].sort((a, b) => b - a);
-  const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
-  
-  // Split into equal-sized tiers
-  const tierSize = Math.ceil(sorted.length / tierCount);
-  const tiers: number[][] = [];
-  for (let i = 0; i < tierCount; i++) {
-    tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
-  }
-  
-  // Calculate tier means
-  const tierMeans = tiers.map(tier => 
-    tier.reduce((a, b) => a + b, 0) / tier.length
-  );
-  
-  // Between-tier variance: how spread apart are the tier means?
-  const betweenVar = tierMeans.reduce((sum, mean) => 
-    sum + Math.pow(mean - grandMean, 2), 0
-  ) / tierCount;
-  
-  // Within-tier variance: how scattered within each tier?
-  let withinVarSum = 0;
-  for (let i = 0; i < tierCount; i++) {
-    const tierMean = tierMeans[i];
-    const tierVar = tiers[i].reduce((sum, area) => 
-      sum + Math.pow(area - tierMean, 2), 0
-    ) / tiers[i].length;
-    withinVarSum += tierVar;
-  }
-  const withinVar = withinVarSum / tierCount;
-  
-  // F-ratio (protect against division by zero)
-  const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
-  
-  // Normalize: F of 5+ → score 1.0
-  return Math.min(1.0, fRatio / 5);
-}
+// Before
+row_arBudgetJitter: 0.2,
 
-function scoreRegionAssignment(
-  _heroAR: number,
-  besideResult: { cells: { width: number; height: number }[]; width: number; height: number },
-  belowResult: { cells: { width: number; height: number }[]; width: number; height: number },
-  _normalizedGap: number,
-  _tuning: V3Tuning
-): number {
-  // Collect all cell areas
-  const allAreas = [
-    ...besideResult.cells.map(c => c.width * c.height),
-    ...belowResult.cells.map(c => c.width * c.height),
-  ];
-  
-  // Tier coherence: reward distinct size hierarchy
-  const coherenceScore = tierCoherenceScore(allAreas);
-  
-  // Beside presence: still want to avoid 0-beside dominating
-  const presenceScore = besideResult.cells.length > 0 ? 1.0 : 0.3;
-  
-  // Combined: coherence (70%) + presence (30%)
-  return (coherenceScore * 0.70) + (presenceScore * 0.30);
-}
+// After
+row_arBudgetJitter: 0.4,
 ```
+
+This widens the per-row AR budget variation from ±20% to ±40%.
+
+### File: `src/lib/v3/normalized-pack.ts`
+
+Change line 357:
+```typescript
+// Before
+const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
+
+// After
+const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
+```
+
+Remove the artificial `n/2` cap that was constraining the row count range.
 
 ---
 
-## Summary
+## Expected Impact
 
-| Aspect | Old Scoring | New Scoring |
-|--------|-------------|-------------|
-| Metric count | 3 (uniformity, parity, presence) | 2 (coherence, presence) |
-| Hierarchy | Penalized (uniformity fought it) | Rewarded (F-ratio rewards tiers) |
-| Multi-hero ready | No (compared beside to total) | Yes (pure area distribution) |
-| Landscape hero support | Poor (0-beside won) | Good (6-10 beside wins) |
+### Before (jitter 0.2, with n/2 cap)
+
+| Row | AR Budget | Photos | Height |
+|-----|-----------|--------|--------|
+| 1 | 4.2 | 5 | 0.15 |
+| 2 | 3.8 | 5 | 0.16 |
+| 3 | 4.0 | 5 | 0.155 |
+| 4 | 4.1 | 5 | 0.152 |
+
+All rows nearly identical → F-ratio ~0.3
+
+### After (jitter 0.4, no n/2 cap)
+
+| Row | AR Budget | Photos | Height |
+|-----|-----------|--------|--------|
+| 1 | 5.5 | 7 | 0.11 (short, crowded) |
+| 2 | 3.0 | 4 | 0.20 (tall, spacious) |
+| 3 | 4.8 | 6 | 0.13 |
+| 4 | 2.7 | 3 | 0.22 (tall) |
+
+Clear size tiers → F-ratio ~2.5+
+
+---
+
+## Why This Works
+
+We're not adding new constraints - we're **relaxing existing ones**:
+
+1. The jitter parameter already exists and is designed for this purpose - we were just being too conservative with `0.2`
+
+2. The `n/2` cap was a safety valve from earlier iterations when we weren't sure how many rows made sense - now that we have proper geometric constraints (`maxRowsByMinAR`, `minRowsByMaxAR`, `minRowsByCellSize`), it's redundant
+
+---
+
+## Technical Details
+
+### Files to Modify
+
+| File | Line | Change |
+|------|------|--------|
+| `src/lib/v3/types.ts` | 69 | `row_arBudgetJitter: 0.2` → `0.4` |
+| `src/lib/v3/normalized-pack.ts` | 357 | Remove `Math.ceil(n / 2)` from max calculation |
+
+### Risk Assessment
+
+**Low risk**: Both changes widen existing ranges rather than introducing new logic. The geometric constraints remain in place to prevent truly broken layouts (too tall, too wide, tiny cells). We're just giving the randomization more room to explore.
 

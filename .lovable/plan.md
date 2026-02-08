@@ -1,93 +1,174 @@
 
-# Fix: Flush Pending State on Unmount (Navigation State Loss Bug)
 
-## Problem
+# Fix: Include BELOW Height in maxBeside Calculation + Enrich Soft Rejection Metadata
 
-When navigating between pages (e.g., from `/` to `/v3-test` and back), the collage layout disappears. This happens because:
+## Problem Summary
 
-1. State updates use a **300ms debounced save** to localStorage
-2. When the component unmounts (navigation), the **cleanup effect cancels the pending save**
-3. The layout never gets persisted
-4. On return navigation, localStorage has stale data (missing the latest layout)
+### Issue 1: Landscape Heroes Get maxBeside = 0 (Wrong)
 
-## User Impact
+With a landscape hero (AR 1.73) and 30 photos, the algorithm calculates `maxBeside = 0`, forcing all content below the hero and creating only "full-width top/bottom" layouts. This is incorrect — there's plenty of room for photos beside the hero.
 
-- Navigate to `/v3-test`, come back → collage is gone
-- Any state change made within 300ms before navigation is lost
-- Forces users to regenerate layouts unnecessarily
+**Root Cause:** The `calculateBesideCountRange` function (lines 226-243) calculates `maxBesideByWidth` assuming the canvas height is just the hero row plus borders:
+
+```typescript
+// Current broken logic
+const minCanvasHeight = 1.0 + 2 * normalizedGap;  // ← Assumes NO BELOW photos!
+const maxCanvasWidth = effectiveMaxAR * minCanvasHeight;  // ~2.4
+const maxBesideWidth = maxCanvasWidth - heroAR - normalizedGap;  // ~0.6
+const maxBesideByWidth = Math.floor(maxBesideWidth * 2 / avgContentAR);  // ~1 photo
+```
+
+With 30 photos, BELOW will add significant height (4+ rows), which would increase allowed canvas width proportionally. The current code ignores this.
+
+### Issue 2: Soft Rejection Badge Missing Metadata
+
+The soft rejection badge shows only basic info:
+```
+canvasAR: 0.46
+allowed: 0.50 - 2.25
+```
+
+But hard rejections show detailed diagnostics (besideCount, belowConstraints, etc.). Soft rejections should show the same level of detail.
 
 ## Solution
 
-Change the unmount behavior from **cancel** to **flush** - immediately persist any pending changes instead of discarding them.
+### Fix 1: Height-Aware maxBeside Calculation
+
+Replace the flat-height assumption with an iterative approach that estimates BELOW height for each potential besideCount:
+
+```
+For each testBeside from 0 to 15:
+  1. belowCount = totalCount - testBeside
+  2. estimatedBelowHeight = √(belowCount × avgAR / heroAR)
+  3. canvasHeight = heroRow + gaps + estimatedBelowHeight
+  4. maxCanvasWidth = canvas_maxAR × canvasHeight
+  5. Check if testBeside fits within that width
+  6. Track highest valid besideCount
+```
+
+This models the tradeoff: more photos beside → fewer photos below → shorter canvas → less width allowed.
+
+### Fix 2: Enrich Soft Rejection Metadata
+
+When soft rejections are created in `region-search.ts`, add the same diagnostic fields that hard rejections get:
+- `besideCount`, `besideRowCount`, `belowRowCount`
+- `belowConstraints` 
+- `heroAR`, `canvasAR`
 
 ## Technical Changes
 
-### `src/hooks/useCollageState.ts`
+### `src/lib/v3/feasibility.ts`
 
-**Current (problematic):**
+**Replace lines 226-243** (upper bound calculation) with iterative height-aware logic:
+
 ```typescript
-// Cleanup debounce timer on unmount
-useEffect(() => {
-  return () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);  // ← Discards pending save!
-    }
-  };
-}, []);
+// === Upper Bound (maxBeside) ===
+
+// Constraint 1: Canvas width limit (prevent too-wide)
+// Key insight: BELOW adds height, which allows MORE width within AR limit
+// Iterate to find where width limit kicks in
+
+let maxBesideByWidth = 0;
+const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
+
+for (let testBeside = 0; testBeside <= maxTestBeside; testBeside++) {
+  const testBelowCount = totalContentCount - testBeside;
+  
+  // Estimate BELOW height geometrically
+  // belowHeight ≈ √(belowCount × avgContentAR / width)
+  // Use heroAR as width estimate (conservative - actual width may be wider)
+  const estimatedBelowHeight = testBelowCount > 0
+    ? Math.sqrt(testBelowCount * avgContentAR / heroAR)
+    : 0;
+  
+  // Actual canvas height includes hero row + gap + below + borders
+  const estimatedCanvasHeight = 1.0 + normalizedGap + estimatedBelowHeight + 2 * normalizedGap;
+  
+  // Width limit from this height
+  const maxCanvasWidth = effectiveMaxAR * estimatedCanvasHeight;
+  const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
+  
+  // Available width for BESIDE (beside is stacked, so divide by row count)
+  const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
+  
+  // How many photos can fit in that width? (estimate rows based on beside count)
+  const assumedBesideRows = testBeside > 0 ? Math.max(2, Math.ceil(testBeside / 4)) : 1;
+  const fitsInWidth = maxBesideWidth > 0
+    ? Math.floor(maxBesideWidth * assumedBesideRows / avgContentAR)
+    : 0;
+  
+  // If this besideCount fits, update max
+  if (testBeside <= fitsInWidth) {
+    maxBesideByWidth = testBeside;
+  }
+}
 ```
 
-**Fixed:**
+### `src/lib/v3/region-search.ts`
+
+**Enrich soft rejection details in two places:**
+
+1. **Lines 183-204** (no-BESIDE case): Add diagnostic fields to `softRejectionNoBeside`:
 ```typescript
-// Track pending state for flush-on-unmount
-const pendingStateRef = useRef<CollageState | null>(null);
-
-// Debounced save function - batches rapid state updates
-const debouncedSaveMetadata = useMemo(() => {
-  return (stateToSave: CollageState) => {
-    // Track pending state for flush on unmount
-    pendingStateRef.current = stateToSave;
-    
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-    }
-    saveTimerRef.current = setTimeout(() => {
-      saveMetadataToStorage(stateToSave);
-      pendingStateRef.current = null;  // Clear after save
-      saveTimerRef.current = null;
-    }, SAVE_DEBOUNCE_MS);
+if (canvasAR < effectiveMinARNoBeside - AR_EPSILON) {
+  softRejectionNoBeside = {
+    reason: 'canvas_too_tall',
+    details: { 
+      canvasAR: +canvasAR.toFixed(2), 
+      allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
+      besideCount: 0,
+      besideRowCount: 0,
+      belowRowCount,
+      belowConstraints: belowRowResult.constraints,
+      heroAR: +heroAR.toFixed(2),
+    },
   };
-}, []);
-
-// FLUSH pending save on unmount (don't discard!)
-useEffect(() => {
-  return () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-    }
-    // Flush any pending state immediately
-    if (pendingStateRef.current) {
-      saveMetadataToStorage(pendingStateRef.current);
-    }
-  };
-}, []);
+  // ... rest of logging
+}
 ```
 
-## Why This Works
+2. **Lines 310-334** (with-BESIDE case): Add diagnostic fields to `softRejection`:
+```typescript
+if (canvasAR < effectiveMinAR - AR_EPSILON) {
+  softRejection = {
+    reason: 'canvas_too_tall',
+    details: { 
+      canvasAR: +canvasAR.toFixed(2), 
+      allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
+      besideCount,
+      besideRowCount,
+      belowRowCount,
+      belowConstraints: belowRowResult.constraints,
+      heroAR: +heroAR.toFixed(2),
+    },
+  };
+  // ... rest of logging
+}
+```
 
-1. We track the "pending" state in a ref alongside the debounce timer
-2. On normal operation, saves still batch to reduce localStorage writes
-3. On unmount (navigation), instead of discarding, we **immediately save** the pending state
-4. When the user returns, the state is properly restored from localStorage
+## Expected Results
 
-## Files Changed
+### Before (Your Case: heroAR 1.73, 30 photos)
+- `maxBeside: 0`
+- Only full-width hero layouts
+- Search range: `0 to 0 beside photos`
+
+### After
+- `maxBeside: ~8-12` (depending on exact photo mix)
+- Varied layouts with content beside hero
+- Search range: `0 to 10+ beside photos`
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/hooks/useCollageState.ts` | Add `pendingStateRef`, update debounce to track pending state, flush on unmount |
+| `src/lib/v3/feasibility.ts` | Replace flat-height calculation with iterative height-aware loop |
+| `src/lib/v3/region-search.ts` | Add diagnostic fields to soft rejection details in both no-BESIDE and with-BESIDE cases |
 
 ## Testing
 
-1. Load photos and generate a collage on `/`
-2. Navigate to `/v3-test`
-3. Navigate back to `/`
-4. **Expected**: Collage should still be visible (same as before navigation)
+1. Upload 30+ photos with a landscape hero (AR > 1.5)
+2. Generate layouts and verify variety (hero sometimes has content beside it)
+3. Verify soft rejection badge shows full diagnostic details (same as hard rejection)
+4. Verify portrait heroes still work correctly
+

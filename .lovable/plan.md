@@ -1,89 +1,154 @@
 
-# Fix: Hero Scale Slider Not Persisting Changes
+# Hero Prominence Slider: Relative Resize Without Repacking
 
-## The Problem
+## What Users Want
 
-When you drag the hero size slider and release it at a value other than 100%, the scale resets back to 100% instead of persisting the new size.
+The slider should make the **hero bigger relative to the other photos** — the hero takes up more canvas real estate while the other photos shrink to accommodate. This is different from uniform zooming (which was previously implemented).
 
-**Root cause**: A state race condition between the slider's value updates and the commit handler.
+## The Core Insight
 
-## What's Happening
+The V3 layout engine already has a parameter for this: `hero_targetProminence` in the tuning config. Currently it defaults to `1.5` (hero area = 1.5× content area). Adjusting this parameter and re-running the layout algorithm with the **same photo order** (no shuffle) achieves exactly what you want.
 
-1. User drags slider from 100% → 70%
-2. `onValueChange` fires → `setHeroScale(0.7)` (async state update)
-3. User releases slider → `onValueCommit` fires → `handleHeroScaleCommit()` runs
-4. But `heroScale` in the callback closure might still be stale (not yet 0.7)
-5. The useEffect watching `state.layout` then resets `heroScale` to 1.0
-6. Net result: slider snaps back to 100%
+### Why Not Just Scale Coordinates?
 
-## The Fix
+- Uniform scaling makes everything bigger/smaller together — the hero doesn't become *relatively* more prominent
+- To increase hero's relative size, the content photos need to pack into smaller space
+- This requires actual re-packing, not just multiplication
 
-**Change 1**: Pass the current slider value directly to the commit handler instead of reading from state.
+### Why This Approach Works
 
-**Change 2**: In the commit handler, use the passed value instead of reading `heroScale` from state.
+1. The layout algorithm preserves photo order when `randomize=false`
+2. Increasing `hero_targetProminence` makes the hero take more canvas area
+3. Content photos are packed into the remaining space (smaller)
+4. The hero position and decomposition mode stay the same — no shuffle
 
 ---
 
 ## Technical Implementation
 
-### File: `src/components/HeroScaleSlider.tsx`
+### 1. Replace Hero Scale with Prominence Scale
 
-Pass the current value through `onCommit`:
+**File: `src/pages/Index.tsx`**
+
+Replace the uniform scaling approach with prominence-based regeneration:
 
 ```typescript
-interface HeroScaleSliderProps {
-  value: number;
-  onChange: (scale: number) => void;
-  onCommit?: (scale: number) => void;  // Changed: now receives the value
-  disabled?: boolean;
-}
+// Hero prominence scale factor (1.0 = default tuning, 0.7-1.3 range)
+const [heroProminence, setHeroProminence] = useState(1.0);
 
-// In the Slider component:
-<Slider
-  value={[value * 100]}
-  onValueChange={([v]) => onChange(v / 100)}
-  onValueCommit={([v]) => onCommit?.(v / 100)}  // Pass value directly
-  // ...
+// When slider drags: live preview by immediately regenerating layout
+// When slider releases: commit the current layout
+
+// No need for scaledLayout computation — just regenerate with modified tuning
+const handleHeroProminenceChange = useCallback((prominence: number) => {
+  setHeroProminence(prominence);
+  
+  // Regenerate with modified prominence — no shuffle, same photo order
+  const modifiedTuning = {
+    ...v3Tuning,
+    hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
+  };
+  
+  regenerateCollage({ 
+    randomize: false,  // Critical: preserve photo order
+    v3Tuning: modifiedTuning,
+  });
+}, [v3Tuning, regenerateCollage]);
+
+const handleHeroProminenceCommit = useCallback(() => {
+  // Just update v3Tuning state to persist the prominence
+  setV3Tuning(prev => ({
+    ...prev,
+    hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * heroProminence,
+  }));
+  setHeroProminence(1.0);  // Reset slider to new baseline
+}, [heroProminence]);
+```
+
+### 2. Update the Slider Component
+
+**File: `src/components/HeroScaleSlider.tsx`**
+
+Rename to `HeroProminenceSlider` and update the UI to communicate the relative nature:
+
+```typescript
+/**
+ * Slider for adjusting hero prominence (relative size).
+ * Range: 70% to 130% — makes hero bigger/smaller relative to other photos.
+ */
+export function HeroProminenceSlider({ 
+  value, 
+  onChange, 
+  onCommit,
+  disabled = false,
+}: HeroProminenceSliderProps) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-muted-foreground">Hero</span>
+      <Slider
+        value={[value * 100]}
+        onValueChange={([v]) => onChange(v / 100)}
+        onValueCommit={([v]) => onCommit?.(v / 100)}
+        min={70}
+        max={130}
+        step={5}
+        disabled={disabled}
+        className="w-20 [&>span:first-child]:bg-muted-foreground/30"
+      />
+      <span className="text-xs text-muted-foreground tabular-nums w-8">
+        {Math.round(value * 100)}%
+      </span>
+    </div>
+  );
+}
+```
+
+### 3. Wire Up in CollageSettings
+
+**File: `src/components/CollageSettings.tsx`**
+
+Pass the prominence callbacks:
+
+```typescript
+<HeroProminenceSlider
+  value={heroProminence}
+  onChange={onHeroProminenceChange}
+  onCommit={onHeroProminenceCommit}
+  disabled={!hasHero}
 />
 ```
 
-### File: `src/components/CollageSettings.tsx`
+### 4. Remove Unused `scaledLayout` Logic
 
-Update the prop type to match:
+**File: `src/pages/Index.tsx`**
 
-```typescript
-onHeroScaleCommit?: (scale: number) => void;  // Now receives scale value
-```
-
-### File: `src/pages/Index.tsx`
-
-Update `handleHeroScaleCommit` to use the passed value:
-
-```typescript
-const handleHeroScaleCommit = useCallback((scale: number) => {
-  if (!state.layout || scale === 1.0) return;
-  
-  const newLayout = {
-    width: Math.round(state.layout.width * scale),
-    height: Math.round(state.layout.height * scale),
-    cells: state.layout.cells.map(cell => ({
-      ...cell,
-      x: Math.round(cell.x * scale),
-      y: Math.round(cell.y * scale),
-      width: Math.round(cell.width * scale),
-      height: Math.round(cell.height * scale),
-    })),
-  };
-  
-  setLayout(newLayout);
-}, [state.layout, setLayout]);  // Removed heroScale dependency
-```
+Delete the `scaledLayout` useMemo and the old uniform-scale commit handler. Pass `state.layout` directly to `CollagePreview`.
 
 ---
 
 ## Why This Works
 
-By passing the slider value directly from `onValueCommit`, we bypass the React state timing issue entirely. The commit handler receives the exact value the slider was at when released, guaranteed to be fresh.
+| Slider Value | `hero_targetProminence` | Effect |
+|--------------|------------------------|--------|
+| 70% | 1.05 | Hero is 30% smaller relative to content |
+| 100% | 1.50 (default) | Default hero prominence |
+| 130% | 1.95 | Hero is 30% larger relative to content |
+
+The algorithm:
+1. Receives modified prominence parameter
+2. Sizes hero based on content area × prominence
+3. Packs content into remaining regions
+4. Hero becomes more/less prominent without shuffling
+
+---
+
+## User Experience
+
+1. Upload photos → mark one as hero
+2. See "Hero" slider in settings bar
+3. Drag slider → layout regenerates instantly with different hero/content ratio
+4. Release slider → prominence is committed
+5. Export reflects the adjusted prominence
 
 ---
 
@@ -91,15 +156,17 @@ By passing the slider value directly from `onValueCommit`, we bypass the React s
 
 | File | Change |
 |------|--------|
-| `src/components/HeroScaleSlider.tsx` | Pass value through `onCommit` callback |
-| `src/components/CollageSettings.tsx` | Update prop type signature |
-| `src/pages/Index.tsx` | Use passed value in commit handler |
+| `src/components/HeroScaleSlider.tsx` | Rename to `HeroProminenceSlider`, update labels |
+| `src/components/CollageSettings.tsx` | Use new component and props |
+| `src/pages/Index.tsx` | Replace scale logic with prominence-based regeneration |
 
 ---
 
-## Visual Behavior After Fix
+## Performance Note
 
-1. Drag slider to 70% → preview scales down in real-time
-2. Release slider → 70% scale is committed to layout dimensions
-3. Slider resets to 100% (new base) but layout stays at the smaller size
-4. Export uses the scaled dimensions
+Regenerating on every drag step might feel laggy for complex layouts. If that becomes an issue, we can:
+1. Debounce the regeneration (e.g., 100ms)
+2. Show "updating..." feedback during drag
+3. Only regenerate on commit (loses live preview)
+
+For now, let's try immediate regeneration since V3 is fast (~10-50ms).

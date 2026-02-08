@@ -1,67 +1,73 @@
 
+# Fix: Stale Worker Response After Clear All
 
-# Fix: Rejection UI Should Check for Ready Photos
+## Problem Analysis
 
-## Problem
+Looking at the screenshot:
+- Header shows "5 of 19 ready" (current batch still processing)
+- Debug logs show `photoCount:20, contentCount:19` (from a **previous** generation)
+- Rejection UI appears immediately with stale data
 
-The rejection UI renders whenever `rejectedLayout` is truthy, but it doesn't verify that photos are actually ready. When you:
+**Root Cause**: When "Clear All" is clicked (or new photos are uploaded), any in-flight worker requests from the **previous** photo set are not cancelled. When those stale responses arrive, they populate `rejectedLayout` and `debugLogs`, which then render because:
 
-1. Clear all photos (or start fresh)
-2. Select 20 new photos to upload
+1. `state.layout` is null (cleared)
+2. `rejectedLayout` is truthy (stale)
+3. `readyPhotos >= 2` is true (5 photos are ready in the current batch)
 
-The old `rejectedLayout` from the previous session is still in local state, and since `state.layout` is null (cleared), the UI immediately shows the stale rejection overlay — even though "0 of 20 photos ready."
+The guard `readyPhotos >= 2` prevents the rejection UI when there are 0-1 ready photos, but doesn't detect that the rejection data is from a **different photo set**.
 
 ## Solution
 
-Add a simple guard: only show the rejection UI if there are actually **ready photos** (photos with dimensions loaded). If no photos are ready yet, the rejection state is stale and shouldn't be displayed.
+Add a staleness check: the rejection UI should only render if the rejection's photo count **matches** the current ready photo count (within tolerance). If the rejection says "20 photos" but we only have 5 ready, it's clearly stale.
 
-## Technical Change
+### Technical Change
 
-**`src/pages/Index.tsx`** — Line 715
+**`src/pages/Index.tsx`** — Render logic (around line 718)
 
 Current:
-```tsx
-) : rejectedLayout ? (
-```
-
-Fixed:
 ```tsx
 ) : rejectedLayout && readyPhotos >= 2 ? (
 ```
 
-Where `readyPhotos` is already computed (or add if not):
+Fixed:
 ```tsx
-const readyPhotos = state.photos.filter(p => p.originalWidth > 0).length;
+) : rejectedLayout && readyPhotos >= 2 && !isRejectionStale ? (
+```
+
+Where `isRejectionStale` is derived from the rejection data vs current photos:
+
+```typescript
+// Detect stale rejection by comparing photo counts
+// If rejection says "20 photos" but we only have 5 ready, it's from a previous session
+const rejectedPhotoCount = rejectedLayout
+  ? (rejectedLayout.details as any)?.photoCount ?? rejectedLayout.cells.length
+  : 0;
+
+// Stale if counts don't match (allowing small tolerance for timing)
+const isRejectionStale = rejectedLayout && Math.abs(rejectedPhotoCount - readyPhotos) > 1;
+```
+
+Apply the same guard to `layoutError`:
+
+```tsx
+) : layoutError && readyPhotos >= 2 && !isRejectionStale ? (
 ```
 
 ## Why This Works
 
-| Scenario | `rejectedLayout` | `readyPhotos` | Shows Rejection UI? |
-|----------|------------------|---------------|---------------------|
-| Fresh upload (0 ready) | truthy (stale) | 0 | No |
-| Mid-upload (5 of 20 ready) | truthy (stale) | 5 | No (< 2 is impossible, but still gated) |
-| All photos ready, gen failed | truthy (fresh) | 20 | Yes |
-| Clear all, old rejection | truthy (stale) | 0 | No |
+| Scenario | `rejectedPhotoCount` | `readyPhotos` | `isRejectionStale` | Shows UI? |
+|----------|---------------------|---------------|-------------------|-----------|
+| Stale rejection (20) during upload (5) | 20 | 5 | true | No |
+| Stale rejection (20) during upload (19) | 20 | 19 | true | No |
+| Fresh rejection (19) after all ready | 19 | 19 | false | Yes |
+| Fresh rejection (5) with 5 photos | 5 | 5 | false | Yes |
 
-The rejection UI now "understands" the collage state: if photos aren't ready, any rejection is stale and shouldn't render.
+## Alternative Considered: Bump `latestRequestIdRef` on Clear All
 
-## Same Fix for `layoutError`
-
-Apply the same guard to the `layoutError` branch (line 759):
-
-Current:
-```tsx
-) : layoutError ? (
-```
-
-Fixed:
-```tsx
-) : layoutError && readyPhotos >= 2 ? (
-```
+Could also bump the request ID counter when clearing, so stale worker responses are ignored. However, this doesn't cover the case where the user adds new photos before the old worker response arrives. The staleness check is more robust.
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `readyPhotos >= 2` guard to rejection and error UI branches |
-
+| `src/pages/Index.tsx` | Add `isRejectionStale` derived value and use it to guard rejection/error UI |

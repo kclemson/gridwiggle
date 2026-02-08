@@ -1,140 +1,234 @@
 
-# Clickable Region-Reject Logs with Layout Popovers
+# Mobile Debugging Plan (No useEffect)
 
-## What You'll Get
-When you hover over any `[region-reject]` log entry in the debug panel, a popover will appear showing the CSS visualization of the layout that was rejected. This lets you visually inspect all 7 intermediate rejection candidates, not just the last one.
+## The Problems
 
-## Design Approach
+Based on logs and code analysis, there are three distinct issues on iOS Safari:
 
-### Data Flow
-The geometry is already calculated at rejection time. We need to:
-1. Capture it with each log entry (instead of overwriting a single variable)
-2. Render it in the log panel when the entry is hovered
+### 1. "0 of 6 ready" - Photos Missing Dimensions
+Photos load to IndexedDB successfully but remain at "0 of 6 ready" because metadata has `originalWidth: 0, originalHeight: 0`. The "ready" count filters by `p.originalWidth > 0`, so these show as not ready.
 
-### Visual Behavior
-- Hover over any red `[region-reject]` row → mini layout appears in a popover
-- Layout uses same CSS visualization as the main canvas (colored rectangles, labels)
-- Popover sized appropriately (~200px wide, maintaining aspect ratio)
-- Red ring around the popover to indicate "rejected"
+**Why on Mobile**: iOS Safari's stricter memory limits cause page crashes or tab purging before dimensions are saved.
+
+### 2. Carousel Clipping
+In `PhotoCarousel.tsx`:
+```typescript
+const aspectRatio = crop 
+  ? crop.width / crop.height 
+  : photo.originalWidth / photo.originalHeight;
+// When both are 0: 0 / 0 = NaN → 180 * NaN = NaN
+```
+
+### 3. Black Rectangle in Crop Editor
+In `CropEditor.tsx`:
+```typescript
+viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
+// When 0: viewBox="0 0 0 0" → invalid SVG → black
+```
 
 ---
 
-## Technical Implementation
+## Solution: Callback-Based Recovery (No useEffect)
 
-### Step 1: Extend LogEntry to carry geometry
+Instead of a useEffect that watches `isLoading`, we use a **callback pattern**:
 
-**File: `src/lib/devLogger.ts`**
+1. `useCollageState` accepts an optional `onNeedsRecovery` callback
+2. During initialization, after hydration completes, the hook checks for photos needing recovery
+3. If found, it calls `onNeedsRecovery(photosNeedingRecovery)` directly from the init function
+4. Index.tsx passes `processSmartCrops` as that callback
 
-Add an optional `rejectedLayout` field to `LogEntry`:
+This is event-driven, not sync-via-effect.
+
+---
+
+## Implementation
+
+### Step 1: Add Callback Parameter to useCollageState
+
+**File: `src/hooks/useCollageState.ts`**
 
 ```typescript
-export interface LogEntry {
-  timestamp: number;
-  category: string;
-  label: string;
-  data: Record<string, unknown>;
-  level?: 'info' | 'warn' | 'error';
-  // NEW: optional geometry for rejected layouts
-  rejectedLayout?: {
-    cells: Array<{ photoId: string; x: number; y: number; width: number; height: number }>;
-    canvasWidth: number;
-    canvasHeight: number;
-  };
+interface UseCollageStateOptions {
+  /** Called directly from initialization when photos need dimension recovery */
+  onNeedsRecovery?: (photos: PhotoItem[]) => void;
+}
+
+export function useCollageState(options: UseCollageStateOptions = {}) {
+  const { onNeedsRecovery } = options;
+  // ... existing code ...
+
+  // Inside initialize():
+  const photos = hydratePhotos(persisted.photos, storedPhotos);
+  
+  // Find photos needing dimension recovery
+  const needsRecovery = photos.filter(p => p.originalWidth === 0 || p.originalHeight === 0);
+  
+  if (needsRecovery.length > 0) {
+    remoteLogger.warn('recovery', 'Photos need dimension recovery', {
+      count: needsRecovery.length,
+      ids: needsRecovery.map(p => p.id),
+    });
+    
+    // Mark them as processing (so UI shows spinner)
+    needsRecovery.forEach(p => { p.isProcessing = true; });
+    
+    // Call callback directly from init (not via effect)
+    onNeedsRecovery?.(needsRecovery);
+  }
 }
 ```
 
-Update `devLogger.log()` signature to accept the optional geometry.
+### Step 2: Pass Recovery Callback from Index.tsx
 
-### Step 2: Attach geometry at rejection time
-
-**File: `src/lib/v3/region-search.ts`**
-
-At each `[region-reject]` log call, pass the geometry as a fourth argument:
+**File: `src/pages/Index.tsx`**
 
 ```typescript
-devLogger.warn('region-reject', 'Prominence too low', {
-  besideCount,
-  besideRowCount,
-  prominenceRatio: prominenceRatio.toFixed(2),
-  required: effectiveMinProminence,
-}, {
-  cells: buildRejectedCells(...),
-  canvasWidth: normalizedWidthWithBorder,
-  canvasHeight: normalizedHeightWithBorder,
+// Move processSmartCrops definition before useCollageState call
+// (or use a ref to avoid stale closure)
+const processSmartCropsRef = useRef<((photos: PhotoItem[]) => Promise<void>) | null>(null);
+
+const {
+  state,
+  isLoading,
+  // ...
+} = useCollageState({
+  onNeedsRecovery: (photos) => {
+    // Defer to next tick so the component has mounted
+    queueMicrotask(() => {
+      processSmartCropsRef.current?.(photos);
+    });
+  },
+});
+
+// Later, assign the ref
+processSmartCropsRef.current = processSmartCrops;
+```
+
+### Step 3: Add Defensive Guards to UI Components
+
+**File: `src/components/PhotoCarousel.tsx`**
+
+```typescript
+// Safe aspect ratio calculation
+const aspectRatio = (crop && crop.width > 0 && crop.height > 0)
+  ? crop.width / crop.height 
+  : (photo.originalWidth > 0 && photo.originalHeight > 0)
+    ? photo.originalWidth / photo.originalHeight
+    : 1; // Safe fallback for broken state
+```
+
+**File: `src/components/CropEditor.tsx`**
+
+```typescript
+// Guard against 0 dimensions
+if (photo.originalWidth === 0 || photo.originalHeight === 0) {
+  return (
+    <Dialog open={true} onOpenChange={() => onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Image Loading...</DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+### Step 4: Add previewUrl During Hydration
+
+**File: `src/hooks/useCollageState.ts`**
+
+```typescript
+// In hydratePhotos(), set previewUrl to same as objectUrl initially
+hydrated.push({
+  objectUrl,
+  previewUrl: objectUrl, // Fallback to full-res until recovery creates preview
+  // ...
 });
 ```
 
-This captures the geometry inline with each rejection log.
+### Step 5: Add Vision Worker Logging
 
-### Step 3: Create a mini layout preview component
-
-**File: `src/components/debug/RejectedLayoutPreview.tsx`** (new file)
-
-A compact version of `LayoutVisualization` sized for popovers:
+**File: `src/services/smartCropService.ts`**
 
 ```typescript
-interface RejectedLayoutPreviewProps {
-  cells: Array<{ photoId: string; x: number; y: number; width: number; height: number }>;
-  canvasWidth: number;
-  canvasHeight: number;
-}
-
-export function RejectedLayoutPreview({ cells, canvasWidth, canvasHeight }: RejectedLayoutPreviewProps) {
-  // Scale from normalized space to ~200px preview
-  // Render colored rectangles with photo labels
-  // Red ring around the container
+function getWorker(): Worker | null {
+  if (!worker) {
+    try {
+      remoteLogger.info('vision', 'Creating worker', {
+        moduleSupport: typeof Worker !== 'undefined',
+      });
+      
+      worker = new Worker(
+        new URL('../workers/visionWorker.ts', import.meta.url),
+        { type: 'module' }
+      );
+      
+      remoteLogger.info('vision', 'Worker created successfully', {});
+    } catch (e) {
+      remoteLogger.error('vision', 'Worker creation failed', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }
+  }
+  return worker;
 }
 ```
 
-### Step 4: Wrap rejection logs in HoverCard
+### Step 6: Add Phase Logging to Smart Crop Processing
 
-**File: `src/components/debug/DebugLogPanel.tsx`**
+**File: `src/pages/Index.tsx`**
 
-For log entries with `rejectedLayout` attached:
-
+In `processSmartCrops`:
 ```typescript
-import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
-import { RejectedLayoutPreview } from './RejectedLayoutPreview';
+remoteLogger.info('smartcrop', 'Phase: loading dimensions', { photoId: photo.id });
+// ... dimension loading ...
 
-// In the render loop:
-{entry.rejectedLayout ? (
-  <HoverCard openDelay={100}>
-    <HoverCardTrigger asChild>
-      <div className="cursor-pointer underline decoration-dotted ...">
-        [{entry.category}] {entry.label}
-      </div>
-    </HoverCardTrigger>
-    <HoverCardContent side="right" className="w-auto p-2">
-      <RejectedLayoutPreview {...entry.rejectedLayout} />
-    </HoverCardContent>
-  </HoverCard>
-) : (
-  // Current non-interactive rendering
-)}
+remoteLogger.info('smartcrop', 'Phase: creating previews', { 
+  photoId: photo.id,
+  width: dimensions.width,
+  height: dimensions.height,
+});
+// ... preview creation ...
+
+remoteLogger.info('smartcrop', 'Phase: running detection', { photoId: photo.id });
+// ... smart crop ...
+
+remoteLogger.info('smartcrop', 'Phase: complete', { photoId: photo.id });
 ```
 
 ---
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
-| `src/lib/devLogger.ts` | Add `rejectedLayout` to `LogEntry`, update `log()` signature |
-| `src/lib/v3/region-search.ts` | Pass geometry to each `region-reject` log call (3 locations) |
-| `src/components/debug/RejectedLayoutPreview.tsx` | New component - mini CSS visualization |
-| `src/components/debug/DebugLogPanel.tsx` | Wrap rejection entries in `HoverCard` |
-| `src/components/debug/index.ts` | Export new component |
+| File | Changes |
+|------|---------|
+| `src/hooks/useCollageState.ts` | Add `onNeedsRecovery` callback option, call from init, add previewUrl hydration |
+| `src/pages/Index.tsx` | Pass recovery callback to hook, add phase logging to processSmartCrops |
+| `src/components/PhotoCarousel.tsx` | Add defensive NaN guard for aspect ratio |
+| `src/components/CropEditor.tsx` | Add guard for 0 dimensions, show loading state |
+| `src/services/smartCropService.ts` | Add worker initialization logging |
 
 ---
 
-## Edge Cases Handled
+## Why This Works Better Than useEffect
 
-- **Logs without geometry**: Non-rejection logs render normally (no hover behavior)
-- **No photos data**: Preview shows just colored cells without AR labels (since the log doesn't have the full photo data, just IDs)
-- **Scroll behavior**: HoverCard positions itself appropriately within the ScrollArea
+1. **Event-driven, not sync-driven**: Recovery triggers directly from the initialization event, not from watching state
+2. **No race conditions**: The callback fires exactly once, after hydration is complete
+3. **Clear data flow**: Index.tsx explicitly opts into recovery behavior by passing the callback
+4. **No stale closures**: Using `queueMicrotask` + ref pattern ensures `processSmartCrops` has latest dependencies
 
 ---
 
-## Result
+## Expected Outcome
 
-After implementation, you can shuffle in V3Test and hover over any of the 7 `[region-reject] Prominence too low` entries to see exactly what that particular candidate layout looked like — making it immediately clear whether the rejection was justified or overly strict.
+After implementation:
+
+- Photos with missing dimensions show as "processing" and auto-recover
+- Carousel and crop editor don't break with NaN/0 values  
+- Edge function logs show exactly which phase fails on iOS
+- Vision worker crashes are logged for diagnosis

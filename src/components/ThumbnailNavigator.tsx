@@ -5,7 +5,7 @@ import { CroppedImage } from './common/CroppedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Star, Crop, Wand2, Undo2, Loader2 } from 'lucide-react';
+import { X, Star, Crop, Undo2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
@@ -191,8 +191,8 @@ export function ThumbnailNavigator({
                   {isLoaded && onSmartCrop && onUndoSmartCrop && (
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
+                      size="icon"
+                      className="h-8 w-8 min-h-[44px] min-w-[44px]"
                       disabled={isProcessing}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -204,20 +204,11 @@ export function ThumbnailNavigator({
                       }}
                     >
                       {isProcessing ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          <span className="sr-only">Cropping...</span>
-                        </>
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : hasSmartCrop ? (
-                        <>
-                          <Undo2 className="h-3 w-3 mr-1" />
-                          Undo
-                        </>
+                        <Undo2 className="h-4 w-4" />
                       ) : (
-                        <>
-                          <Wand2 className="h-3 w-3 mr-1" />
-                          Auto-crop
-                        </>
+                        <Crop className="h-4 w-4" />
                       )}
                     </Button>
                   )}

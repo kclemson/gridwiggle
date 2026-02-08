@@ -643,7 +643,8 @@ function scoreRegionAssignment(
   
   // Variety bonus: reward having beside photos (structural interest)
   // 0-beside layouts are valid but less visually interesting
-  const varietyScore = besideResult.cells.length > 0 ? 1.0 : 0.7;
+  // Penalty increased from 0.7 to 0.5 to reduce full-width hero frequency
+  const varietyScore = besideResult.cells.length > 0 ? 1.0 : 0.5;
   
   // Combined score: uniformity (35%) + parity (35%) + variety (30%)
   return (uniformityScore * 0.35) + (parityScore * 0.35) + (varietyScore * 0.30);

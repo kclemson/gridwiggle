@@ -8,7 +8,7 @@
 import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray, coefficientOfVariation, getEffectiveMinProminence } from './utils';
+import { shuffleArray, coefficientOfVariation, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
 import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
@@ -172,20 +172,24 @@ export function findValidRegionAssignment(
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
+      // Get effective canvas AR bounds (relaxed for low photo counts)
+      const effectiveMinARNoBeside = getEffectiveCanvasMinAR(photos.length, tuning);
+      const effectiveMaxARNoBeside = getEffectiveCanvasMaxAR(photos.length, tuning);
+      
       const AR_EPSILON = 0.01;
-      if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+      if (canvasAR < effectiveMinARNoBeside - AR_EPSILON || canvasAR > effectiveMaxARNoBeside + AR_EPSILON) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
           cells: buildRejectedCells(heroAR, heroPhotoId, null, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
-          reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
+          reason: canvasAR < effectiveMinARNoBeside ? 'canvas_too_tall' : 'canvas_too_wide',
           details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
-          allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+          allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
         });
         continue;
       }
@@ -283,21 +287,25 @@ export function findValidRegionAssignment(
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
+      // Get effective canvas AR bounds (relaxed for low photo counts)
+      const effectiveMinAR = getEffectiveCanvasMinAR(photos.length, tuning);
+      const effectiveMaxAR = getEffectiveCanvasMaxAR(photos.length, tuning);
+      
       const AR_EPSILON = 0.01;
-      if (canvasAR < tuning.canvas_minAR - AR_EPSILON || canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+      if (canvasAR < effectiveMinAR - AR_EPSILON || canvasAR > effectiveMaxAR + AR_EPSILON) {
         // Capture rejected pack for visualization
         lastRejectedPack = {
           cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
-          reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
+          reason: canvasAR < effectiveMinAR ? 'canvas_too_tall' : 'canvas_too_wide',
           details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
         };
         devLogger.warn('region-reject', 'Canvas AR out of range', {
           besideCount,
           besideRowCount,
           canvasAR: canvasAR.toFixed(2),
-          allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+          allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
         });
         continue;
       }

@@ -115,11 +115,15 @@ export function validateProminence(
  * 
  * This prevents layouts where the hero dominates so much that the smallest
  * content photos become unreadably small thumbnails.
+ * 
+ * @param heroArea - Hero area in normalized space
+ * @param contentAreas - Content cell areas in normalized space
+ * @param maxRatio - Maximum allowed hero-to-smallest ratio (use getEffectiveMaxToSmallest for low counts)
  */
 export function validateSmallestCellRatio(
   heroArea: number,
   contentAreas: number[],
-  tuning: V3Tuning
+  maxRatio: number
 ): { valid: boolean; ratio: number } {
   if (contentAreas.length === 0) {
     return { valid: true, ratio: 0 };
@@ -136,7 +140,7 @@ export function validateSmallestCellRatio(
   const ratio = heroArea / avgSmallest;
   
   return {
-    valid: ratio <= tuning.hero_maxToSmallest,
+    valid: ratio <= maxRatio,
     ratio,
   };
 }

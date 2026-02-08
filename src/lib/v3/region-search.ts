@@ -8,7 +8,7 @@
 import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray, coefficientOfVariation, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
+import { shuffleArray, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
 import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
@@ -597,6 +597,64 @@ function buildRejectedCells(
 }
 
 // ============================================================================
+// Tier Coherence Scoring (F-ratio)
+// ============================================================================
+
+/**
+ * Calculate tier coherence (F-ratio) for cell areas.
+ * Measures how well areas cluster into distinct size tiers.
+ * 
+ * High F = clear hierarchy (good for hero layouts)
+ * Low F = too uniform OR too chaotic
+ * 
+ * This replaces uniformity + parity scoring with a single metric that
+ * REWARDS hierarchy rather than penalizing it.
+ */
+function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
+  if (areas.length < tierCount * 2) {
+    // Not enough cells for meaningful tiers - neutral score
+    return 0.5;
+  }
+  
+  const sorted = [...areas].sort((a, b) => b - a);
+  const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  
+  // Split into equal-sized tiers
+  const tierSize = Math.ceil(sorted.length / tierCount);
+  const tiers: number[][] = [];
+  for (let i = 0; i < tierCount; i++) {
+    tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+  }
+  
+  // Calculate tier means
+  const tierMeans = tiers.map(tier => 
+    tier.reduce((a, b) => a + b, 0) / tier.length
+  );
+  
+  // Between-tier variance: how spread apart are the tier means?
+  const betweenVar = tierMeans.reduce((sum, mean) => 
+    sum + Math.pow(mean - grandMean, 2), 0
+  ) / tierCount;
+  
+  // Within-tier variance: how scattered within each tier?
+  let withinVarSum = 0;
+  for (let i = 0; i < tierCount; i++) {
+    const tierMean = tierMeans[i];
+    const tierVar = tiers[i].reduce((sum, area) => 
+      sum + Math.pow(area - tierMean, 2), 0
+    ) / tiers[i].length;
+    withinVarSum += tierVar;
+  }
+  const withinVar = withinVarSum / tierCount;
+  
+  // F-ratio (protect against division by zero)
+  const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
+  
+  // Normalize: F of 5+ → score 1.0
+  return Math.min(1.0, fRatio / 5);
+}
+
+// ============================================================================
 // Region Assignment Scoring
 // ============================================================================
 
@@ -605,12 +663,10 @@ function buildRejectedCells(
  * Higher is better.
  * 
  * Criteria:
- * 1. Uniformity: cell areas should be similar
- * 2. Parity: balanced average cell areas between BESIDE and BELOW regions
- * 3. Variety: reward having beside photos (structural interest)
+ * 1. Tier coherence (F-ratio): reward distinct size hierarchy
+ * 2. Beside presence: reward having photos beside hero (structural interest)
  * 
  * Note: Prominence is NOT scored here - it's already validated during search.
- * This prevents 0-beside layouts from always winning due to auto-passing prominence.
  */
 function scoreRegionAssignment(
   _heroAR: number,
@@ -619,33 +675,20 @@ function scoreRegionAssignment(
   _normalizedGap: number,
   _tuning: V3Tuning
 ): number {
-  // Uniformity score: coefficient of variation of cell areas
+  // Collect all cell areas
   const allAreas = [
     ...besideResult.cells.map(c => c.width * c.height),
     ...belowResult.cells.map(c => c.width * c.height),
   ];
-  const uniformityScore = 1.0 / (1.0 + coefficientOfVariation(allAreas));
   
-  // Region parity score: reward balanced average cell areas between regions
-  // This prevents huge cells in BELOW when it has too few photos
-  let parityScore = 1.0;
+  // Tier coherence: reward distinct size hierarchy
+  const coherenceScore = tierCoherenceScore(allAreas);
   
-  if (besideResult.cells.length > 0 && belowResult.cells.length > 0) {
-    const avgBesideArea = besideResult.cells
-      .reduce((sum, c) => sum + c.width * c.height, 0) / besideResult.cells.length;
-    const avgBelowArea = belowResult.cells
-      .reduce((sum, c) => sum + c.width * c.height, 0) / belowResult.cells.length;
-    
-    // Ratio clamped to [0, 1] - 1.0 means perfect parity
-    const ratio = avgBesideArea / avgBelowArea;
-    parityScore = Math.min(ratio, 1 / ratio);
-  }
+  // Beside presence: reward having photos beside hero
+  // 0-beside layouts get reduced score to avoid dominating
+  const presenceScore = besideResult.cells.length > 0 ? 1.0 : 0.3;
   
-  // Beside placement bonus: reward layouts with photos beside the hero
-  // Full-width hero layouts (0 beside) receive a penalty to reduce their frequency
-  const besidePlacementScore = besideResult.cells.length > 0 ? 1.0 : 0.4;
-  
-  // Combined score: uniformity (35%) + parity (35%) + beside placement (30%)
-  return (uniformityScore * 0.35) + (parityScore * 0.35) + (besidePlacementScore * 0.30);
+  // Combined: coherence (70%) + presence (30%)
+  return (coherenceScore * 0.70) + (presenceScore * 0.30);
 }
 

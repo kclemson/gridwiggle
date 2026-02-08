@@ -1,3 +1,5 @@
+import type { LogEntry } from '@/lib/devLogger';
+
 export interface CropRegion {
   x: number;
   y: number;
@@ -83,6 +85,7 @@ export interface PersistedCollageState {
   photos: PhotoMetadata[];
   settings: CollageSettings;
   layout: CollageLayout | null;
+  debugLogs?: LogEntry[];  // Optional for backwards compatibility
 }
 
 /**

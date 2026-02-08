@@ -5,13 +5,12 @@ const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
 if (isSafari) {
   // Fix iOS Safari memory leak (GitHub issue #1242)
-  // Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
-  // Using single-threaded non-JSEP binaries fixes the crash
+  // Safari's JavaScriptCore has a bug with threaded WASM that causes memory bloat
+  // Single-threaded execution avoids the leak while keeping bundled binaries
   env.backends.onnx.wasm.numThreads = 1;
-  env.backends.onnx.wasm.wasmPaths = {
-    mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
-    wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
-  };
+  
+  // NOTE: Do NOT override wasmPaths - the bundled binaries have the correct API
+  // Overriding to external CDN versions causes "_OrtGetInputOutputMetadata is not a function"
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

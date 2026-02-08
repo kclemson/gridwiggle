@@ -37,6 +37,46 @@ export interface RegionSearchResult {
 }
 
 // ============================================================================
+// Weighted Random Selection
+// ============================================================================
+
+/**
+ * Select a candidate using score-weighted random selection.
+ * Higher-scoring candidates have higher probability of being selected.
+ * 
+ * Uses squared normalized scores to emphasize quality differences,
+ * with a floor constant to ensure all candidates have non-zero probability.
+ */
+function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
+  if (candidates.length === 1) return candidates[0];
+  
+  // Extract scores and compute range
+  const scores = candidates.map(c => c.score);
+  const minScore = Math.min(...scores);
+  const maxScore = Math.max(...scores);
+  const range = maxScore - minScore || 1; // Avoid division by zero
+  
+  // Compute weights: squared normalized score + floor constant
+  const weights = scores.map(s => {
+    const normalized = (s - minScore) / range;
+    return Math.pow(normalized, 2) + 0.1; // 0.1 floor ensures non-zero probability
+  });
+  
+  // Build cumulative distribution
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  let cumulative = 0;
+  const cumulativeWeights = weights.map(w => {
+    cumulative += w / totalWeight;
+    return cumulative;
+  });
+  
+  // Sample from distribution
+  const r = Math.random();
+  const selectedIndex = cumulativeWeights.findIndex(cp => r <= cp);
+  return candidates[selectedIndex >= 0 ? selectedIndex : candidates.length - 1];
+}
+
+// ============================================================================
 // Region Search Algorithm
 // ============================================================================
 
@@ -451,12 +491,12 @@ export function findValidRegionAssignment(
   }
   
   if (validRegionAssignments.length > 0) {
-    // Pick randomly for variety OR pick best score for determinism
+    // Pick using weighted random for variety OR pick best score for determinism
     const selected = randomize
-      ? validRegionAssignments[Math.floor(Math.random() * validRegionAssignments.length)]
+      ? weightedRandomSelect(validRegionAssignments)
       : validRegionAssignments.reduce((best, current) => current.score > best.score ? current : best);
     
-    devLogger.log('region', `Assignment selected ${randomize ? 'randomly' : 'by best score'}`, {
+    devLogger.log('region', `Assignment selected ${randomize ? 'by weighted random' : 'by best score'}`, {
       totalCandidates: validRegionAssignments.length,
       besideCount: selected.besidePhotos.length,
       belowCount: selected.belowPhotos.length,

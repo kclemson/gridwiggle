@@ -555,14 +555,29 @@ function scoreRegionAssignment(
   const uniformityScore = 1.0 / (1.0 + coefficientOfVariation(allAreas));
   
   // Hero prominence check (soft constraint)
-  // Hero area = heroAR * 1.0 (since height = 1)
   const heroArea = heroAR * 1.0;
   const maxContentArea = Math.max(...allAreas, 0);
   const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
-  const prominenceScore = prominenceRatio >= tuning.hero_minProminence ? 1.0 : prominenceRatio / tuning.hero_minProminence;
+  const prominenceScore = prominenceRatio >= tuning.hero_minProminence 
+    ? 1.0 
+    : prominenceRatio / tuning.hero_minProminence;
   
-  // Removed balanceScore - was pushing BELOW region to match hero height,
-  // causing large cells that threatened prominence
-  return (uniformityScore * 0.5) + (prominenceScore * 0.5);
+  // Region parity score: reward balanced average cell areas between regions
+  // This prevents huge cells in BELOW when it has too few photos
+  let parityScore = 1.0;
+  
+  if (besideResult.cells.length > 0 && belowResult.cells.length > 0) {
+    const avgBesideArea = besideResult.cells
+      .reduce((sum, c) => sum + c.width * c.height, 0) / besideResult.cells.length;
+    const avgBelowArea = belowResult.cells
+      .reduce((sum, c) => sum + c.width * c.height, 0) / belowResult.cells.length;
+    
+    // Ratio clamped to [0, 1] - 1.0 means perfect parity
+    const ratio = avgBesideArea / avgBelowArea;
+    parityScore = Math.min(ratio, 1 / ratio);
+  }
+  
+  // Combined score with balanced weights
+  return (uniformityScore * 0.35) + (prominenceScore * 0.35) + (parityScore * 0.30);
 }
 

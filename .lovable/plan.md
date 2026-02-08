@@ -1,73 +1,199 @@
 
-# Fix: Stale Worker Response After Clear All
 
-## Problem Analysis
+# Soft vs Hard Rejection (Dev-Only UI)
 
-Looking at the screenshot:
-- Header shows "5 of 19 ready" (current batch still processing)
-- Debug logs show `photoCount:20, contentCount:19` (from a **previous** generation)
-- Rejection UI appears immediately with stale data
+## Design Intent
 
-**Root Cause**: When "Clear All" is clicked (or new photos are uploaded), any in-flight worker requests from the **previous** photo set are not cancelled. When those stale responses arrive, they populate `rejectedLayout` and `debugLogs`, which then render because:
+Accept layouts that fall outside canvas aspect ratio bounds (soft rejections) instead of failing. In **dev mode only**, show amber styling and a "SOFT REJECTION" badge so you can diagnose borderline cases. In **production**, users see a normal collage with no indication anything was "off."
 
-1. `state.layout` is null (cleared)
-2. `rejectedLayout` is truthy (stale)
-3. `readyPhotos >= 2` is true (5 photos are ready in the current batch)
+## User Outcomes
 
-The guard `readyPhotos >= 2` prevents the rejection UI when there are 0-1 ready photos, but doesn't detect that the rejection data is from a **different photo set**.
+| Environment | Soft Rejection | Hard Rejection |
+|-------------|----------------|----------------|
+| **Production** | Normal collage (no indication) | Red rejection UI |
+| **Dev Mode** | Collage with amber badge + details | Red rejection UI |
 
-## Solution
+## Implementation
 
-Add a staleness check: the rejection UI should only render if the rejection's photo count **matches** the current ready photo count (within tolerance). If the rejection says "20 photos" but we only have 5 ready, it's clearly stale.
+### 1. Add rejection severity types
 
-### Technical Change
-
-**`src/pages/Index.tsx`** — Render logic (around line 718)
-
-Current:
-```tsx
-) : rejectedLayout && readyPhotos >= 2 ? (
-```
-
-Fixed:
-```tsx
-) : rejectedLayout && readyPhotos >= 2 && !isRejectionStale ? (
-```
-
-Where `isRejectionStale` is derived from the rejection data vs current photos:
+**`src/lib/v3/types.ts`**
 
 ```typescript
-// Detect stale rejection by comparing photo counts
-// If rejection says "20 photos" but we only have 5 ready, it's from a previous session
-const rejectedPhotoCount = rejectedLayout
-  ? (rejectedLayout.details as any)?.photoCount ?? rejectedLayout.cells.length
-  : 0;
+/** Soft rejection reasons (layout exists but outside aesthetic bounds) */
+export const SOFT_REJECTION_REASONS = ['canvas_too_tall', 'canvas_too_wide'] as const;
 
-// Stale if counts don't match (allowing small tolerance for timing)
-const isRejectionStale = rejectedLayout && Math.abs(rejectedPhotoCount - readyPhotos) > 1;
+/** Check if a rejection reason is soft (aesthetic) vs hard (impossible) */
+export function isSoftRejection(reason: string): boolean {
+  return SOFT_REJECTION_REASONS.includes(reason as any);
+}
 ```
 
-Apply the same guard to `layoutError`:
+Update `ScoredConfiguration`:
+```typescript
+export interface ScoredConfiguration {
+  // ... existing fields ...
+  
+  /** Soft rejection info if layout is outside aesthetic bounds but still valid */
+  softRejection?: {
+    reason: string;
+    details: Record<string, unknown>;
+  };
+}
+```
+
+### 2. Modify intersection.ts to accept soft rejections
+
+**`src/lib/v3/intersection.ts`** (~lines 296-342)
+
+Instead of returning `null` when canvas AR is out of bounds, mark it as a soft rejection and **continue** returning the valid configuration.
+
+Current:
+```typescript
+if (canvasAR < effectiveMinAR) {
+  // ... setRejectedLayout, devLogger ...
+  return null;
+}
+```
+
+New:
+```typescript
+let softRejection: ScoredConfiguration['softRejection'] = undefined;
+
+if (canvasAR < effectiveMinAR) {
+  softRejection = {
+    reason: 'canvas_too_tall',
+    details: { canvasAR, minAR: effectiveMinAR, ... }
+  };
+  devLogger.log('v3', 'Canvas AR below minimum (soft rejection)', { ... });
+  // Continue instead of return null
+}
+
+// ... same for canvas_too_wide ...
+
+// Attach to returned config
+return { ...config, softRejection };
+```
+
+### 3. Update worker response type
+
+**`src/workers/layoutWorker.ts`**
+
+Add to `LayoutResponse`:
+```typescript
+export interface LayoutResponse {
+  // ... existing fields ...
+  
+  /** Soft rejection info (dev-only display) */
+  softRejection?: {
+    reason: string;
+    details: Record<string, unknown>;
+  };
+}
+```
+
+Pass through from config:
+```typescript
+const response: LayoutResponse = {
+  type: 'result',
+  requestId,
+  layout,
+  durationMs,
+  logs: isDev ? workerLogs : undefined,
+  softRejection: config?.softRejection, // Pass through if present
+};
+```
+
+### 4. Create SoftRejectionBadge component (dev-only)
+
+**`src/components/debug/SoftRejectionBadge.tsx`** (new file)
 
 ```tsx
-) : layoutError && readyPhotos >= 2 && !isRejectionStale ? (
+import { AlertTriangle } from 'lucide-react';
+
+interface SoftRejectionBadgeProps {
+  reason: string;
+  details: Record<string, unknown>;
+}
+
+export function SoftRejectionBadge({ reason, details }: SoftRejectionBadgeProps) {
+  return (
+    <div className="mt-3 p-4 bg-amber-500/20 border-2 border-amber-500 rounded-lg">
+      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-lg">
+        <AlertTriangle className="h-5 w-5" />
+        SOFT REJECTION: {reason.replace(/_/g, ' ')}
+      </div>
+      <div className="mt-2 text-sm text-amber-600/80 dark:text-amber-400/80 font-mono">
+        {Object.entries(details).map(([k, v]) => (
+          <div key={k}>
+            {k}: {typeof v === 'number' ? v.toFixed(3) : String(v)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 ```
 
-## Why This Works
+### 5. Update Index.tsx (dev-only rendering)
 
-| Scenario | `rejectedPhotoCount` | `readyPhotos` | `isRejectionStale` | Shows UI? |
-|----------|---------------------|---------------|-------------------|-----------|
-| Stale rejection (20) during upload (5) | 20 | 5 | true | No |
-| Stale rejection (20) during upload (19) | 20 | 19 | true | No |
-| Fresh rejection (19) after all ready | 19 | 19 | false | Yes |
-| Fresh rejection (5) with 5 photos | 5 | 5 | false | Yes |
+**`src/pages/Index.tsx`**
 
-## Alternative Considered: Bump `latestRequestIdRef` on Clear All
+Add state for soft rejection:
+```typescript
+const [softRejection, setSoftRejection] = useState<{
+  reason: string;
+  details: Record<string, unknown>;
+} | null>(null);
+```
 
-Could also bump the request ID counter when clearing, so stale worker responses are ignored. However, this doesn't cover the case where the user adds new photos before the old worker response arrives. The staleness check is more robust.
+In worker response handler:
+```typescript
+setSoftRejection(response.softRejection ?? null);
+```
+
+In render, wrap amber treatment with dev check:
+```tsx
+{/* Successful layout */}
+<div className={cn(
+  "relative",
+  // Dev-only amber ring for soft rejections
+  import.meta.env.DEV && softRejection && "ring-2 ring-amber-500"
+)}>
+  <CollagePreview ... />
+</div>
+
+{/* Dev-only soft rejection badge */}
+{import.meta.env.DEV && softRejection && (
+  <SoftRejectionBadge 
+    reason={softRejection.reason} 
+    details={softRejection.details} 
+  />
+)}
+```
+
+### 6. Export from debug/index.ts
+
+**`src/components/debug/index.ts`**
+
+```typescript
+export { SoftRejectionBadge } from './SoftRejectionBadge';
+```
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `isRejectionStale` derived value and use it to guard rejection/error UI |
+| `src/lib/v3/types.ts` | Add `SOFT_REJECTION_REASONS`, `isSoftRejection()`, update `ScoredConfiguration` |
+| `src/lib/v3/intersection.ts` | Accept soft rejections, attach to returned config |
+| `src/workers/layoutWorker.ts` | Pass `softRejection` in response |
+| `src/components/debug/SoftRejectionBadge.tsx` | New amber badge component |
+| `src/components/debug/index.ts` | Export new component |
+| `src/pages/Index.tsx` | Track `softRejection` state, render amber styling in dev only |
+
+## Summary
+
+- **Production**: Soft rejections are silently accepted → users see a normal collage
+- **Dev mode**: Amber ring + badge shows you the layout was borderline
+- **Hard rejections**: Red UI in both environments (unchanged)
+

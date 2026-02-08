@@ -55,18 +55,67 @@ export interface CollageSettings {
   gapSize: number;
 }
 
-export interface CollageLayout {
-  width: number;
-  height: number;
-  cells: CollageCell[];
-}
-
 export interface CollageCell {
   photoId: string;
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * Layout topology metadata for reflow operations.
+ * Captures region assignments so hero resizing can reflow without re-searching.
+ */
+export interface LayoutMetadata {
+  /** Hero photo ID (null if no hero) */
+  heroId: string | null;
+  /** Hero corner position */
+  heroPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /** Normalized gap used for packing */
+  normalizedGap: number;
+  /** Photo IDs in BESIDE region (preserved order) */
+  besidePhotoIds: string[];
+  /** Photo IDs in BELOW region (preserved order) */
+  belowPhotoIds: string[];
+  /** Row count used for BESIDE packing */
+  besideRowCount: number;
+  /** Row count used for BELOW packing */
+  belowRowCount: number;
+}
+
+/**
+ * Normalized layout in AR-space (hero height = 1.0).
+ * Source of truth for reflow operations.
+ */
+export interface NormalizedLayout {
+  /** Canvas width in normalized units */
+  normalizedWidth: number;
+  /** Canvas height in normalized units */
+  normalizedHeight: number;
+  /** Cells in normalized coordinates */
+  normalizedCells: NormalizedCell[];
+  /** Layout topology for reflow */
+  metadata: LayoutMetadata;
+}
+
+/**
+ * Normalized cell in AR-space.
+ */
+export interface NormalizedCell {
+  photoId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface CollageLayout {
+  width: number;
+  height: number;
+  cells: CollageCell[];
+  /** Normalized layout for reflow operations (hero resizing) */
+  normalized?: NormalizedLayout;
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   HeroProposal,
   DEFAULT_V3_TUNING
 } from './types';
+import { LayoutMetadata, NormalizedLayout, NormalizedCell as CollageNormalizedCell } from '@/types/collage';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findValidRegionAssignment, RejectedPack } from './region-search';
 import { calculateContentStats, coefficientOfVariation, getEffectiveMinProminence, getEffectiveMaxToSmallest, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
@@ -437,6 +438,31 @@ function evaluateNormalizedProposal(
     score: score.toFixed(3),
   });
   
+  // Build layout metadata for reflow operations
+  const metadata: LayoutMetadata = {
+    heroId: heroPhoto.id,
+    heroPosition: selectedPosition as LayoutMetadata['heroPosition'],
+    normalizedGap,
+    besidePhotoIds: regionAssignment.besidePhotos.map(p => p.id),
+    belowPhotoIds: regionAssignment.belowPhotos.map(p => p.id),
+    besideRowCount: regionAssignment.besideRowCount,
+    belowRowCount: regionAssignment.belowRowCount,
+  };
+  
+  // Build normalized layout for reflow
+  const normalizedLayout: NormalizedLayout = {
+    normalizedWidth: canvasWidth,
+    normalizedHeight: canvasHeight,
+    normalizedCells: cells.map(c => ({
+      photoId: c.photoId,
+      x: c.x,
+      y: c.y,
+      width: c.width,
+      height: c.height,
+    })),
+    metadata,
+  };
+  
   return {
     proposal: legacyProposal,
     distribution: { 
@@ -452,6 +478,7 @@ function evaluateNormalizedProposal(
     prominenceRatio: prominence.ratio,
     score,
     softRejection,
+    normalized: normalizedLayout,
   };
 }
 

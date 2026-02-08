@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateLayoutInWorker } from '@/services/layoutGenerationService';
 import { reflowAfterSwap } from '@/lib/layoutUtils';
+import { reflowWithHeroScale, normalizedToPixels } from '@/lib/v3/reflow';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
@@ -21,7 +22,7 @@ import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { isMobileDevice } from '@/lib/platform';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, NormalizedLayout, LayoutMetadata } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
 import { 
   saveCapture, 
@@ -93,8 +94,11 @@ export default function Index() {
   const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
   
-  // Hero prominence factor for relative sizing (1.0 = default tuning)
-  const [heroProminence, setHeroProminence] = useState(1.0);
+  // Hero scale factor for relative sizing (1.0 = default, 0.7-1.3 range)
+  const [heroScale, setHeroScale] = useState(1.0);
+  
+  // Store normalized layout for reflow operations
+  const normalizedLayoutRef = useRef<NormalizedLayout | null>(null);
   
   // Collapsible carousel state - default collapsed, user can expand
   const [carouselOpen, setCarouselOpen] = useState(() => {
@@ -276,6 +280,12 @@ export default function Index() {
         setLayoutError(null);
         setRejectedLayout(null);
         setSoftRejection(result.softRejection ?? null);
+        // Store normalized layout for reflow operations
+        if (layout.normalized) {
+          normalizedLayoutRef.current = layout.normalized;
+        }
+        // Reset hero scale to baseline for new layout
+        setHeroScale(1.0);
         remoteLogger.info('layout', 'Layout generated', { 
           cells: layout.cells.length,
           durationMs: result.durationMs,
@@ -506,32 +516,75 @@ export default function Index() {
     return state.photos.some(p => p.priority === 1);
   }, [state.photos]);
 
-  // Handle hero prominence slider drag - regenerates layout with modified prominence
-  // Critical: randomize=false preserves photo order (no shuffle)
-  const handleHeroProminenceChange = useCallback((prominence: number) => {
-    setHeroProminence(prominence);
-    
-    // Regenerate with modified prominence — no shuffle, same photo order
-    const modifiedTuning = {
-      ...v3Tuning,
-      hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
-    };
-    
-    regenerateCollage({ 
-      randomize: false,  // Critical: preserve photo order
-      v3Tuning: modifiedTuning,
-    });
-  }, [v3Tuning, regenerateCollage]);
-
-  // Commit hero prominence on slider release - update tuning state
-  const handleHeroProminenceCommit = useCallback((prominence: number) => {
-    // Update v3Tuning state to persist the prominence
-    setV3Tuning(prev => ({
-      ...prev,
-      hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
-    }));
-    setHeroProminence(1.0);  // Reset slider to new baseline
+  // Build PhotoDimension array from photos (used by reflow)
+  const getPhotoDimensions = useCallback((photos: PhotoItem[]): PhotoDimension[] => {
+    return photos
+      .filter(p => p.originalWidth > 0 && p.originalHeight > 0)
+      .map(photo => {
+        const crop = getDisplayCrop(photo);
+        const width = crop ? crop.width : photo.originalWidth;
+        const height = crop ? crop.height : photo.originalHeight;
+        return {
+          id: photo.id,
+          aspectRatio: width / height,
+          weight: photo.priority === 1 ? 2.0 : 1.0,
+        };
+      });
   }, []);
+
+  // Handle hero scale slider drag — synchronous reflow without full regeneration
+  const handleHeroScaleChange = useCallback((scale: number) => {
+    setHeroScale(scale);
+    
+    // Get stored normalized layout
+    const normalized = normalizedLayoutRef.current;
+    if (!normalized?.metadata?.heroId) {
+      // No hero or no topology — can't reflow
+      return;
+    }
+    
+    // Build photo dimensions
+    const dimensions = getPhotoDimensions(state.photos);
+    
+    // Synchronous reflow — no async, no worker
+    const reflowedNormalized = reflowWithHeroScale(
+      dimensions,
+      normalized.metadata,
+      scale,
+      v3Tuning
+    );
+    
+    if (reflowedNormalized) {
+      // Convert to pixel layout and update state
+      const pixelLayout = normalizedToPixels(reflowedNormalized);
+      setLayout({
+        width: pixelLayout.width,
+        height: pixelLayout.height,
+        cells: pixelLayout.cells,
+        normalized: reflowedNormalized,
+      });
+    }
+  }, [state.photos, v3Tuning, setLayout, getPhotoDimensions]);
+
+  // Commit hero scale on slider release — update normalized ref
+  const handleHeroScaleCommit = useCallback((scale: number) => {
+    // Update the normalized ref with the final reflow result
+    const normalized = normalizedLayoutRef.current;
+    if (normalized?.metadata?.heroId) {
+      const dimensions = getPhotoDimensions(state.photos);
+      const reflowedNormalized = reflowWithHeroScale(
+        dimensions,
+        normalized.metadata,
+        scale,
+        v3Tuning
+      );
+      if (reflowedNormalized) {
+        normalizedLayoutRef.current = reflowedNormalized;
+      }
+    }
+    // Reset slider to baseline (the new normalized is the baseline now)
+    setHeroScale(1.0);
+  }, [state.photos, v3Tuning, getPhotoDimensions]);
 
   // Load dimensions + previews WITHOUT smart crop (for mobile upload)
   const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
@@ -882,9 +935,9 @@ export default function Index() {
                     <CollageSettings
                       settings={state.settings}
                       onUpdate={handleUpdateSettings}
-                      heroProminence={heroProminence}
-                      onHeroProminenceChange={handleHeroProminenceChange}
-                      onHeroProminenceCommit={handleHeroProminenceCommit}
+                      heroScale={heroScale}
+                      onHeroScaleChange={handleHeroScaleChange}
+                      onHeroScaleCommit={handleHeroScaleCommit}
                       hasHero={hasHeroPhoto}
                     />
                   </>

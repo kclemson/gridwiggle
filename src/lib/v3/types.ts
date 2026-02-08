@@ -65,7 +65,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   row_arBudgetJitter: 0.2,
   row_maxHeightRatio: 1.8,
   hero_maxToSmallest: 45,
-  hero_lowCountThreshold: 6,
+  hero_lowCountThreshold: 8,
   hero_lowCountMultiplier: 0.85,
 };
 

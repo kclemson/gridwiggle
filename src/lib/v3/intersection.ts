@@ -314,13 +314,18 @@ function evaluateNormalizedProposal(
   }
   
   // Validate hero prominence (area ratios are scale-invariant)
-  // Content areas can be computed from packed results before final cell conversion
+  // Per-row prominence: hero competes only with its row (beside region)
+  // This prepares for multi-hero where each hero validates against its own row
   const heroArea = heroAR * 1.0; // heroWidth × heroHeight in normalized space
-  const contentAreas = [
-    ...besideResult.cells.map(c => c.width * c.height),
-    ...belowResult.cells.map(c => c.width * c.height),
-  ];
-  const prominence = validateProminence(heroArea, contentAreas, tuning);
+  const besideAreas = besideResult.cells.map(c => c.width * c.height);
+  
+  devLogger.log('layout', 'Prominence validation (per-row mode)', {
+    heroArea: +heroArea.toFixed(3),
+    besidePhotoCount: besideAreas.length,
+    belowPhotoCount: belowResult.cells.length,
+  });
+  
+  const prominence = validateProminence(heroArea, besideAreas, tuning);
   
   if (!prominence.valid) {
     const rejectedCells = computeRejectedCells();
@@ -350,14 +355,18 @@ function evaluateNormalizedProposal(
   }
   
   // Validate hero-to-smallest ratio (prevent tiny content cells)
-  // Use effective limit (relaxed for low photo counts)
+  // Smallest-cell check still uses ALL content (global) - prevents tiny cells anywhere in layout
+  const allContentAreas = [
+    ...besideResult.cells.map(c => c.width * c.height),
+    ...belowResult.cells.map(c => c.width * c.height),
+  ];
   const effectiveMaxToSmallest = getEffectiveMaxToSmallest(contentPhotos.length, tuning);
-  const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, effectiveMaxToSmallest);
+  const smallestCheck = validateSmallestCellRatio(heroArea, allContentAreas, effectiveMaxToSmallest);
   
   if (!smallestCheck.valid) {
     const rejectedCells = computeRejectedCells();
     // Include smallest 3 areas for debugging
-    const sortedAreas = [...contentAreas].sort((a, b) => a - b);
+    const sortedAreas = [...allContentAreas].sort((a, b) => a - b);
     const smallestAreas = sortedAreas.slice(0, 3).map(a => +a.toFixed(4));
     const details = { 
       ratio: +smallestCheck.ratio.toFixed(1), 

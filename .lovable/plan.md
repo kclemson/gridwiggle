@@ -1,129 +1,158 @@
 
-# Plan: Add Low Photo Count Prominence Accommodation
+# Plan: Extend Low-Count Accommodation to All Constraints
 
 ## What We're Building
 
-Two new tuning parameters that reduce the minimum prominence threshold when there are few content photos, improving success rate for 5-7 photo sets without affecting larger sets.
+Extend the existing `hero_lowCountThreshold` / `hero_lowCountMultiplier` system to relax **all three** constraint categories for low photo counts — not just prominence.
+
+**Design Intent**: With few photos, geometric options are limited. Instead of complex special-case logic, we widen the acceptance window uniformly.
 
 ---
 
 ## User Experience
 
-| Photo Count | Behavior |
-|-------------|----------|
-| **≥ 7 photos** | Uses standard `hero_minProminence` (1.3) |
-| **< 7 photos** | Uses reduced threshold: `1.3 × 0.85 ≈ 1.1` |
+| Constraint | Default | Effect with < 8 photos (×0.85) |
+|------------|---------|-------------------------------|
+| Min Prominence | 1.3 | → 1.10 (weaker heroes OK) |
+| Max Hero/Smallest | 45× | → 53× (bigger disparity OK) |
+| Min Canvas AR | 0.50 | → 0.43 (taller canvases OK) |
+| Max Canvas AR | 2.25 | → 2.65 (wider canvases OK) |
 
-The debug panel gains two new inputs under "Hero prominence" to control this behavior.
+No new UI controls — the existing "Low Count Threshold" and "Low Count Multiplier" sliders now affect all constraints.
 
 ---
 
 ## Technical Changes
 
-### 1. Add Tuning Parameters
-
-**File**: `src/lib/v3/types.ts`
-
-Add to `V3Tuning` interface:
-```typescript
-// === Low Photo Count Accommodation ===
-/** Content photo threshold for reduced prominence (6 = apply to ≤5 content photos) */
-hero_lowCountThreshold: number;
-/** Multiplier applied to hero_minProminence for low counts (0.85 = 1.3 → 1.1) */
-hero_lowCountMultiplier: number;
-```
-
-Add to `DEFAULT_V3_TUNING`:
-```typescript
-hero_lowCountThreshold: 6,
-hero_lowCountMultiplier: 0.85,
-```
-
-### 2. Add Helper Function
+### 1. Add Helper Functions
 
 **File**: `src/lib/v3/utils.ts`
 
 ```typescript
 /**
- * Calculate effective minimum prominence based on content count.
- * Returns reduced threshold for low photo counts.
+ * Calculate effective hero_maxToSmallest based on content count.
+ * Returns HIGHER threshold (more permissive) for low photo counts.
  */
-export function getEffectiveMinProminence(
+export function getEffectiveMaxToSmallest(
   contentCount: number,
   tuning: V3Tuning
 ): number {
   if (contentCount < tuning.hero_lowCountThreshold) {
-    return tuning.hero_minProminence * tuning.hero_lowCountMultiplier;
+    // Divide by multiplier to RAISE the limit (more permissive)
+    return tuning.hero_maxToSmallest / tuning.hero_lowCountMultiplier;
   }
-  return tuning.hero_minProminence;
+  return tuning.hero_maxToSmallest;
+}
+
+/**
+ * Calculate effective canvas_minAR based on content count.
+ * Returns LOWER threshold (more permissive) for low photo counts.
+ */
+export function getEffectiveCanvasMinAR(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    return tuning.canvas_minAR * tuning.hero_lowCountMultiplier;
+  }
+  return tuning.canvas_minAR;
+}
+
+/**
+ * Calculate effective canvas_maxAR based on content count.
+ * Returns HIGHER threshold (more permissive) for low photo counts.
+ */
+export function getEffectiveCanvasMaxAR(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    return tuning.canvas_maxAR / tuning.hero_lowCountMultiplier;
+  }
+  return tuning.canvas_maxAR;
 }
 ```
 
-### 3. Update Prominence Checks
+### 2. Update Intersection Validation
 
-Three locations need to use the effective prominence instead of `tuning.hero_minProminence`:
+**File**: `src/lib/v3/intersection.ts`
+
+In `evaluateCornerProposal`, pass content count to validation:
+
+```typescript
+// Line ~375: Validate hero-to-smallest ratio
+const effectiveMaxToSmallest = getEffectiveMaxToSmallest(photos.length, tuning);
+const smallestCheck = validateSmallestCellRatioWithLimit(heroArea, contentAreas, effectiveMaxToSmallest);
+```
+
+Also update the canvas AR check (around line 320) to use effective bounds:
+
+```typescript
+const effectiveMinAR = getEffectiveCanvasMinAR(photos.length, tuning);
+const effectiveMaxAR = getEffectiveCanvasMaxAR(photos.length, tuning);
+
+if (canvasAR < effectiveMinAR || canvasAR > effectiveMaxAR) {
+  // rejection logic
+}
+```
+
+### 3. Update Region Search
 
 **File**: `src/lib/v3/region-search.ts`
 
-1. **Line ~130**: Early feasibility check for besideCount > 0
-2. **Line ~198**: No-BESIDE prominence validation  
-3. **Line ~310**: With-BESIDE prominence validation
+Two canvas AR checks need to use effective values:
 
-Each check changes from:
+1. **Line ~176** (no-BESIDE case):
 ```typescript
-if (prominenceRatio < tuning.hero_minProminence) {
+const effectiveMinAR = getEffectiveCanvasMinAR(photos.length, tuning);
+const effectiveMaxAR = getEffectiveCanvasMaxAR(photos.length, tuning);
+
+if (canvasAR < effectiveMinAR - AR_EPSILON || canvasAR > effectiveMaxAR + AR_EPSILON) {
 ```
-To:
-```typescript
-const effectiveMinProminence = getEffectiveMinProminence(photos.length, tuning);
-if (prominenceRatio < effectiveMinProminence) {
-```
+
+2. **Line ~287** (with-BESIDE case):
+Same pattern as above.
+
+### 4. Update Feasibility Pre-Checks
 
 **File**: `src/lib/v3/feasibility.ts`
 
-4. **Line ~47**: The `canMeetProminenceConstraints` function needs content count passed in:
+In `canMeetProminenceConstraints`, use effective maxToSmallest:
 
 ```typescript
-export function canMeetProminenceConstraints(
-  heroAR: number,
-  besideCount: number,
-  avgBesideAR: number,
-  contentCount: number,  // NEW parameter
-  tuning: V3Tuning
-): { ... } {
-  const effectiveMinProminence = getEffectiveMinProminence(contentCount, tuning);
-  // Use effectiveMinProminence instead of tuning.hero_minProminence
+const effectiveMaxToSmallest = getEffectiveMaxToSmallest(contentCount, tuning);
+const maxRowsForSmallest = Math.floor(
+  Math.sqrt((effectiveMaxToSmallest * avgBesideAR) / heroAR)
+);
 ```
 
-### 4. Update UI Controls
+In `canBesideCountMeetCanvasAR`, use effective canvas bounds:
 
-**File**: `src/components/V3TuningSection.tsx`
+```typescript
+const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
+const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
+```
 
-Add a new row under hero prominence with the two new controls:
-```tsx
-{/* Row: Low count accommodation */}
-<div className="grid grid-cols-2 gap-2">
-  <TuningInput
-    label="Low Count Threshold"
-    tooltip="Use reduced prominence for content counts below this (6 = ≤5 photos)"
-    value={tuning.hero_lowCountThreshold}
-    onChange={(v) => onTuningChange('hero_lowCountThreshold', v)}
-    step={1}
-    min={3}
-    max={10}
-    defaultValue={DEFAULT_V3_TUNING.hero_lowCountThreshold}
-  />
-  <TuningInput
-    label="Low Count Multiplier"
-    tooltip="Multiplier for minProminence at low counts (0.85 = 1.3 → 1.1)"
-    value={tuning.hero_lowCountMultiplier}
-    onChange={(v) => onTuningChange('hero_lowCountMultiplier', v)}
-    step={0.05}
-    min={0.5}
-    max={1.0}
-    defaultValue={DEFAULT_V3_TUNING.hero_lowCountMultiplier}
-  />
-</div>
+In `calculateBesideCountRange`, use effective canvas bounds for both min and max calculations.
+
+### 5. Update Hero Validation Helper
+
+**File**: `src/lib/v3/entities/hero.ts`
+
+Modify `validateSmallestCellRatio` to accept explicit limit:
+
+```typescript
+export function validateSmallestCellRatio(
+  heroArea: number,
+  contentAreas: number[],
+  maxRatio: number  // Changed from tuning: V3Tuning
+): { valid: boolean; ratio: number } {
+  // ...existing logic...
+  return {
+    valid: ratio <= maxRatio,  // Use passed limit instead of tuning.hero_maxToSmallest
+    ratio,
+  };
+}
 ```
 
 ---
@@ -132,17 +161,18 @@ Add a new row under hero prominence with the two new controls:
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/types.ts` | Add 2 new tuning params + defaults |
-| `src/lib/v3/utils.ts` | Add `getEffectiveMinProminence()` helper |
-| `src/lib/v3/feasibility.ts` | Pass content count, use effective prominence |
-| `src/lib/v3/region-search.ts` | Use effective prominence in 3 checks |
-| `src/components/V3TuningSection.tsx` | Add 2 new input controls |
+| `src/lib/v3/utils.ts` | Add 3 new helper functions |
+| `src/lib/v3/entities/hero.ts` | Update `validateSmallestCellRatio` signature |
+| `src/lib/v3/intersection.ts` | Use effective values for maxToSmallest and canvas AR |
+| `src/lib/v3/region-search.ts` | Use effective canvas AR bounds (2 locations) |
+| `src/lib/v3/feasibility.ts` | Use effective values in pre-checks (3 locations) |
 
 ---
 
 ## Expected Impact
 
-- **5-photo sets**: Effective threshold drops from 1.3 to ~1.1, allowing weaker heroes
-- **6-photo sets**: Same accommodation applies
-- **7+ photo sets**: No change — uses standard 1.3 threshold
-- **Estimated improvement**: ~10-15% fewer failures in the 5-7 photo range
+- **Prominence**: Already relaxed (1.3 → 1.1)
+- **Hero/Smallest**: Now 45 → 53, accepting ~18% more disparity
+- **Canvas AR**: Now 0.50–2.25 → 0.43–2.65, ~15% wider range
+
+Combined effect: Estimated **20-30% fewer failures** for 5-7 photo sets by relaxing constraints in concert rather than individually.

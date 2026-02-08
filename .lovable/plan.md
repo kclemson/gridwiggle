@@ -1,207 +1,188 @@
 
-# Disable Auto Smart Crop on Mobile + Add Manual Button
+# Hero Resize Slider: Scale Without Repacking
 
-## What Changes for Users
+## What Users Experience Now
 
-### Current Behavior
-- When you upload photos, **every photo** is automatically analyzed by the AI vision model
-- On iOS Safari this often crashes mid-batch due to memory pressure
+When you change hero size, there's no way to do it interactively:
+- Hero sizing is computed automatically by the layout algorithm
+- To adjust, you have to regenerate the entire layout (reshuffles photos, repacks rows)
+- No fine-grained control over hero prominence
 
-### New Mobile Behavior
-1. Upload → Photos appear immediately, **no AI processing**
-2. In the photo carousel, a new **"Smart Crop"** button appears per photo
-3. Tap it → AI analyzes just that one photo → applies smart crop
-4. You can still manually crop any photo via the Edit button
+## What Users Should Experience
 
-### Desktop Behavior
-- Unchanged: auto smart crop still runs on upload
-
----
-
-## Technical Implementation
-
-### 1. Detect Mobile Platform
-
-Create a utility to check if running on mobile (not just viewport width—actual device):
-
-**New file: `src/lib/platform.ts`**
-
-```typescript
-/**
- * Detect if running on a mobile device (phone/tablet).
- * Uses User-Agent for reliable device detection.
- */
-export function isMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  
-  const ua = navigator.userAgent.toLowerCase();
-  
-  // Match phones and tablets
-  return /android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini/i.test(ua);
-}
-```
+1. Hero photo shows a **resize handle** or slider when selected/focused
+2. Drag the slider → hero scales up/down
+3. **All other photos scale proportionally** to maintain their relative positions
+4. No repacking, no reflow, no worker call — pure CSS transform (instant)
+5. On release, commit the scaled layout to state
 
 ---
 
-### 2. Skip Auto Smart Crop on Mobile Upload
+## Design Intent
+
+**Problem**: Users want to adjust hero size without losing their current arrangement.
+
+**Outcome**: Hero prominence becomes a live-adjustable parameter. Photos scale together like zooming a layer in Photoshop — positions and proportions stay locked.
+
+---
+
+## Technical Approach
+
+### The Math
+
+When hero size changes by a scale factor `s`:
+- Hero dimensions: `width × s`, `height × s`
+- All content cells: same `× s` applied to width/height
+- All cell positions (x, y): same `× s` 
+- Canvas dimensions: `× s`
+
+This is uniform scaling — aspect ratios preserved, relative positions preserved.
+
+### Why This Works
+
+The V3 layout is already in normalized space (hero height = 1.0). A "hero scale" is just a multiplier applied to the final pixel conversion. We store a `heroScale` factor (default 1.0) and apply it at render time.
+
+---
+
+## Implementation Plan
+
+### 1. Add Hero Scale State
 
 **File: `src/pages/Index.tsx`**
 
-Modify `handlePhotosAdded` to skip `processSmartCrops` on mobile:
-
 ```typescript
-import { isMobileDevice } from '@/lib/platform';
+// Hero scale factor for live adjustment (1.0 = default)
+const [heroScale, setHeroScale] = useState(1.0);
 
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
-  
-  if (succeeded.length === 0) return;
-  
-  remoteLogger.info('upload', 'Photos added', { count: succeeded.length });
-  const wasLayoutEmpty = state.layout === null;
-
-  // MOBILE: Skip auto smart crop - user triggers manually
-  // DESKTOP: Run auto smart crop on all photos
-  if (!isMobileDevice()) {
-    try {
-      await processSmartCrops(succeeded);
-    } catch (error) {
-      console.error('Smart crop processing failed:', error);
-    }
-  } else {
-    // Mobile: Just load dimensions + create previews (no AI)
-    for (const photo of succeeded) {
-      await loadDimensionsOnly(photo);
-    }
-  }
-  
-  regenerateCollage({ randomize: !wasLayoutEmpty });
-}, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
+// Reset scale when layout regenerates
+// (new layout = new base, scale starts at 1.0)
+useEffect(() => {
+  setHeroScale(1.0);
+}, [state.layout]);
 ```
 
-Add a new helper that loads dimensions without calling the vision worker:
+### 2. Create Hero Scale Slider Component
+
+**New file: `src/components/HeroScaleSlider.tsx`**
+
+A dedicated slider for adjusting hero prominence:
 
 ```typescript
-// Load dimensions + previews WITHOUT smart crop (for mobile upload)
-const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
-  try {
-    const dimensions = await getImageDimensions(photo.objectUrl);
-    const [preview, thumbnail] = await Promise.all([
-      createDisplayPreview(photo.blob, 1200),
-      createDisplayPreview(photo.blob, 480),
-    ]);
-    
-    updatePhoto(photo.id, {
-      originalWidth: dimensions.width,
-      originalHeight: dimensions.height,
-      previewUrl: preview.url,
-      previewBlob: preview.blob,
-      thumbnailUrl: thumbnail.url,
-      thumbnailBlob: thumbnail.blob,
-      isProcessing: false,  // Done immediately
-    });
-  } catch (error) {
-    updatePhoto(photo.id, {
-      isProcessing: false,
-      error: error instanceof Error ? error.message : 'Failed to load',
-    });
-  }
-}, [updatePhoto]);
+interface HeroScaleSliderProps {
+  value: number;           // Current scale (0.5 to 1.5)
+  onChange: (scale: number) => void;
+  disabled?: boolean;
+}
 ```
 
----
+- Range: 0.7 to 1.3 (±30% from default)
+- Shows visual feedback of current scale %
+- Lives near CollageSettings or in the collage header
 
-### 3. Add "Smart Crop" Button to PhotoCarousel
+### 3. Apply Scale to CollagePreview
 
-**File: `src/components/PhotoCarousel.tsx`**
+**File: `src/components/CollagePreview.tsx`**
 
-Add a new callback prop and button:
+Add a `scale` prop that uniformly transforms the layout:
 
 ```typescript
-import { Wand2 } from 'lucide-react';  // Add to imports
-
-interface PhotoCarouselProps {
+interface CollagePreviewProps {
   // ... existing props
-  onSmartCrop?: (photoId: string) => void;  // New
-  isSmartCropping?: boolean;                 // New - shows loading on button
+  scale?: number;  // 1.0 = normal, 0.5 = 50%, 1.5 = 150%
 }
 
-// In the action buttons section, add this button:
-<Button
-  variant="outline"
-  size="sm"
-  onClick={(e) => {
-    e.stopPropagation();
-    onSmartCrop?.(photo.id);
-  }}
-  disabled={isSmartCropping || photo.smartCrop !== null}
-  className="gap-1.5"
-  title={photo.smartCrop ? "Already smart cropped" : "Auto-detect subjects"}
->
-  <Wand2 className={cn("h-4 w-4", isSmartCropping && "animate-pulse")} />
-  {photo.smartCrop ? "Cropped" : "Smart Crop"}
-</Button>
+// Apply to container style
+style={{
+  maxWidth: effectiveMaxWidth * scale,
+  aspectRatio: `${layout.width} / ${layout.height}`,  // Unchanged
+  transform: `scale(${scale})`,
+  transformOrigin: 'top center',
+}}
 ```
 
-Button behavior:
-- Shows "Cropped" (disabled) if smart crop already applied
-- Shows spinner while processing
-- On click → triggers single-photo smart crop
-
----
-
-### 4. Handle Single Photo Smart Crop in Index
-
-**File: `src/pages/Index.tsx`**
-
-Add state and handler for single-photo cropping:
+**Alternative approach** (preferred): Apply scale to canvas dimensions passed to the preview:
 
 ```typescript
-const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
-
-// Process smart crop for a single photo (mobile manual trigger)
-const handleSingleSmartCrop = useCallback(async (photoId: string) => {
-  const photo = state.photos.find(p => p.id === photoId);
-  if (!photo || photo.smartCrop) return;  // Already has crop
-  
-  setSmartCroppingPhotoId(photoId);
-  
-  try {
-    const result = await getSmartCrop(
-      photo.objectUrl,
-      photo.blob,
-      photo.originalWidth,
-      photo.originalHeight,
-      (status) => setProcessingStatus(status)
-    );
-    
-    const smartCropToApply = result.skipCrop ? null : result.crop;
-    
-    updatePhoto(photoId, { smartCrop: smartCropToApply });
-    
-    // Regenerate layout with new crop
-    if (state.layout) {
-      regenerateCollage();
-    }
-  } catch (error) {
-    console.error('Smart crop failed:', error);
-    // Silent fail - photo still works
-  } finally {
-    setSmartCroppingPhotoId(null);
-  }
-}, [state.photos, state.layout, updatePhoto, regenerateCollage]);
+// In Index.tsx, compute scaled layout
+const scaledLayout = useMemo(() => {
+  if (!state.layout || heroScale === 1.0) return state.layout;
+  return {
+    width: Math.round(state.layout.width * heroScale),
+    height: Math.round(state.layout.height * heroScale),
+    cells: state.layout.cells.map(cell => ({
+      ...cell,
+      x: Math.round(cell.x * heroScale),
+      y: Math.round(cell.y * heroScale),
+      width: Math.round(cell.width * heroScale),
+      height: Math.round(cell.height * heroScale),
+    })),
+  };
+}, [state.layout, heroScale]);
 ```
 
-Pass to PhotoCarousel:
+This approach keeps CollagePreview pure (no scale logic).
+
+### 4. Commit Scale on Release
+
+When user finishes dragging the slider:
+- Write scaled dimensions back to layout state
+- Reset heroScale to 1.0 (new base)
+
+```typescript
+const handleScaleCommit = useCallback(() => {
+  if (!state.layout || heroScale === 1.0) return;
+  
+  const scaledLayout = {
+    width: Math.round(state.layout.width * heroScale),
+    height: Math.round(state.layout.height * heroScale),
+    cells: state.layout.cells.map(cell => ({
+      ...cell,
+      x: Math.round(cell.x * heroScale),
+      y: Math.round(cell.y * heroScale),
+      width: Math.round(cell.width * heroScale),
+      height: Math.round(cell.height * heroScale),
+    })),
+  };
+  
+  setLayout(scaledLayout);
+  setHeroScale(1.0);  // Reset to new base
+}, [state.layout, heroScale, setLayout]);
+```
+
+### 5. UI Placement
+
+Add the slider to CollageSettings or CollageHeader:
 
 ```tsx
-<PhotoCarousel
-  photos={state.photos}
-  // ... existing props
-  onSmartCrop={handleSingleSmartCrop}
-  isSmartCropping={smartCroppingPhotoId !== null}
-/>
+{hasHeroPhoto && state.layout && (
+  <div className="flex items-center gap-2">
+    <span className="text-sm text-muted-foreground">Hero Size</span>
+    <Slider
+      value={[heroScale * 100]}
+      onValueChange={([v]) => setHeroScale(v / 100)}
+      onValueCommit={() => handleScaleCommit()}
+      min={70}
+      max={130}
+      step={5}
+      className="w-24"
+    />
+    <span className="text-xs text-muted-foreground w-8">
+      {Math.round(heroScale * 100)}%
+    </span>
+  </div>
+)}
 ```
+
+---
+
+## Edge Cases
+
+| Case | Behavior |
+|------|----------|
+| No hero in layout | Slider hidden |
+| Scale makes canvas too small | Clamp min scale to prevent tiny layouts |
+| Photo swap after scale | Swap operates on scaled layout (already committed) |
+| Regenerate/refresh | Scale resets to 1.0 |
 
 ---
 
@@ -209,33 +190,16 @@ Pass to PhotoCarousel:
 
 | File | Change |
 |------|--------|
-| `src/lib/platform.ts` | **New** - `isMobileDevice()` utility |
-| `src/pages/Index.tsx` | Skip auto smart crop on mobile, add `handleSingleSmartCrop`, add `loadDimensionsOnly` |
-| `src/components/PhotoCarousel.tsx` | Add "Smart Crop" button with `onSmartCrop` prop |
+| `src/components/HeroScaleSlider.tsx` | **New** - Hero scale slider component |
+| `src/pages/Index.tsx` | Add `heroScale` state, compute scaled layout, commit handler |
+| `src/components/CollageSettings.tsx` | Add hero scale slider when hero present |
 
 ---
 
-## User Experience Flow
+## User Flow After Implementation
 
-### Mobile Upload (4 photos)
-1. Tap "Add Photos" → Select 4 images
-2. Photos appear instantly (no waiting, no spinners)
-3. Collage generates immediately with full-image crops
-4. Swipe to photo 2 → Tap "Smart Crop" → AI finds the subject → Crop applied
-5. Collage regenerates with better framing
-
-### Desktop Upload (unchanged)
-1. Drag photos → Progress spinner shows
-2. All photos processed automatically
-3. Collage appears with smart crops applied
-
----
-
-## Why This Solves the Problem
-
-| Issue | Solution |
-|-------|----------|
-| iOS crashes on batch AI inference | No batch inference on mobile—one photo at a time, user-triggered |
-| Memory accumulation | Single inference → GC → next inference (if user wants) |
-| Long wait times | Photos available immediately; smart crop is optional |
-| Feature preserved | Users who want smart crop can still use it (just manually) |
+1. Upload photos → create collage with a hero
+2. See "Hero Size" slider in settings (only when hero exists)
+3. Drag slider → collage scales in real-time (preview updates instantly)
+4. Release slider → scale commits to layout
+5. Export → uses committed dimensions

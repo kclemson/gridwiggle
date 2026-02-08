@@ -1,114 +1,134 @@
 
-# Remove Selection Outline from View All Grid
+
+# Fix Processing Thumbnail for Large Photo Batches (with Auto-Scroll)
 
 ## Problem Summary
 
-The "View All" grid shows a white+purple ring on photo #1 (from `currentIndex: 0`). This visual was designed for a carousel navigation context, but the grid is now just a gallery for browsing/editing — there's no "currently selected photo" concept anymore.
+When uploading 40+ photos, the progress dots wrap to multiple rows. The thumbnail hovers above its specific dot using `absolute bottom-full`, but this positions it relative to just that dot's container — causing it to overlap with the row above.
 
 ---
 
-## Confirmation: Using 480px Thumbnails
+## Design Intent
 
-Yes, we ARE using the smaller thumbnails:
+**What behavior do we want?**
+- Keep the thumbnail hovering directly above its specific dot (the pointer effect)
+- Prevent the thumbnail from colliding with dots in upper rows
+- Auto-scroll to keep the currently-processing dot visible
 
-1. **CroppedImage** (line 35): `thumbnailSrc ?? previewSrc ?? src` — prioritizes smallest
-2. **ThumbnailNavigator** passes `thumbnailSrc={photo.thumbnailUrl}` (line 151)
-3. **Fallback img** (line 159): `photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl`
+**What will users experience?**
+- The thumbnail always clearly points to its dot
+- Single-row horizontal scroll for large batches
+- The active dot automatically scrolls into view as processing progresses
+- No manual scrolling required to track progress
 
-The 480px thumbnails are correctly used. The 1200px previewUrl is only used if thumbnailUrl is unavailable.
+---
+
+## Technical Approach
+
+1. Make the dots container single-row with horizontal scroll (no wrapping)
+2. Use a `ref` on the currently-processing dot
+3. Call `scrollIntoView({ behavior: 'smooth', inline: 'center' })` when the processing dot changes
 
 ---
 
 ## Implementation Details
 
-### File: `src/components/ThumbnailNavigator.tsx`
+### File: `src/components/PhotoProgressDots.tsx`
 
-**Change 1: Remove unused `currentIndex` prop (line 13 and 27)**
-
-The prop is no longer needed since there's no "selected" concept.
+**Change 1: Add useRef and useEffect for auto-scroll**
 
 ```tsx
-// Before (line 13)
-interface ThumbnailNavigatorProps {
-  photos: PhotoItem[];
-  currentIndex: number;  // Remove this line
-  onSelect: ...
+import { useRef, useEffect } from 'react';
 
-// After
-interface ThumbnailNavigatorProps {
-  photos: PhotoItem[];
-  onSelect: ...
+// Inside component:
+const activeRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  if (activeRef.current) {
+    activeRef.current.scrollIntoView({ 
+      behavior: 'smooth', 
+      inline: 'center',
+      block: 'nearest' 
+    });
+  }
+}, [currentlyProcessingId]);
 ```
 
-**Change 2: Remove `currentIndex` from destructuring (line 27)**
+**Change 2: Restructure container for single-row scroll with reserved space**
 
 ```tsx
-// Before
-export function ThumbnailNavigator({
-  photos,
-  currentIndex,
-  onSelect,
-  ...
-
-// After
-export function ThumbnailNavigator({
-  photos,
-  onSelect,
-  ...
+return (
+  <div className={cn("flex flex-col items-center", className)}>
+    {/* Reserve space for thumbnail above */}
+    <div className="h-14" />
+    
+    <div className="flex gap-1 overflow-x-auto max-w-xs px-2 scrollbar-hide">
+      {photos.map((photo) => {
+        const isProcessing = photo.id === currentlyProcessingId;
+        // ... rest of logic
+        
+        return (
+          <div 
+            key={photo.id} 
+            ref={isProcessing ? activeRef : null}
+            className="relative flex-shrink-0"
+          >
+            {/* Thumbnail positioned above */}
+            {isProcessing && currentPhoto && (
+              <div className="absolute -top-14 left-1/2 -translate-x-1/2">
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
+                  <img src={currentPhoto.objectUrl} ... />
+                </div>
+              </div>
+            )}
+            
+            {/* The dot */}
+            <div className={cn("w-2 h-2 rounded-full ...", ...)} />
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
 ```
 
-**Change 3: Remove `isSelected` variable and selection styling (lines 110, 137)**
+**Key additions:**
+- `ref={isProcessing ? activeRef : null}` — attach ref only to active dot
+- `flex-shrink-0` — prevent dots from shrinking
+- `useEffect` with `scrollIntoView()` — auto-center active dot when it changes
 
-```tsx
-// Before (line 110)
-const isSelected = index === currentIndex;
+### File: `src/index.css`
 
-// Line 137
-isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+**Add scrollbar-hide utility:**
 
-// After - remove isSelected line entirely, and remove the selection styling
-className={cn(
-  "relative transition-all overflow-hidden rounded",
-  "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-  // No selection ring - keep focus ring for accessibility
-)}
-```
-
-### File: `src/pages/Index.tsx`
-
-**Change: Remove `currentIndex` prop from ThumbnailNavigator call (line 818)**
-
-```tsx
-// Before
-<ThumbnailNavigator
-  photos={state.photos}
-  currentIndex={0}  // Remove this line
-  onSelect={...}
-
-// After
-<ThumbnailNavigator
-  photos={state.photos}
-  onSelect={...}
+```css
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
 ```
 
 ---
 
-## Visual Comparison
+## Auto-Scroll Behavior
 
-**Before:**
+As processing moves from photo 1 → 2 → 3 → ... → 40:
+
 ```
-[Photo 1]  ← purple ring (selected)
-[Photo 2]
-[Photo 3]
+Step 1:  [thumb]
+         ○●●●●●●●●●●●●→   (dot 1 centered)
+         
+Step 20: ←●●●●●●●[thumb]●●●●●●●●→   (dot 20 scrolled to center)
+              ○
+              
+Step 40: ←●●●●●●●●●●●●●●[thumb]●●→   (dot 40 scrolled to center)
+                         ○
 ```
 
-**After:**
-```
-[Photo 1]  ← no ring
-[Photo 2]
-[Photo 3]
-(focus ring still appears on keyboard navigation)
-```
+The user never needs to manually scroll — the active dot stays centered.
 
 ---
 
@@ -116,8 +136,7 @@ className={cn(
 
 | File | Location | Change |
 |------|----------|--------|
-| ThumbnailNavigator.tsx | Line 13 | Remove `currentIndex` from interface |
-| ThumbnailNavigator.tsx | Line 27 | Remove from destructuring |
-| ThumbnailNavigator.tsx | Line 110 | Remove `isSelected` variable |
-| ThumbnailNavigator.tsx | Line 137 | Remove selection ring styling |
-| Index.tsx | Line 818 | Remove `currentIndex={0}` prop |
+| PhotoProgressDots.tsx | Top | Add `useRef`, `useEffect` imports |
+| PhotoProgressDots.tsx | Lines 17-52 | Restructure to single-row scroll with ref + auto-scroll |
+| index.css | End of file | Add `.scrollbar-hide` utility |
+

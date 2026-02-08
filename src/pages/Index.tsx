@@ -676,6 +676,9 @@ export default function Index() {
                 photos={state.photos}
                 autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
                 onViewAll={() => setNavigatorOpen(true)}
+                onGenerate={handleCreateCollage}
+                showGenerateButton={!state.layout}
+                isGenerating={isGenerating}
               />
             )}
 

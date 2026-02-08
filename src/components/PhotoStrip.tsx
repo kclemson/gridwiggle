@@ -1,17 +1,23 @@
 import { PhotoItem } from '@/types/collage';
 import { Button } from '@/components/ui/button';
-import { Grid3X3 } from 'lucide-react';
+import { Grid3X3, Loader2, Wand2 } from 'lucide-react';
 
 interface PhotoStripProps {
   photos: PhotoItem[];
   autoCroppedCount: number;
   onViewAll: () => void;
+  onGenerate?: () => void;
+  showGenerateButton?: boolean;
+  isGenerating?: boolean;
 }
 
 export function PhotoStrip({
   photos,
   autoCroppedCount,
   onViewAll,
+  onGenerate,
+  showGenerateButton,
+  isGenerating,
 }: PhotoStripProps) {
   return (
     <div className="space-y-3">
@@ -28,8 +34,12 @@ export function PhotoStrip({
         )}
       </h3>
 
-      {/* Photo strip - overflow hidden, not scrollable */}
-      <div className="h-14 overflow-hidden rounded-lg bg-muted/30">
+      {/* Photo strip - clickable to view all */}
+      <button
+        type="button"
+        onClick={onViewAll}
+        className="h-14 w-full overflow-hidden rounded-lg bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+      >
         <div className="flex h-full gap-0.5">
           {photos.map((photo) => (
             <img
@@ -40,14 +50,24 @@ export function PhotoStrip({
             />
           ))}
         </div>
-      </div>
+      </button>
 
       {/* Actions */}
-      <div className="flex justify-center">
+      <div className="flex justify-center gap-2">
         <Button variant="outline" size="sm" onClick={onViewAll}>
           <Grid3X3 className="h-4 w-4 mr-1.5" />
           View All
         </Button>
+        {showGenerateButton && onGenerate && (
+          <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Wand2 className="h-4 w-4 mr-1.5" />
+            )}
+            Generate Collage
+          </Button>
+        )}
       </div>
     </div>
   );

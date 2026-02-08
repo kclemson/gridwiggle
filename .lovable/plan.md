@@ -1,92 +1,104 @@
 
-# Plan: Realistic Aspect Ratio Distribution for Test Photos
+# Plan: Add Shuffle 25 Button for Batch Testing
 
-## The Problem
+## What We're Building
 
-Current `sampleAspectRatio()` uses a triangular distribution centered on 1.0 with spread 0.5, producing ARs clustered between 0.5-1.5 with heavy bias toward square (1.0). This doesn't reflect real-world photo mixes.
+A "Shuffle 25" button on the V3Test page that runs 25 consecutive shuffles, capturing each result to the pending captures queue for bulk export. The final layout is displayed, and the capture stats update to reflect all 25 new entries.
 
-## Common Real-World Aspect Ratios
+---
 
-| Source | Landscape AR | Portrait AR |
-|--------|-------------|-------------|
-| DSLR (3:2) | 1.50 | 0.67 |
-| Phone/Compact (4:3) | 1.33 | 0.75 |
-| Widescreen (16:9) | 1.78 | 0.56 |
-| Instagram Square | 1.00 | 1.00 |
-| Panorama (2.5:1) | 2.50 | — |
+## User Experience
 
-## Proposed Distribution
+| Action | Result |
+|--------|--------|
+| Click "Shuffle 25" | Button shows loading state, runs 25 iterations, final layout displayed |
+| During run | Button disabled, shows progress (e.g., "12/25...") |
+| After run | Capture stats badge shows +25 pending, ready for export |
 
-Weight the sampling toward common ratios with small jitter for variety:
+---
 
-| AR | Weight | Description |
-|----|--------|-------------|
-| 1.50 | 25% | 3:2 DSLR (most common) |
-| 1.33 | 20% | 4:3 phone landscape |
-| 0.75 | 20% | 4:3 phone portrait |
-| 0.67 | 15% | 3:2 DSLR portrait |
-| 1.78 | 10% | 16:9 widescreen |
-| 0.56 | 5% | 9:16 stories/vertical video |
-| 1.00 | 5% | Square (rare in practice) |
+## Technical Changes
 
-Add ±10% jitter to each base AR for organic variation.
+**File**: `src/pages/V3Test.tsx`
 
-## Technical Change
-
-**File**: `src/test/layout/photoGenerator.ts`
-
-Replace `sampleAspectRatio()` with weighted random selection:
+### 1. Add state for batch progress
 
 ```typescript
-const COMMON_ASPECT_RATIOS = [
-  { ar: 1.50, weight: 25 },  // 3:2 DSLR landscape
-  { ar: 1.33, weight: 20 },  // 4:3 phone landscape
-  { ar: 0.75, weight: 20 },  // 4:3 phone portrait
-  { ar: 0.67, weight: 15 },  // 3:2 DSLR portrait
-  { ar: 1.78, weight: 10 },  // 16:9 widescreen
-  { ar: 0.56, weight: 5 },   // 9:16 vertical video
-  { ar: 1.00, weight: 5 },   // Square
-];
-
-function sampleAspectRatio(orientationBias: number): number {
-  // Adjust weights based on orientation bias
-  // bias < 0 = more portrait, bias > 0 = more landscape
-  
-  const adjustedRatios = COMMON_ASPECT_RATIOS.map(({ ar, weight }) => {
-    const isLandscape = ar > 1.0;
-    const multiplier = isLandscape 
-      ? 1 + orientationBias  // boost landscape when bias > 0
-      : 1 - orientationBias; // boost portrait when bias < 0
-    return { ar, weight: weight * Math.max(0.1, multiplier) };
-  });
-  
-  // Weighted random selection
-  const totalWeight = adjustedRatios.reduce((s, r) => s + r.weight, 0);
-  let roll = Math.random() * totalWeight;
-  
-  for (const { ar, weight } of adjustedRatios) {
-    roll -= weight;
-    if (roll <= 0) {
-      // Add ±10% jitter for variety
-      const jitter = 1 + (Math.random() - 0.5) * 0.2;
-      return Math.max(MIN_ASPECT, Math.min(MAX_ASPECT, ar * jitter));
-    }
-  }
-  
-  return 1.33; // Fallback
-}
+const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
 ```
 
-## Expected Impact
+### 2. Add handleShuffle25 callback
 
-| Metric | Before | After |
-|--------|--------|-------|
-| Square-ish (0.9-1.1) | ~40% | ~5% |
-| Portrait (<0.9) | ~30% | ~40% |
-| Landscape (>1.1) | ~30% | ~55% |
+```typescript
+const handleShuffle25 = useCallback(async () => {
+  const BATCH_SIZE = 25;
+  setBatchProgress({ current: 0, total: BATCH_SIZE });
+  
+  let lastState: TestState | null = null;
+  
+  for (let i = 0; i < BATCH_SIZE; i++) {
+    const photoSet = generateRandomSet();
+    const result = generateLayoutResult(photoSet.photos);
+    
+    // Capture to localStorage
+    saveCapture(buildCapture(photoSet, result));
+    
+    // Update progress
+    setBatchProgress({ current: i + 1, total: BATCH_SIZE });
+    
+    // Keep last state for display
+    lastState = { photoSet, ...result };
+    
+    // Yield to UI to show progress (small delay)
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  
+  // Display final result
+  if (lastState) {
+    setState(lastState);
+  }
+  
+  setBatchProgress(null);
+  setCaptureStats(getCaptureStats());
+}, []);
+```
 
-This should produce more challenging test cases with realistic variety, and fewer prominence failures caused by oversized square content cells.
+### 3. Add button next to existing Shuffle button
+
+```tsx
+<Button 
+  onClick={handleShuffle25} 
+  variant="outline" 
+  className="gap-2"
+  disabled={batchProgress !== null}
+>
+  {batchProgress ? (
+    <>
+      <Loader2 className="h-4 w-4 animate-spin" />
+      {batchProgress.current}/{batchProgress.total}
+    </>
+  ) : (
+    <>
+      <Shuffle className="h-4 w-4" />
+      Shuffle 25
+    </>
+  )}
+</Button>
+```
+
+### 4. Disable regular Shuffle during batch
+
+```tsx
+<Button 
+  onClick={handleShuffle} 
+  variant="outline" 
+  className="gap-2"
+  disabled={batchProgress !== null}  // Add this
+>
+```
+
+---
 
 ## Files to Modify
 
-1. **`src/test/layout/photoGenerator.ts`** - Replace triangular distribution with weighted common-ratio sampling
+1. **`src/pages/V3Test.tsx`** - Add batch shuffle state, handler, and button

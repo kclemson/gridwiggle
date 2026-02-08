@@ -46,6 +46,12 @@ export interface V3Tuning {
   // === Hero-to-Smallest Constraint ===
   /** Max hero area relative to avg of smallest content photos (45 = hero ≤ 45× smallest) */
   hero_maxToSmallest: number;
+  
+  // === Low Photo Count Accommodation ===
+  /** Content photo threshold for reduced prominence (6 = apply to ≤5 content photos) */
+  hero_lowCountThreshold: number;
+  /** Multiplier applied to hero_minProminence for low counts (0.85 = 1.3 → 1.1) */
+  hero_lowCountMultiplier: number;
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
@@ -59,6 +65,8 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   row_arBudgetJitter: 0.2,
   row_maxHeightRatio: 1.8,
   hero_maxToSmallest: 45,
+  hero_lowCountThreshold: 6,
+  hero_lowCountMultiplier: 0.85,
 };
 
 // ============================================================================

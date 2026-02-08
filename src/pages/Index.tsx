@@ -84,6 +84,13 @@ export default function Index() {
   // Derived: count of photos that are fully loaded (have dimensions)
   const readyPhotos = state.photos.filter(p => p.originalWidth > 0 && p.originalHeight > 0).length;
   
+  // Detect stale rejection by comparing photo counts
+  // If rejection says "20 photos" but we only have 5 ready, it's from a previous session
+  const rejectedPhotoCount = rejectedLayout
+    ? (rejectedLayout.details as any)?.photoCount ?? rejectedLayout.cells.length
+    : 0;
+  const isRejectionStale = rejectedLayout && Math.abs(rejectedPhotoCount - readyPhotos) > 1;
+  
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
   photosRef.current = state.photos;
@@ -715,7 +722,7 @@ export default function Index() {
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                ) : rejectedLayout && readyPhotos >= 2 ? (
+                ) : rejectedLayout && readyPhotos >= 2 && !isRejectionStale ? (
                   // REJECTION: Show failed layout with diagnostics
                   <>
                     <CollageHeader
@@ -759,7 +766,7 @@ export default function Index() {
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                ) : layoutError && readyPhotos >= 2 ? (
+                ) : layoutError && readyPhotos >= 2 && !isRejectionStale ? (
                   // FALLBACK: No geometry available - text error only
                   <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
                     <div className="flex items-center gap-2 text-muted-foreground">

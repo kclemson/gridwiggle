@@ -196,16 +196,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
-    const handleRadius = handleSize / 2;
-    let cx = corner.includes('e') ? crop.x + crop.width : crop.x;
-    let cy = corner.includes('s') ? crop.y + crop.height : crop.y;
-    
-    // Offset inward if at image edge
-    if (corner.includes('w') && crop.x <= 0) cx += handleRadius;
-    if (corner.includes('e') && crop.x + crop.width >= photo.originalWidth) cx -= handleRadius;
-    if (corner.includes('n') && crop.y <= 0) cy += handleRadius;
-    if (corner.includes('s') && crop.y + crop.height >= photo.originalHeight) cy -= handleRadius;
-    
+    const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+    const cy = corner.includes('s') ? crop.y + crop.height : crop.y;
     return { cx, cy };
   };
 
@@ -224,8 +216,9 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
+            overflow="visible"
             className="max-w-full block touch-none select-none"
-            style={{ maxHeight: 'calc(90vh - 120px)' }}
+            style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible' }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}

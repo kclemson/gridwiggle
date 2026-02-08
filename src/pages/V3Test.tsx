@@ -28,7 +28,7 @@ import {
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import type { RejectedLayout } from '@/lib/v3/types';
-import { Shuffle, Star, Image, Eye, EyeOff, AlertTriangle, Loader2 } from 'lucide-react';
+import { Shuffle, Star, Image, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Static settings matching production defaults
@@ -282,15 +282,7 @@ export default function V3Test() {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold">V3 Layout Test</h1>
-            {!layout && rejectedLayout && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="font-medium text-sm">REJECTED: {rejectedLayout.reason.replace(/_/g, ' ')}</span>
-              </div>
-            )}
-          </div>
+          <h1 className="text-2xl font-bold">V3 Layout Test</h1>
           <div className="flex items-center gap-2">
             <Button 
               onClick={() => setShowRejected(s => !s)}

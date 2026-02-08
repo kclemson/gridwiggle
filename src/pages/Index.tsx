@@ -16,7 +16,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
-import { RejectionBadge, SoftRejectionBadge } from '@/components/debug';
+import { SoftRejectionBadge } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
@@ -73,13 +73,6 @@ export default function Index() {
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [rejectedLayout, setRejectedLayout] = useState<{
-    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    canvasWidth: number;
-    canvasHeight: number;
-    reason: string;
-    details: Record<string, unknown>;
-  } | null>(null);
   const [softRejection, setSoftRejection] = useState<{
     reason: string;
     details: Record<string, unknown>;
@@ -99,16 +92,6 @@ export default function Index() {
     return saved !== null ? saved === 'true' : false;
   });
 
-  // Derived: count of photos that are fully loaded (have dimensions)
-  const readyPhotos = state.photos.filter(p => p.originalWidth > 0 && p.originalHeight > 0).length;
-  
-  // Detect stale rejection by comparing photo counts
-  // If rejection says "20 photos" but we only have 5 ready, it's from a previous session
-  const rejectedPhotoCount = rejectedLayout
-    ? (rejectedLayout.details as any)?.photoCount ?? rejectedLayout.cells.length
-    : 0;
-  const isRejectionStale = rejectedLayout && Math.abs(rejectedPhotoCount - readyPhotos) > 1;
-  
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
   photosRef.current = state.photos;
@@ -268,54 +251,16 @@ export default function Index() {
         });
       }
       
-      if (layout) {
-        setLayout(layout);
-        setLayoutError(null);
-        setRejectedLayout(null);
-        setSoftRejection(result.softRejection ?? null);
-        remoteLogger.info('layout', 'Layout generated', { 
-          cells: layout.cells.length,
-          durationMs: result.durationMs,
-          usedWorker: result.usedWorker ?? false,
-        });
-      } else {
-        remoteLogger.error('layout', 'Layout generation failed', {
-          durationMs: result.durationMs,
-          usedWorker: result.usedWorker ?? false,
-          reason: result.failure?.reason ?? 'unknown',
-        });
-        
-        // Capture rejected layout for visualization
-        if (result.rejectedLayout) {
-          // Scale from normalized (0-1) to pixel coordinates (base 1000)
-          const SCALE = 1000;
-          setRejectedLayout({
-            cells: result.rejectedLayout.cells.map(c => ({
-              photoId: c.photoId,
-              x: Math.round(c.x * SCALE),
-              y: Math.round(c.y * SCALE),
-              width: Math.round(c.width * SCALE),
-              height: Math.round(c.height * SCALE),
-            })),
-            canvasWidth: Math.round(result.rejectedLayout.canvasWidth * SCALE),
-            canvasHeight: Math.round(result.rejectedLayout.canvasHeight * SCALE),
-            reason: result.rejectedLayout.reason,
-            details: result.rejectedLayout.details,
-          });
-          // Clear layout so rejection visualization renders
-          setLayout(null);
-          setLayoutError("Layout rejected. Try shuffling or adjusting photos.");
-        } else {
-          setRejectedLayout(null);
-          if (state.layout) {
-            // No geometry to show - keep old layout with error message
-            setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
-          } else {
-            setLayout(null);
-            setLayoutError("Couldn't generate a layout with these photos.");
-          }
-        }
-      }
+      // Layout is now always non-null (soft rejections instead of hard)
+      setLayout(layout);
+      setLayoutError(null);
+      setSoftRejection(result.softRejection ?? null);
+      remoteLogger.info('layout', 'Layout generated', { 
+        cells: layout.cells.length,
+        durationMs: result.durationMs,
+        usedWorker: result.usedWorker ?? false,
+        hasSoftRejection: !!result.softRejection,
+      });
     } catch (error) {
       // Check for stale response
       if (requestId !== latestRequestIdRef.current) return;
@@ -849,66 +794,6 @@ export default function Index() {
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                ) : rejectedLayout && readyPhotos >= 2 && !isRejectionStale ? (
-                  // REJECTION: Show failed layout with diagnostics
-                  <>
-                    <CollageHeader
-                      onShuffle={() => {
-                        setLayoutError(null);
-                        setRejectedLayout(null);
-                        regenerateCollage({ randomize: true });
-                      }}
-                      isShuffling={isGenerating}
-                      showDownload={false}
-                    />
-                    
-                    <div className="relative">
-                      <div className="ring-4 ring-destructive rounded-lg overflow-hidden opacity-70">
-                        <CollagePreview
-                          photos={state.photos}
-                          layout={{
-                            width: rejectedLayout.canvasWidth,
-                            height: rejectedLayout.canvasHeight,
-                            cells: rejectedLayout.cells,
-                          }}
-                          gapColor={state.settings.gapColor}
-                          onSwapPhotos={() => {}}
-                        />
-                      </div>
-                      <RejectionBadge 
-                        reason={rejectedLayout.reason} 
-                        details={rejectedLayout.details} 
-                      />
-                      
-                      {/* Generating overlay */}
-                      {isGenerating && (
-                        <div className="absolute inset-0 flex items-center justify-center z-10">
-                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        </div>
-                      )}
-                    </div>
-                    
-                    <CollageSettings
-                      settings={state.settings}
-                      onUpdate={handleUpdateSettings}
-                    />
-                  </>
-                ) : layoutError && readyPhotos >= 2 && !isRejectionStale ? (
-                  // FALLBACK: No geometry available - text error only
-                  <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <AlertCircle className="h-5 w-5" />
-                      <span className="text-sm">{layoutError}</span>
-                    </div>
-                    <Button 
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCreateCollage}
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Try Again
-                    </Button>
-                  </div>
                 ) : null}
                 </div>
                 

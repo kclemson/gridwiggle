@@ -22,18 +22,10 @@ export interface LayoutGenerationPayload {
 }
 
 export interface LayoutGenerationResult {
-  layout: CollageLayout | null;
+  layout: CollageLayout;  // Always non-null now (soft rejections instead of hard)
   durationMs: number;
   logs?: LogEntry[];
-  failure?: { reason: string; details?: Record<string, unknown> };
   usedWorker: boolean;
-  rejectedLayout?: {
-    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    canvasWidth: number;
-    canvasHeight: number;
-    reason: string;
-    details: Record<string, unknown>;
-  };
   /** Soft rejection info (layout is usable but outside ideal bounds) - dev-only display */
   softRejection?: {
     reason: string;
@@ -176,9 +168,7 @@ export async function generateLayoutInWorker(
         layout: e.data.layout,
         durationMs: e.data.durationMs,
         logs: e.data.logs,
-        failure: e.data.failure,
         usedWorker: true,
-        rejectedLayout: e.data.rejectedLayout,
         softRejection: e.data.softRejection,
       });
     };

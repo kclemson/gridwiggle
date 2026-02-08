@@ -606,14 +606,18 @@ function buildRejectedCells(
  * 
  * Criteria:
  * 1. Uniformity: cell areas should be similar
- * 2. Prominence: hero should be significantly larger than content cells
+ * 2. Parity: balanced average cell areas between BESIDE and BELOW regions
+ * 3. Variety: reward having beside photos (structural interest)
+ * 
+ * Note: Prominence is NOT scored here - it's already validated during search.
+ * This prevents 0-beside layouts from always winning due to auto-passing prominence.
  */
 function scoreRegionAssignment(
-  heroAR: number,
+  _heroAR: number,
   besideResult: { cells: { width: number; height: number }[]; width: number; height: number },
   belowResult: { cells: { width: number; height: number }[]; width: number; height: number },
   _normalizedGap: number,
-  tuning: V3Tuning
+  _tuning: V3Tuning
 ): number {
   // Uniformity score: coefficient of variation of cell areas
   const allAreas = [
@@ -621,14 +625,6 @@ function scoreRegionAssignment(
     ...belowResult.cells.map(c => c.width * c.height),
   ];
   const uniformityScore = 1.0 / (1.0 + coefficientOfVariation(allAreas));
-  
-  // Hero prominence check (soft constraint)
-  const heroArea = heroAR * 1.0;
-  const maxContentArea = Math.max(...allAreas, 0);
-  const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
-  const prominenceScore = prominenceRatio >= tuning.hero_minProminence 
-    ? 1.0 
-    : prominenceRatio / tuning.hero_minProminence;
   
   // Region parity score: reward balanced average cell areas between regions
   // This prevents huge cells in BELOW when it has too few photos
@@ -645,7 +641,11 @@ function scoreRegionAssignment(
     parityScore = Math.min(ratio, 1 / ratio);
   }
   
-  // Combined score with balanced weights
-  return (uniformityScore * 0.35) + (prominenceScore * 0.35) + (parityScore * 0.30);
+  // Variety bonus: reward having beside photos (structural interest)
+  // 0-beside layouts are valid but less visually interesting
+  const varietyScore = besideResult.cells.length > 0 ? 1.0 : 0.7;
+  
+  // Combined score: uniformity (35%) + parity (35%) + variety (30%)
+  return (uniformityScore * 0.35) + (parityScore * 0.35) + (varietyScore * 0.30);
 }
 

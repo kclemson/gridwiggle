@@ -1,23 +1,30 @@
 
 
-# Plan: Improve RejectionBadge Detail Formatting
+# Plan: Fix besideRowCount Mismatch in Rejection Details
 
 ## The Problem
 
-The current display shows raw JSON for nested objects:
-```
-belowRowCount: 2 (2-2)
-belowConstraints:
-{"maxRowsByMinAR":1,"minRowsByMaxAR":2,"minRowsByCellSize":1,"targetWidth":1.6450485237483954}
-```
+The rejection badge shows `besideRowCount: 2 (1-2)` but the visualization clearly shows only **1 row** beside the hero (B and C are side-by-side in a single horizontal row).
 
-This is hard to read with the quotes and braces.
+## Root Cause
 
-## The Goal
+The rejection details use the **loop variable** `besideRowCount` (the requested row count), but the actual packing via `distributeByARBudget` is **greedy** — it may produce fewer rows than requested if the AR budget allows.
 
-Display the constraint values inline with `belowRowCount` since they directly inform that value:
-```
-belowRowCount: 2 (2-2)  [height≤1, width≥2, cell≥1, tw:1.65]
+| Variable | Value | Meaning |
+|----------|-------|---------|
+| `besideRowCount` (loop) | 2 | **Requested** rows |
+| `besideResult.rowCount` | 1 | **Actual** rows packed |
+
+## The Fix
+
+In `region-search.ts`, change rejection details to show **actual** row count from the pack result:
+
+```typescript
+// Before (uses loop variable - the REQUEST)
+besideRowCount: `${besideRowCount} (${minRows}-${maxRows})`
+
+// After (uses pack result - the ACTUAL)
+besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`
 ```
 
 ---
@@ -26,93 +33,32 @@ belowRowCount: 2 (2-2)  [height≤1, width≥2, cell≥1, tw:1.65]
 
 | File | Change |
 |------|--------|
-| `src/components/debug/RejectionBadge.tsx` | Smart formatting for `belowConstraints` inline with `belowRowCount` |
+| `src/lib/v3/region-search.ts` | Replace `besideRowCount` with `besideResult.rowCount` in all rejection `details` objects |
 
 ---
 
-## Approach
+## Affected Lines
 
-Instead of blindly JSON.stringify-ing objects, the component will:
+Lines ~290 and ~317 in `region-search.ts`:
 
-1. **Skip `belowConstraints`** as a separate row
-2. **Append constraint info** to the `belowRowCount` row in a compact format
-
-### Proposed Display Format
-
-```
-belowRowCount: 2 (2-2)  [h≤1 w≥2 c≥1 tw:1.65]
-```
-
-Where:
-- `h≤1` = maxRowsByMinAR (height constraint → max rows allowed)
-- `w≥2` = minRowsByMaxAR (width constraint → min rows needed)  
-- `c≥1` = minRowsByCellSize (cell size constraint → min rows needed)
-- `tw:1.65` = targetWidth (the normalized width being packed into)
-
-### Alternative Format (more explicit)
-
-If the abbreviated version is too cryptic:
-```
-belowRowCount: 2 (2-2)  height≤1 width≥2 cell≥1 tw:1.65
+**Canvas AR rejection** (line 290):
+```typescript
+details: { 
+  canvasAR: +canvasAR.toFixed(2), 
+  besideCount: `${besideCount} (${minBeside}-${maxBeside})`, 
+  besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`,  // ← Fix
+  ...
+}
 ```
 
----
-
-## Implementation
-
-Update `RejectionBadge.tsx` to:
-
-1. Extract `belowConstraints` from details if present
-2. Format other fields normally (no changes)
-3. When rendering `belowRowCount`, append the constraint values inline
-4. Skip rendering `belowConstraints` as its own row
-
-```tsx
-export function RejectionBadge({ reason, details }: RejectionBadgeProps) {
-  // Extract belowConstraints for inline display
-  const belowConstraints = details.belowConstraints as {
-    maxRowsByMinAR: number;
-    minRowsByMaxAR: number;
-    minRowsByCellSize: number;
-    targetWidth: number;
-  } | undefined;
-  
-  // Filter out belowConstraints from main display
-  const displayEntries = Object.entries(details).filter(
-    ([k]) => k !== 'belowConstraints'
-  );
-  
-  return (
-    <div className="mt-3 p-4 bg-destructive/20 border-2 border-destructive rounded-lg">
-      <div className="flex items-center gap-2 text-destructive font-bold text-lg">
-        <AlertTriangle className="h-5 w-5" />
-        REJECTED: {reason.replace(/_/g, ' ')}
-      </div>
-      <div className="mt-2 text-sm text-destructive/80 font-mono">
-        {displayEntries.map(([k, v]) => {
-          // Special handling for belowRowCount - append constraints
-          if (k === 'belowRowCount' && belowConstraints) {
-            const { maxRowsByMinAR, minRowsByMaxAR, minRowsByCellSize, targetWidth } = belowConstraints;
-            return (
-              <div key={k}>
-                {k}: {String(v)}  
-                <span className="text-destructive/60 ml-2">
-                  [h≤{maxRowsByMinAR} w≥{minRowsByMaxAR} c≥{minRowsByCellSize} tw:{targetWidth.toFixed(2)}]
-                </span>
-              </div>
-            );
-          }
-          
-          // Default: simple string display
-          return (
-            <div key={k}>
-              {k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+**Prominence rejection** (line 317):
+```typescript  
+details: { 
+  prominenceRatio: +prominenceRatio.toFixed(2), 
+  required: tuning.hero_minProminence, 
+  besideCount: `${besideCount} (${minBeside}-${maxBeside})`, 
+  besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`,  // ← Fix
+  ...
 }
 ```
 
@@ -120,19 +66,10 @@ export function RejectionBadge({ reason, details }: RejectionBadgeProps) {
 
 ## Expected Result
 
-Before:
+After fix, the rejection badge will accurately show:
 ```
-belowRowCount: 2 (2-2)
-belowConstraints:
-{"maxRowsByMinAR":1,"minRowsByMaxAR":2,"minRowsByCellSize":1,"targetWidth":1.6450485237483954}
-heroAR: 1
+besideRowCount: 1 (1-2)
 ```
 
-After:
-```
-belowRowCount: 2 (2-2)  [h≤1 w≥2 c≥1 tw:1.65]
-heroAR: 1
-```
-
-The constraint values are now readable and positioned next to the value they inform, making it immediately clear why `2 (2-2)` was chosen: width constraint required ≥2 rows, but height constraint only allowed ≤1 (conflict!).
+This matches the visualization where B and C are packed into a single row beside the hero.
 

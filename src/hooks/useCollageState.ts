@@ -129,24 +129,35 @@ export function useCollageState() {
   // Debounce timer ref for localStorage writes
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
+  // Track pending state for flush-on-unmount
+  const pendingStateRef = useRef<CollageState | null>(null);
+  
   // Debounced save function - batches rapid state updates into single localStorage write
   const debouncedSaveMetadata = useMemo(() => {
     return (stateToSave: CollageState) => {
+      // Track pending state for flush on unmount
+      pendingStateRef.current = stateToSave;
+      
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
       }
       saveTimerRef.current = setTimeout(() => {
         saveMetadataToStorage(stateToSave);
+        pendingStateRef.current = null;  // Clear after successful save
         saveTimerRef.current = null;
       }, SAVE_DEBOUNCE_MS);
     };
   }, []);
   
-  // Cleanup debounce timer on unmount
+  // FLUSH pending save on unmount (don't discard!)
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
+      }
+      // Flush any pending state immediately instead of discarding
+      if (pendingStateRef.current) {
+        saveMetadataToStorage(pendingStateRef.current);
       }
     };
   }, []);

@@ -243,6 +243,23 @@ export interface ScoredConfiguration {
   prominenceRatio: number;
   /** Overall score for ranking */
   score: number;
+  /** Soft rejection info if layout is outside aesthetic bounds but still valid */
+  softRejection?: {
+    reason: string;
+    details: Record<string, unknown>;
+  };
+}
+
+// ============================================================================
+// Soft Rejection Types
+// ============================================================================
+
+/** Soft rejection reasons (layout exists but outside aesthetic bounds) */
+export const SOFT_REJECTION_REASONS = ['canvas_too_tall', 'canvas_too_wide'] as const;
+
+/** Check if a rejection reason is soft (aesthetic) vs hard (impossible) */
+export function isSoftRejection(reason: string): boolean {
+  return SOFT_REJECTION_REASONS.includes(reason as typeof SOFT_REJECTION_REASONS[number]);
 }
 
 // ============================================================================

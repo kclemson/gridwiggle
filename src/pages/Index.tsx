@@ -16,7 +16,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
-import { RejectionBadge } from '@/components/debug/RejectionBadge';
+import { RejectionBadge, SoftRejectionBadge } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
@@ -66,6 +66,10 @@ export default function Index() {
     cells: { photoId: string; x: number; y: number; width: number; height: number }[];
     canvasWidth: number;
     canvasHeight: number;
+    reason: string;
+    details: Record<string, unknown>;
+  } | null>(null);
+  const [softRejection, setSoftRejection] = useState<{
     reason: string;
     details: Record<string, unknown>;
   } | null>(null);
@@ -254,6 +258,7 @@ export default function Index() {
         setLayout(layout);
         setLayoutError(null);
         setRejectedLayout(null);
+        setSoftRejection(result.softRejection ?? null);
         remoteLogger.info('layout', 'Layout generated', { 
           cells: layout.cells.length,
           durationMs: result.durationMs,
@@ -698,7 +703,9 @@ export default function Index() {
 
                     <div className={cn(
                       "relative overflow-hidden transition-opacity duration-150",
-                      isGenerating && "opacity-60"
+                      isGenerating && "opacity-60",
+                      // Dev-only amber ring for soft rejections
+                      import.meta.env.DEV && softRejection && "ring-2 ring-amber-500 rounded-lg"
                     )}>
                       <CollagePreview
                         photos={state.photos}
@@ -716,6 +723,14 @@ export default function Index() {
                         </div>
                       )}
                     </div>
+                    
+                    {/* Dev-only soft rejection badge */}
+                    {import.meta.env.DEV && softRejection && (
+                      <SoftRejectionBadge 
+                        reason={softRejection.reason} 
+                        details={softRejection.details} 
+                      />
+                    )}
                     
                     <CollageSettings
                       settings={state.settings}

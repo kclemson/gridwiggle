@@ -52,6 +52,11 @@ export interface LayoutResponse {
     reason: string;
     details: Record<string, unknown>;
   };
+  /** Soft rejection info (layout is usable but outside ideal bounds) - dev-only display */
+  softRejection?: {
+    reason: string;
+    details: Record<string, unknown>;
+  };
 }
 
 // ============================================================================
@@ -68,6 +73,15 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 // ============================================================================
+// Layout Generation Result
+// ============================================================================
+
+interface GenerationResult {
+  layout: CollageLayout | null;
+  softRejection?: { reason: string; details: Record<string, unknown> };
+}
+
+// ============================================================================
 // Layout Generation
 // ============================================================================
 
@@ -76,12 +90,12 @@ function generateLayout(
   normalizedGap: number,
   tuningOverrides: Partial<V3Tuning>,
   randomize: boolean
-): CollageLayout | null {
+): GenerationResult {
   // Clear worker logs and rejected layout at start of each generation
   workerLogs = [];
   clearRejectedLayout();
   
-  if (dimensions.length < 2) return null;
+  if (dimensions.length < 2) return { layout: null };
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
   
@@ -114,7 +128,7 @@ function generateLayout(
   
   if (!config) {
     devLogger.log('v3', 'No valid configuration found');
-    return null;
+    return { layout: null };
   }
   
   devLogger.log('v3', 'Selected layout', {
@@ -140,9 +154,12 @@ function generateLayout(
   });
   
   return {
-    width: Math.round(config.canvasWidth * VIRTUAL_CANVAS_BASE),
-    height: Math.round(config.canvasHeight * VIRTUAL_CANVAS_BASE),
-    cells,
+    layout: {
+      width: Math.round(config.canvasWidth * VIRTUAL_CANVAS_BASE),
+      height: Math.round(config.canvasHeight * VIRTUAL_CANVAS_BASE),
+      cells,
+    },
+    softRejection: config.softRejection,
   };
 }
 
@@ -161,18 +178,19 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
   
   try {
     // generateLayout clears workerLogs at start
-    const layout = generateLayout(dimensions, normalizedGap, tuning, randomize);
+    const result = generateLayout(dimensions, normalizedGap, tuning, randomize);
     const durationMs = performance.now() - startTime;
     
     const response: LayoutResponse = {
       type: 'result',
       requestId,
-      layout,
+      layout: result.layout,
       durationMs,
       logs: isDev ? workerLogs : undefined,
+      softRejection: result.softRejection,
     };
     
-    if (!layout) {
+    if (!result.layout) {
       const rejection = getLastRejection();
       const avgAR = dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length;
       response.failure = {

@@ -293,8 +293,10 @@ function evaluateNormalizedProposal(
     normalizedWidth
   );
   
+  // Track soft rejection for canvas AR violations (layout is valid but outside aesthetic bounds)
+  let softRejection: ScoredConfiguration['softRejection'] = undefined;
+  
   if (canvasAR < effectiveMinAR - AR_EPSILON) {
-    const rejectedCells = computeRejectedCells();
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
       allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
@@ -304,21 +306,12 @@ function evaluateNormalizedProposal(
       belowConstraints,
       heroAR: +heroAR.toFixed(2),
     };
-    setRejectedLayout({
-      cells: rejectedCells,
-      canvasWidth,
-      canvasHeight,
-      reason: 'canvas_too_tall',
-      details,
-      timestamp: Date.now(),
-    });
-    devLogger.warn('layout-reject', 'Canvas too tall', details);
-    setRejection('Canvas too tall', details);
-    return null;
+    softRejection = { reason: 'canvas_too_tall', details };
+    devLogger.log('v3', 'Canvas AR below minimum (soft rejection)', details);
+    // Continue instead of returning null - layout is geometrically valid
   }
   
   if (canvasAR > effectiveMaxAR + AR_EPSILON) {
-    const rejectedCells = computeRejectedCells();
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
       allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
@@ -328,17 +321,9 @@ function evaluateNormalizedProposal(
       belowConstraints,
       heroAR: +heroAR.toFixed(2),
     };
-    setRejectedLayout({
-      cells: rejectedCells,
-      canvasWidth,
-      canvasHeight,
-      reason: 'canvas_too_wide',
-      details,
-      timestamp: Date.now(),
-    });
-    devLogger.warn('layout-reject', 'Canvas too wide', details);
-    setRejection('Canvas too wide', details);
-    return null;
+    softRejection = { reason: 'canvas_too_wide', details };
+    devLogger.log('v3', 'Canvas AR above maximum (soft rejection)', details);
+    // Continue instead of returning null - layout is geometrically valid
   }
   
   // Validate hero prominence (area ratios are scale-invariant)
@@ -463,6 +448,7 @@ function evaluateNormalizedProposal(
     canvasWidth,
     prominenceRatio: prominence.ratio,
     score,
+    softRejection,
   };
 }
 

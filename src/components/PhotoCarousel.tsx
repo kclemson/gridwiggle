@@ -101,10 +101,12 @@ export function PhotoCarousel({
               const crop = getDisplayCrop(photo);
               const isHero = photo.priority === 1;
               
-              // Calculate aspect ratio from crop or original dimensions
-              const aspectRatio = crop 
+              // Safe aspect ratio calculation - guards against NaN when dimensions are 0
+              const aspectRatio = (crop && crop.width > 0 && crop.height > 0)
                 ? crop.width / crop.height 
-                : photo.originalWidth / photo.originalHeight;
+                : (photo.originalWidth > 0 && photo.originalHeight > 0)
+                  ? photo.originalWidth / photo.originalHeight
+                  : 1; // Safe fallback for missing dimensions
               
               return (
                 <div

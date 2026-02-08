@@ -18,6 +18,11 @@ import {
 import { remoteLogger } from '@/lib/remoteLogger';
 import { devLogger } from '@/lib/devLogger';
 
+interface UseCollageStateOptions {
+  /** Called directly from initialization when photos need dimension recovery */
+  onNeedsRecovery?: (photos: PhotoItem[]) => void;
+}
+
 const STORAGE_KEY = 'smart-collage-state';
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -97,9 +102,11 @@ function hydratePhotos(
   for (const meta of metadata) {
     const stored = blobMap.get(meta.id);
     if (stored) {
+      const objectUrl = URL.createObjectURL(stored.blob);
       hydrated.push({
         id: meta.id,
-        objectUrl: URL.createObjectURL(stored.blob),
+        objectUrl,
+        previewUrl: objectUrl, // Fallback to full-res until recovery creates preview
         blob: stored.blob,
         originalWidth: meta.originalWidth,
         originalHeight: meta.originalHeight,
@@ -121,7 +128,9 @@ function hydratePhotos(
   return hydrated;
 }
 
-export function useCollageState() {
+export function useCollageState(options: UseCollageStateOptions = {}) {
+  const { onNeedsRecovery } = options;
+  
   const [state, setState] = useState<CollageState>(defaultState);
   const [isLoading, setIsLoading] = useState(true);
   const [storageAvailable, setStorageAvailable] = useState(true);
@@ -224,6 +233,22 @@ export function useCollageState() {
         );
       }
 
+      // Find photos needing dimension recovery (missing width/height)
+      const needsRecovery = photos.filter(p => p.originalWidth === 0 || p.originalHeight === 0);
+      
+      if (needsRecovery.length > 0) {
+        remoteLogger.warn('recovery', 'Photos need dimension recovery', {
+          count: needsRecovery.length,
+          ids: needsRecovery.map(p => p.id),
+        });
+        
+        // Mark them as processing (so UI shows spinner)
+        needsRecovery.forEach(p => { p.isProcessing = true; });
+        
+        // Call callback directly from init (event-driven, not sync-via-effect)
+        onNeedsRecovery?.(needsRecovery);
+      }
+
       setState({
         photos,
         settings: persisted.settings,
@@ -232,6 +257,7 @@ export function useCollageState() {
       remoteLogger.info('indexeddb', 'Initialization complete', { 
         hydratedCount: photos.length,
         hasLayout: !!persisted.layout,
+        needsRecovery: needsRecovery.length,
       });
       setIsLoading(false);
     }

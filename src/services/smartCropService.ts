@@ -1,4 +1,5 @@
 import { CropRegion } from '@/types/collage';
+import { remoteLogger } from '@/lib/remoteLogger';
 
 interface SmartCropResult {
   crop: CropRegion;
@@ -17,11 +18,20 @@ let worker: Worker | null = null;
 function getWorker(): Worker | null {
   if (!worker) {
     try {
+      remoteLogger.info('vision', 'Creating worker', {
+        moduleSupport: typeof Worker !== 'undefined',
+      });
+      
       worker = new Worker(
         new URL('../workers/visionWorker.ts', import.meta.url),
         { type: 'module' }
       );
+      
+      remoteLogger.info('vision', 'Worker created successfully', {});
     } catch (e) {
+      remoteLogger.error('vision', 'Worker creation failed', {
+        error: e instanceof Error ? e.message : String(e),
+      });
       console.warn('Module worker not supported:', e);
       return null;
     }

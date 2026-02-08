@@ -40,6 +40,9 @@ import {
 } from 'lucide-react';
 
 export default function Index() {
+  // Ref to processSmartCrops for recovery callback (avoids stale closure)
+  const processSmartCropsRef = useRef<((photos: PhotoItem[]) => Promise<void>) | null>(null);
+
   const {
     state,
     isLoading,
@@ -49,7 +52,14 @@ export default function Index() {
     updateSettings,
     setLayout,
     clearAll,
-  } = useCollageState();
+  } = useCollageState({
+    onNeedsRecovery: (photos) => {
+      // Defer to next tick so the component has mounted and ref is assigned
+      queueMicrotask(() => {
+        processSmartCropsRef.current?.(photos);
+      });
+    },
+  });
 
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -336,7 +346,7 @@ export default function Index() {
     for (const photo of photos) {
       // Track currently processing photo for the ProcessingView
       setCurrentlyProcessingId(photo.id);
-      remoteLogger.info('smartcrop', 'Processing photo', { photoId: photo.id });
+      remoteLogger.info('smartcrop', 'Phase: start', { photoId: photo.id });
       
       try {
         // Get fresh photo data from state (dimensions may have been updated)
@@ -346,9 +356,17 @@ export default function Index() {
         
         // Load dimensions if not yet known (moved from PhotoUploader for instant feedback)
         if (width === 0 || height === 0) {
+          remoteLogger.info('smartcrop', 'Phase: loading dimensions', { photoId: photo.id });
+          
           const dimensions = await getImageDimensions(photo.objectUrl);
           width = dimensions.width;
           height = dimensions.height;
+          
+          remoteLogger.info('smartcrop', 'Phase: creating previews', { 
+            photoId: photo.id,
+            width,
+            height,
+          });
           
           // Create both preview sizes in parallel
           const [preview, thumbnail] = await Promise.all([
@@ -366,6 +384,8 @@ export default function Index() {
           });
         }
         
+        remoteLogger.info('smartcrop', 'Phase: running detection', { photoId: photo.id });
+        
         const result = await getSmartCrop(
           photo.objectUrl,
           photo.blob,
@@ -378,15 +398,22 @@ export default function Index() {
         // Low confidence (< 0.6) typically means cartoons, memes, screenshots
         const smartCropToApply = result.skipCrop ? null : result.crop;
         
+        remoteLogger.info('smartcrop', 'Phase: complete', { 
+          photoId: photo.id,
+          skipCrop: result.skipCrop,
+          confidence: result.confidence,
+        });
+        
         updatePhoto(photo.id, {
           smartCrop: smartCropToApply,
           isProcessing: false,
         });
       } catch (error) {
         console.error('Smart crop failed for photo:', photo.id, error);
-        remoteLogger.error('smartcrop', 'Failed', { 
+        remoteLogger.error('smartcrop', 'Phase: failed', { 
           photoId: photo.id, 
           error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
         });
         updatePhoto(photo.id, {
           isProcessing: false,
@@ -402,6 +429,9 @@ export default function Index() {
     setIsProcessingSmartCrop(false);
     setSmartCropProgress(0);
   }, [updatePhoto]);
+  
+  // Assign ref for recovery callback (avoids stale closure in useCollageState callback)
+  processSmartCropsRef.current = processSmartCrops;
 
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);

@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Loader2 } from 'lucide-react';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getEditorInitialCrop } from '@/lib/cropUtils';
 
@@ -20,6 +20,32 @@ interface CropEditorProps {
  * All crop coordinates are in original image pixels.
  */
 export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps) {
+  // Guard against 0 dimensions - show loading state instead of invalid SVG
+  if (photo.originalWidth === 0 || photo.originalHeight === 0) {
+    return (
+      <Dialog open={true} onOpenChange={() => onClose()}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Image Loading...</DialogTitle>
+            <DialogDescription>
+              Please wait while the image dimensions are being loaded.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center p-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+  
+  return <CropEditorInner photo={photo} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
+}
+
+/**
+ * Inner CropEditor component with all hooks - only rendered when dimensions are valid.
+ */
+function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   
   // Initialize crop from photo props on mount using centralized utility

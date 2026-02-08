@@ -354,7 +354,7 @@ export function calculateBelowRowCount(
   
   // === Combine constraints ===
   const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
-  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
+  const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
   
   // When randomizing, pick uniformly from valid range for variety
   let value: number;

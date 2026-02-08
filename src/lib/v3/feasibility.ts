@@ -8,7 +8,7 @@
 
 import { PhotoDimension, V3Tuning } from './types';
 import { devLogger } from '@/lib/devLogger';
-import { getEffectiveMinProminence } from './utils';
+import { getEffectiveMinProminence, getEffectiveMaxToSmallest, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
 
 /**
  * Check if ANY row configuration can satisfy BOTH prominence constraints.
@@ -55,8 +55,10 @@ export function canMeetProminenceConstraints(
   // Constraint 2: Maximum prominence (smallest cells)
   // heroAR × R² / avgBesideAR <= maxToSmallest
   // R <= sqrt(maxToSmallest × avgBesideAR / heroAR)
+  // Use effective threshold (relaxed for low photo counts)
+  const effectiveMaxToSmallest = getEffectiveMaxToSmallest(contentCount, tuning);
   const maxRowsForSmallest = Math.floor(
-    Math.sqrt((tuning.hero_maxToSmallest * avgBesideAR) / heroAR)
+    Math.sqrt((effectiveMaxToSmallest * avgBesideAR) / heroAR)
   );
   
   // Physical limits
@@ -152,15 +154,17 @@ export function canBesideCountMeetCanvasAR(
   }
   
   // No BELOW photos or no height needed → use original check
+  // Use effective canvas AR bounds (relaxed for low photo counts)
+  const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
   const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
-  const feasible = bestCaseAR <= tuning.canvas_maxAR * 1.1;
+  const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
   
   if (!feasible) {
     devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
       besideCount: besidePhotos.length,
       minHeroRowWidth: minHeroRowWidth.toFixed(2),
       bestCaseAR: bestCaseAR.toFixed(2),
-      maxAR: tuning.canvas_maxAR,
+      maxAR: effectiveMaxAR,
     });
   }
   
@@ -194,6 +198,10 @@ export function calculateBesideCountRange(
   // For narrow heroes with many photos, we may need beside width to avoid too-tall canvas
   let minBeside = 0;
   
+  // Get effective canvas AR bounds (relaxed for low photo counts)
+  const effectiveMinAR = getEffectiveCanvasMinAR(totalContentCount, tuning);
+  const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
+  
   if (heroAR < 1.0 && totalContentCount > 10) {
     // Estimate: with 0 beside, how tall would canvas be?
     // belowHeight ≈ sqrt(totalContentCount × avgContentAR / heroAR)
@@ -201,10 +209,10 @@ export function calculateBesideCountRange(
     const estimatedTotalHeight = 1.0 + normalizedGap + estimatedBelowHeight + 2 * normalizedGap;
     const estimatedCanvasAR = (heroAR + 2 * normalizedGap) / estimatedTotalHeight;
     
-    if (estimatedCanvasAR < tuning.canvas_minAR) {
+    if (estimatedCanvasAR < effectiveMinAR) {
       // Need wider canvas → need beside photos
       // Approximate: how much width do we need to add?
-      const targetWidth = tuning.canvas_minAR * estimatedTotalHeight;
+      const targetWidth = effectiveMinAR * estimatedTotalHeight;
       const widthNeeded = targetWidth - heroAR - 2 * normalizedGap;
       
       // Width from beside ≈ besideCount × avgContentAR / besideRows
@@ -223,7 +231,7 @@ export function calculateBesideCountRange(
   // canvasAR ≤ canvas_maxAR → canvasWidth ≤ canvas_maxAR × minHeight
   // minHeight = 1.0 + 2*gap (hero row + borders, no BELOW)
   const minCanvasHeight = 1.0 + 2 * normalizedGap;
-  const maxCanvasWidth = tuning.canvas_maxAR * minCanvasHeight;
+  const maxCanvasWidth = effectiveMaxAR * minCanvasHeight;
   const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
   const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
   

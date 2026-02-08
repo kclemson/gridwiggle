@@ -20,7 +20,7 @@ import {
 } from './types';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findValidRegionAssignment, RejectedPack } from './region-search';
-import { calculateContentStats, coefficientOfVariation } from './utils';
+import { calculateContentStats, coefficientOfVariation, getEffectiveMinProminence, getEffectiveMaxToSmallest, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
 import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
 
@@ -277,6 +277,10 @@ function evaluateNormalizedProposal(
   // Validate canvas AR (with epsilon tolerance for floating-point precision)
   const AR_EPSILON = 0.01;
   
+  // Get effective canvas AR bounds (relaxed for low photo counts)
+  const effectiveMinAR = getEffectiveCanvasMinAR(contentPhotos.length, tuning);
+  const effectiveMaxAR = getEffectiveCanvasMaxAR(contentPhotos.length, tuning);
+  
   // Helper to compute cells for rejected layout capture (uses top-left as default position)
   const computeRejectedCells = () => convertToNormalized(
     heroPhoto,
@@ -289,11 +293,11 @@ function evaluateNormalizedProposal(
     normalizedWidth
   );
   
-  if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
+  if (canvasAR < effectiveMinAR - AR_EPSILON) {
     const rejectedCells = computeRejectedCells();
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
-      allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+      allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
       besideCount,
       besideRowCount,
       belowRowCount,
@@ -313,11 +317,11 @@ function evaluateNormalizedProposal(
     return null;
   }
   
-  if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+  if (canvasAR > effectiveMaxAR + AR_EPSILON) {
     const rejectedCells = computeRejectedCells();
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
-      allowed: `${tuning.canvas_minAR.toFixed(2)} - ${tuning.canvas_maxAR.toFixed(2)}`,
+      allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
       besideCount,
       besideRowCount,
       belowRowCount,
@@ -372,7 +376,9 @@ function evaluateNormalizedProposal(
   }
   
   // Validate hero-to-smallest ratio (prevent tiny content cells)
-  const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, tuning);
+  // Use effective limit (relaxed for low photo counts)
+  const effectiveMaxToSmallest = getEffectiveMaxToSmallest(contentPhotos.length, tuning);
+  const smallestCheck = validateSmallestCellRatio(heroArea, contentAreas, effectiveMaxToSmallest);
   
   if (!smallestCheck.valid) {
     const rejectedCells = computeRejectedCells();
@@ -381,7 +387,7 @@ function evaluateNormalizedProposal(
     const smallestAreas = sortedAreas.slice(0, 3).map(a => +a.toFixed(4));
     const details = { 
       ratio: +smallestCheck.ratio.toFixed(1), 
-      maxAllowed: tuning.hero_maxToSmallest,
+      maxAllowed: effectiveMaxToSmallest,
       heroArea: +heroArea.toFixed(3),
       smallestAreas,
       besideCount,

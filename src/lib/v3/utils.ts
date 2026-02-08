@@ -24,6 +24,49 @@ export function getEffectiveMinProminence(
   }
   return tuning.hero_minProminence;
 }
+
+/**
+ * Calculate effective hero_maxToSmallest based on content count.
+ * Returns HIGHER threshold (more permissive) for low photo counts.
+ */
+export function getEffectiveMaxToSmallest(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    // Divide by multiplier to RAISE the limit (more permissive)
+    return tuning.hero_maxToSmallest / tuning.hero_lowCountMultiplier;
+  }
+  return tuning.hero_maxToSmallest;
+}
+
+/**
+ * Calculate effective canvas_minAR based on content count.
+ * Returns LOWER threshold (more permissive) for low photo counts.
+ */
+export function getEffectiveCanvasMinAR(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    return tuning.canvas_minAR * tuning.hero_lowCountMultiplier;
+  }
+  return tuning.canvas_minAR;
+}
+
+/**
+ * Calculate effective canvas_maxAR based on content count.
+ * Returns HIGHER threshold (more permissive) for low photo counts.
+ */
+export function getEffectiveCanvasMaxAR(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    return tuning.canvas_maxAR / tuning.hero_lowCountMultiplier;
+  }
+  return tuning.canvas_maxAR;
+}
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================

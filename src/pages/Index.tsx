@@ -81,6 +81,9 @@ export default function Index() {
     return saved !== null ? saved === 'true' : false;
   });
 
+  // Derived: count of photos that are fully loaded (have dimensions)
+  const readyPhotos = state.photos.filter(p => p.originalWidth > 0 && p.originalHeight > 0).length;
+  
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
   photosRef.current = state.photos;
@@ -712,7 +715,7 @@ export default function Index() {
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                ) : rejectedLayout ? (
+                ) : rejectedLayout && readyPhotos >= 2 ? (
                   // REJECTION: Show failed layout with diagnostics
                   <>
                     <CollageHeader
@@ -756,7 +759,7 @@ export default function Index() {
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                ) : layoutError ? (
+                ) : layoutError && readyPhotos >= 2 ? (
                   // FALLBACK: No geometry available - text error only
                   <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
                     <div className="flex items-center gap-2 text-muted-foreground">

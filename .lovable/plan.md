@@ -1,172 +1,310 @@
 
-# Hero Prominence Slider: Relative Resize Without Repacking
+# Hero Resize: Normalized Layout as Source of Truth
 
-## What Users Want
+## Design Intent
 
-The slider should make the **hero bigger relative to the other photos** — the hero takes up more canvas real estate while the other photos shrink to accommodate. This is different from uniform zooming (which was previously implemented).
+Instead of storing pixel coordinates and running a full re-pack when the user drags the hero slider, we store the layout in **normalized space** and compute pixel coordinates on-demand. When the slider changes the hero scale, we reflow the normalized math and re-derive pixels — no search, no shuffling.
 
-## The Core Insight
+## User Outcome
 
-The V3 layout engine already has a parameter for this: `hero_targetProminence` in the tuning config. Currently it defaults to `1.5` (hero area = 1.5× content area). Adjusting this parameter and re-running the layout algorithm with the **same photo order** (no shuffle) achieves exactly what you want.
-
-### Why Not Just Scale Coordinates?
-
-- Uniform scaling makes everything bigger/smaller together — the hero doesn't become *relatively* more prominent
-- To increase hero's relative size, the content photos need to pack into smaller space
-- This requires actual re-packing, not just multiplication
-
-### Why This Approach Works
-
-1. The layout algorithm preserves photo order when `randomize=false`
-2. Increasing `hero_targetProminence` makes the hero take more canvas area
-3. Content photos are packed into the remaining space (smaller)
-4. The hero position and decomposition mode stay the same — no shuffle
+- Drag hero slider → hero grows/shrinks relative to content
+- **Same photos** in same positions (BESIDE vs BELOW)
+- **Same row assignments** — only dimensions change
+- Smooth, instant feedback (no async worker call)
+- Export uses the scaled dimensions
 
 ---
 
-## Technical Implementation
+## Core Insight: What "Hero Scale" Changes
 
-### 1. Replace Hero Scale with Prominence Scale
+In normalized space, the hero's "size" is determined by its **aspect ratio**:
 
-**File: `src/pages/Index.tsx`**
-
-Replace the uniform scaling approach with prominence-based regeneration:
-
-```typescript
-// Hero prominence scale factor (1.0 = default tuning, 0.7-1.3 range)
-const [heroProminence, setHeroProminence] = useState(1.0);
-
-// When slider drags: live preview by immediately regenerating layout
-// When slider releases: commit the current layout
-
-// No need for scaledLayout computation — just regenerate with modified tuning
-const handleHeroProminenceChange = useCallback((prominence: number) => {
-  setHeroProminence(prominence);
-  
-  // Regenerate with modified prominence — no shuffle, same photo order
-  const modifiedTuning = {
-    ...v3Tuning,
-    hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
-  };
-  
-  regenerateCollage({ 
-    randomize: false,  // Critical: preserve photo order
-    v3Tuning: modifiedTuning,
-  });
-}, [v3Tuning, regenerateCollage]);
-
-const handleHeroProminenceCommit = useCallback(() => {
-  // Just update v3Tuning state to persist the prominence
-  setV3Tuning(prev => ({
-    ...prev,
-    hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * heroProminence,
-  }));
-  setHeroProminence(1.0);  // Reset slider to new baseline
-}, [heroProminence]);
+```text
+heroWidth = heroAR × heroHeight  (where heroHeight = 1.0)
 ```
 
-### 2. Update the Slider Component
+**Scaling the hero** = changing its effective AR:
 
-**File: `src/components/HeroScaleSlider.tsx`**
+```text
+scaledHeroAR = heroAR × heroScale
+```
 
-Rename to `HeroProminenceSlider` and update the UI to communicate the relative nature:
+This changes:
+1. Hero row width = `scaledHeroAR + gap + besideWidth`
+2. BELOW packs to new width → different row heights
+3. Canvas height = 1 + gap + newBelowHeight
+
+But **photo assignments don't change** — same photos in BESIDE, same in BELOW.
+
+---
+
+## Architecture Change
+
+### Before (Current)
+```text
+┌─────────────────────────────────────────────────┐
+│ Layout Worker                                   │
+│  ├── findValidConfiguration (search + pack)    │
+│  └── return pixelCells, pixelWidth, pixelHeight │
+└─────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────┐
+│ CollageLayout (stored in state)                 │
+│  width: 1234px, height: 567px                   │
+│  cells: [{ x: 12px, y: 34px, ... }]            │
+└─────────────────────────────────────────────────┘
+```
+
+### After (New)
+```text
+┌─────────────────────────────────────────────────┐
+│ Layout Worker                                   │
+│  ├── findValidConfiguration (search + pack)    │
+│  └── return normalizedLayout + pixelScale      │
+└─────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────┐
+│ NormalizedLayout (stored in state)              │
+│  normalizedWidth: 1.234                         │
+│  normalizedHeight: 0.567                        │
+│  normalizedCells: [{ x: 0.012, y: 0.034, ... }]│
+│  metadata: {                                    │
+│    heroId, heroPosition, normalizedGap,         │
+│    besidePhotoIds, belowPhotoIds,               │
+│    besideRowCount, belowRowCount               │
+│  }                                              │
+└─────────────────────────────────────────────────┘
+         ↓ (on-demand)
+┌─────────────────────────────────────────────────┐
+│ Pixel Conversion (useMemo or function)          │
+│  pixelScale = 1000 (or derived from container) │
+│  pixelCells = normalizedCells × pixelScale     │
+└─────────────────────────────────────────────────┘
+```
+
+---
+
+## The Reflow Function
+
+When hero scale changes, we **reflow** using stored metadata:
 
 ```typescript
-/**
- * Slider for adjusting hero prominence (relative size).
- * Range: 70% to 130% — makes hero bigger/smaller relative to other photos.
- */
-export function HeroProminenceSlider({ 
-  value, 
-  onChange, 
-  onCommit,
-  disabled = false,
-}: HeroProminenceSliderProps) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-sm text-muted-foreground">Hero</span>
-      <Slider
-        value={[value * 100]}
-        onValueChange={([v]) => onChange(v / 100)}
-        onValueCommit={([v]) => onCommit?.(v / 100)}
-        min={70}
-        max={130}
-        step={5}
-        disabled={disabled}
-        className="w-20 [&>span:first-child]:bg-muted-foreground/30"
-      />
-      <span className="text-xs text-muted-foreground tabular-nums w-8">
-        {Math.round(value * 100)}%
-      </span>
-    </div>
+function reflowWithHeroScale(
+  photos: PhotoDimension[],
+  metadata: LayoutMetadata,
+  heroScale: number,
+  normalizedGap: number,
+  tuning: V3Tuning
+): NormalizedLayout {
+  // 1. Find hero and compute scaled AR
+  const heroPhoto = photos.find(p => p.id === metadata.heroId);
+  const scaledHeroAR = heroPhoto.aspectRatio * heroScale;
+  
+  // 2. Get BESIDE photos in stored order
+  const besidePhotos = metadata.besidePhotoIds
+    .map(id => photos.find(p => p.id === id))
+    .filter(Boolean);
+  
+  // 3. Get BELOW photos in stored order  
+  const belowPhotos = metadata.belowPhotoIds
+    .map(id => photos.find(p => p.id === id))
+    .filter(Boolean);
+  
+  // 4. Repack BESIDE at height=1 with SAME row count
+  const besideResult = packToFillHeight(
+    besidePhotos,
+    1.0,
+    normalizedGap,
+    metadata.besideRowCount,  // Preserved!
+    tuning,
+    false  // No shuffle
   );
+  
+  // 5. Compute new hero row width
+  const heroRowWidth = scaledHeroAR + 
+    (besidePhotos.length > 0 ? normalizedGap + besideResult.width : 0);
+  
+  // 6. Repack BELOW at new width with SAME row count
+  const belowResult = packToFillWidth(
+    belowPhotos,
+    heroRowWidth,
+    normalizedGap,
+    metadata.belowRowCount,  // Preserved!
+    tuning,
+    false  // No shuffle
+  );
+  
+  // 7. Convert to normalized cells
+  const cells = convertToNormalized(
+    heroPhoto,
+    metadata.heroPosition,
+    scaledHeroAR,
+    besideResult.cells,
+    belowResult.cells,
+    belowResult.height,
+    normalizedGap,
+    heroRowWidth
+  );
+  
+  return {
+    normalizedWidth: heroRowWidth + 2 * normalizedGap,
+    normalizedHeight: 1.0 + normalizedGap + belowResult.height + 2 * normalizedGap,
+    normalizedCells: cells,
+    metadata: { ...metadata }, // Unchanged
+  };
 }
 ```
 
-### 3. Wire Up in CollageSettings
+---
 
-**File: `src/components/CollageSettings.tsx`**
+## Key Properties
 
-Pass the prominence callbacks:
+| Property | Preserved | Changes |
+|----------|-----------|---------|
+| BESIDE photo IDs | Yes | No |
+| BELOW photo IDs | Yes | No |
+| BESIDE row count | Yes | No |
+| BELOW row count | Yes | No |
+| Hero position (corner) | Yes | No |
+| Hero width | No | Scales with slider |
+| BESIDE region width | No | Adjusts to fill height=1 |
+| BELOW row heights | No | Adjusts to fill new width |
+| Canvas aspect ratio | No | Derived from new geometry |
+
+---
+
+## Data Model Changes
+
+### `CollageLayout` (src/types/collage.ts)
+
+Add normalized layout storage:
 
 ```typescript
-<HeroProminenceSlider
-  value={heroProminence}
-  onChange={onHeroProminenceChange}
-  onCommit={onHeroProminenceCommit}
-  disabled={!hasHero}
-/>
+interface NormalizedLayout {
+  /** Canvas width in normalized units (hero height = 1) */
+  normalizedWidth: number;
+  /** Canvas height in normalized units */
+  normalizedHeight: number;
+  /** Cells in normalized coordinates */
+  normalizedCells: NormalizedCell[];
+  /** Layout topology for reflow */
+  metadata: LayoutMetadata;
+}
+
+interface LayoutMetadata {
+  heroId: string | null;
+  heroPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  normalizedGap: number;
+  besidePhotoIds: string[];
+  belowPhotoIds: string[];
+  besideRowCount: number;
+  belowRowCount: number;
+}
+
+/** Extend existing CollageLayout */
+interface CollageLayout {
+  width: number;
+  height: number;
+  cells: CollageCell[];
+  /** Normalized layout for reflow operations */
+  normalized?: NormalizedLayout;
+}
 ```
 
-### 4. Remove Unused `scaledLayout` Logic
+### Worker Response Changes
 
-**File: `src/pages/Index.tsx`**
+The worker already returns normalized cells internally — we just expose them:
 
-Delete the `scaledLayout` useMemo and the old uniform-scale commit handler. Pass `state.layout` directly to `CollagePreview`.
-
----
-
-## Why This Works
-
-| Slider Value | `hero_targetProminence` | Effect |
-|--------------|------------------------|--------|
-| 70% | 1.05 | Hero is 30% smaller relative to content |
-| 100% | 1.50 (default) | Default hero prominence |
-| 130% | 1.95 | Hero is 30% larger relative to content |
-
-The algorithm:
-1. Receives modified prominence parameter
-2. Sizes hero based on content area × prominence
-3. Packs content into remaining regions
-4. Hero becomes more/less prominent without shuffling
+```typescript
+interface LayoutResponse {
+  // ... existing fields
+  normalized?: {
+    width: number;
+    height: number;
+    cells: NormalizedCell[];
+    metadata: LayoutMetadata;
+  };
+}
+```
 
 ---
 
-## User Experience
+## Implementation Steps
 
-1. Upload photos → mark one as hero
-2. See "Hero" slider in settings bar
-3. Drag slider → layout regenerates instantly with different hero/content ratio
-4. Release slider → prominence is committed
-5. Export reflects the adjusted prominence
+### 1. Add Types (src/types/collage.ts)
+- Add `NormalizedLayout`, `LayoutMetadata` interfaces
+- Extend `CollageLayout` with optional `normalized` field
+
+### 2. Capture Metadata in intersection.ts
+- In `evaluateNormalizedProposal`, construct and return `LayoutMetadata`
+- Include heroId, position, gap, photo ID lists, row counts
+
+### 3. Return Normalized Data from Worker
+- In `layoutWorker.ts`, include `normalized` in response
+- Store both normalized and pixel versions
+
+### 4. Create Reflow Function (src/lib/v3/reflow.ts)
+- `reflowWithHeroScale(photos, metadata, heroScale, gap, tuning)`
+- Uses stored row counts — deterministic, no search
+- Returns new `NormalizedLayout`
+
+### 5. Update Index.tsx
+- Store `normalized` from layout response
+- On slider drag: call synchronous `reflowWithHeroScale`
+- Convert to pixels for display using `VIRTUAL_CANVAS_BASE`
+- On slider commit: persist the new normalized layout
+
+### 6. Update CollagePreview/Export
+- Use pixel coordinates as before (derived from normalized × scale)
 
 ---
 
-## Files Modified
+## Files to Modify
 
-| File | Change |
-|------|--------|
-| `src/components/HeroScaleSlider.tsx` | Rename to `HeroProminenceSlider`, update labels |
-| `src/components/CollageSettings.tsx` | Use new component and props |
-| `src/pages/Index.tsx` | Replace scale logic with prominence-based regeneration |
+| File | Changes |
+|------|---------|
+| `src/types/collage.ts` | Add `NormalizedLayout`, `LayoutMetadata` |
+| `src/lib/v3/types.ts` | Add/export metadata types if needed |
+| `src/lib/v3/intersection.ts` | Return metadata from `evaluateNormalizedProposal` |
+| `src/lib/v3/reflow.ts` | **NEW** — Reflow function |
+| `src/workers/layoutWorker.ts` | Return normalized layout + metadata |
+| `src/services/layoutGenerationService.ts` | Pass through normalized data |
+| `src/pages/Index.tsx` | Use synchronous reflow for hero slider |
+| `src/components/HeroProminenceSlider.tsx` | Update to hero scale semantics |
 
 ---
 
-## Performance Note
+## Performance Characteristics
 
-Regenerating on every drag step might feel laggy for complex layouts. If that becomes an issue, we can:
-1. Debounce the regeneration (e.g., 100ms)
-2. Show "updating..." feedback during drag
-3. Only regenerate on commit (loses live preview)
+| Operation | Current | After |
+|-----------|---------|-------|
+| Initial layout | ~10-50ms (worker) | ~10-50ms (worker) — unchanged |
+| Hero slider drag | ~10-50ms (worker, async) | **~0.5-2ms (sync, reflow only)** |
+| Photo swap | Uses existing reflow | Uses existing reflow |
 
-For now, let's try immediate regeneration since V3 is fast (~10-50ms).
+The slider becomes **dramatically more responsive** because we skip:
+- Worker message overhead
+- Constraint search (region assignment)
+- Random row count selection
+- All validation checks (topology is pre-validated)
+
+---
+
+## Edge Cases
+
+1. **No hero**: Metadata has `heroId: null`, slider is disabled — no change needed
+2. **Hero changed**: Full regeneration (new search) — metadata invalidated
+3. **Photo removed**: Full regeneration — metadata invalidated
+4. **Old layouts without metadata**: Fall back to current regeneration behavior
+5. **Extreme scales**: May violate canvas AR bounds — show as soft rejection
+
+---
+
+## Visual Behavior
+
+1. Generate collage → normalized layout stored with metadata
+2. Drag hero slider → `reflowWithHeroScale` called synchronously
+3. Hero grows/shrinks → BESIDE/BELOW adjust instantly
+4. **No shuffle** — same photos, same order, just different sizes
+5. Release slider → normalized layout committed to state
+6. Export uses pixel dimensions derived from normalized × 1000

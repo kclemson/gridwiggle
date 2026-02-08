@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
   photos: PhotoItem[];
-  currentIndex: number;
   onSelect: (photoId: string) => void;
   onClose: () => void;
   onSmartCrop?: (photoId: string) => void;
@@ -24,7 +23,6 @@ const MIN_THUMBNAIL_WIDTH = 50; // px
 
 export function ThumbnailNavigator({
   photos,
-  currentIndex,
   onSelect,
   onClose,
   onSmartCrop,
@@ -107,7 +105,6 @@ export function ThumbnailNavigator({
           <div className="flex flex-wrap gap-2 justify-start">
             {photos.map((photo, index) => {
               const isLoaded = loadedIds.has(photo.id);
-              const isSelected = index === currentIndex;
               const isHero = photo.priority === 1;
               const crop = getDisplayCrop(photo);
               const hasSmartCrop = photo.smartCrop !== null;
@@ -133,8 +130,7 @@ export function ThumbnailNavigator({
                     onClick={() => handleSelect(photo.id)}
                     className={cn(
                       "relative transition-all overflow-hidden rounded",
-                      "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-                      isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+                      "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
                     )}
                     style={{ 
                       height: THUMBNAIL_HEIGHT,

@@ -815,7 +815,6 @@ export default function Index() {
       {navigatorOpen && (
         <ThumbnailNavigator
           photos={state.photos}
-          currentIndex={0}
           onSelect={(photoId) => {
             // Open crop editor on top of navigator - Cancel returns here
             setEditingPhotoId(photoId);

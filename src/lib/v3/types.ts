@@ -224,6 +224,8 @@ export interface RegionAssignment {
   besideRowCount: number;
   belowRowCount: number;
   score: number;
+  /** Soft rejection info - layout is valid but outside aesthetic bounds */
+  softRejection?: { reason: string; details: Record<string, unknown> };
 }
 
 // ============================================================================

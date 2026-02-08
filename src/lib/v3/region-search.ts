@@ -176,22 +176,32 @@ export function findValidRegionAssignment(
       const effectiveMinARNoBeside = getEffectiveCanvasMinAR(photos.length, tuning);
       const effectiveMaxARNoBeside = getEffectiveCanvasMaxAR(photos.length, tuning);
       
+      // Canvas AR check - soft rejection (layout is valid, just outside aesthetic bounds)
+      let softRejectionNoBeside: { reason: string; details: Record<string, unknown> } | undefined;
       const AR_EPSILON = 0.01;
-      if (canvasAR < effectiveMinARNoBeside - AR_EPSILON || canvasAR > effectiveMaxARNoBeside + AR_EPSILON) {
-        // Capture rejected pack for visualization
-        lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, heroPhotoId, null, belowResult, normalizedGap),
-          canvasWidth: normalizedWidthWithBorder,
-          canvasHeight: normalizedHeightWithBorder,
-          reason: canvasAR < effectiveMinARNoBeside ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: 0, besideRowCount: `0 (${minBeside}-${maxBeside})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
+      
+      if (canvasAR < effectiveMinARNoBeside - AR_EPSILON) {
+        softRejectionNoBeside = {
+          reason: 'canvas_too_tall',
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}` },
         };
-        devLogger.warn('region-reject', 'Canvas AR out of range (no BESIDE)', {
+        devLogger.warn('region', 'Canvas AR below minimum - soft rejection (no BESIDE)', {
           besideCount: 0,
           canvasAR: canvasAR.toFixed(2),
           allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
         });
-        continue;
+        // Continue processing - don't skip
+      } else if (canvasAR > effectiveMaxARNoBeside + AR_EPSILON) {
+        softRejectionNoBeside = {
+          reason: 'canvas_too_wide',
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}` },
+        };
+        devLogger.warn('region', 'Canvas AR above maximum - soft rejection (no BESIDE)', {
+          besideCount: 0,
+          canvasAR: canvasAR.toFixed(2),
+          allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
+        });
+        // Continue processing - don't skip
       }
       
       // Check prominence before accepting this split
@@ -231,6 +241,7 @@ export function findValidRegionAssignment(
         belowHeight: belowResult.height.toFixed(2),
         canvasAR: canvasAR.toFixed(2),
         score: score.toFixed(3),
+        softRejection: softRejectionNoBeside?.reason,
       });
       
       validRegionAssignments.push({
@@ -239,6 +250,7 @@ export function findValidRegionAssignment(
         besideRowCount: 0,
         belowRowCount,
         score,
+        softRejection: softRejectionNoBeside,
       });
       continue;
     }
@@ -291,23 +303,34 @@ export function findValidRegionAssignment(
       const effectiveMinAR = getEffectiveCanvasMinAR(photos.length, tuning);
       const effectiveMaxAR = getEffectiveCanvasMaxAR(photos.length, tuning);
       
+      // Canvas AR check - soft rejection (layout is valid, just outside aesthetic bounds)
+      let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
       const AR_EPSILON = 0.01;
-      if (canvasAR < effectiveMinAR - AR_EPSILON || canvasAR > effectiveMaxAR + AR_EPSILON) {
-        // Capture rejected pack for visualization
-        lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
-          canvasWidth: normalizedWidthWithBorder,
-          canvasHeight: normalizedHeightWithBorder,
-          reason: canvasAR < effectiveMinAR ? 'canvas_too_tall' : 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2) },
+      
+      if (canvasAR < effectiveMinAR - AR_EPSILON) {
+        softRejection = {
+          reason: 'canvas_too_tall',
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}` },
         };
-        devLogger.warn('region-reject', 'Canvas AR out of range', {
+        devLogger.warn('region', 'Canvas AR below minimum - soft rejection', {
           besideCount,
           besideRowCount,
           canvasAR: canvasAR.toFixed(2),
           allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
         });
-        continue;
+        // Continue processing - don't skip
+      } else if (canvasAR > effectiveMaxAR + AR_EPSILON) {
+        softRejection = {
+          reason: 'canvas_too_wide',
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}` },
+        };
+        devLogger.warn('region', 'Canvas AR above maximum - soft rejection', {
+          besideCount,
+          besideRowCount,
+          canvasAR: canvasAR.toFixed(2),
+          allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
+        });
+        // Continue processing - don't skip
       }
       
       // Check prominence before accepting this split
@@ -357,6 +380,7 @@ export function findValidRegionAssignment(
         canvasAR: canvasAR.toFixed(2),
         prominenceRatio: prominenceRatio.toFixed(2),
         score: score.toFixed(3),
+        softRejection: softRejection?.reason,
       });
       
       validRegionAssignments.push({
@@ -365,6 +389,7 @@ export function findValidRegionAssignment(
         besideRowCount,
         belowRowCount,
         score,
+        softRejection,
       });
       
       // Early exit for randomize mode - we don't need exhaustive search

@@ -345,3 +345,98 @@ function validateAndRedistribute(
   
   return result;
 }
+
+// ============================================================================
+// AR-Stratified Distribution
+// ============================================================================
+
+// AR bucket thresholds
+const AR_BUCKET_PORTRAIT = 0.8;
+const AR_BUCKET_LANDSCAPE = 1.25;
+
+type ARBucket = 'portrait' | 'square' | 'landscape';
+
+/**
+ * Classify a photo into an AR bucket.
+ */
+function getARBucket(ar: number): ARBucket {
+  if (ar < AR_BUCKET_PORTRAIT) return 'portrait';
+  if (ar > AR_BUCKET_LANDSCAPE) return 'landscape';
+  return 'square';
+}
+
+/**
+ * Distribute photos to two regions using stratified sampling by AR bucket.
+ * 
+ * Each region receives a proportional sample from each AR bucket,
+ * ensuring shape diversity rather than clustering all portraits together.
+ * 
+ * @param photos - All content photos (should already be ordered/shuffled)
+ * @param besideCount - Target number for BESIDE region
+ * @param randomize - Whether to shuffle within buckets
+ * @returns [besidePhotos, belowPhotos]
+ */
+export function stratifiedARDistribution(
+  photos: PhotoDimension[],
+  besideCount: number,
+  randomize: boolean
+): [PhotoDimension[], PhotoDimension[]] {
+  // Edge cases
+  if (besideCount <= 0) return [[], photos];
+  if (besideCount >= photos.length) return [photos, []];
+  
+  // Group photos by AR bucket
+  const buckets: Record<ARBucket, PhotoDimension[]> = {
+    portrait: [],
+    square: [],
+    landscape: [],
+  };
+  
+  for (const photo of photos) {
+    buckets[getARBucket(photo.aspectRatio)].push(photo);
+  }
+  
+  // Shuffle within buckets if randomizing
+  if (randomize) {
+    buckets.portrait = shuffleArray(buckets.portrait);
+    buckets.square = shuffleArray(buckets.square);
+    buckets.landscape = shuffleArray(buckets.landscape);
+  }
+  
+  // Calculate proportional allocation per bucket
+  const total = photos.length;
+  const besideFraction = besideCount / total;
+  
+  const besideFromPortrait = Math.round(buckets.portrait.length * besideFraction);
+  const besideFromSquare = Math.round(buckets.square.length * besideFraction);
+  // Remaining goes to landscape (adjusts for rounding)
+  let besideFromLandscape = besideCount - besideFromPortrait - besideFromSquare;
+  besideFromLandscape = Math.max(0, Math.min(besideFromLandscape, buckets.landscape.length));
+  
+  // Build arrays
+  const beside: PhotoDimension[] = [
+    ...buckets.portrait.slice(0, besideFromPortrait),
+    ...buckets.square.slice(0, besideFromSquare),
+    ...buckets.landscape.slice(0, besideFromLandscape),
+  ];
+  
+  const below: PhotoDimension[] = [
+    ...buckets.portrait.slice(besideFromPortrait),
+    ...buckets.square.slice(besideFromSquare),
+    ...buckets.landscape.slice(besideFromLandscape),
+  ];
+  
+  // Handle rounding errors
+  while (beside.length > besideCount && below.length < photos.length - besideCount) {
+    below.push(beside.pop()!);
+  }
+  while (beside.length < besideCount && below.length > 0) {
+    beside.push(below.shift()!);
+  }
+  
+  // Final shuffle to mix buckets within each region
+  const finalBeside = randomize ? shuffleArray(beside) : beside;
+  const finalBelow = randomize ? shuffleArray(below) : below;
+  
+  return [finalBeside, finalBelow];
+}

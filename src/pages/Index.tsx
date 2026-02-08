@@ -209,7 +209,7 @@ export default function Index() {
       // Populate debug logs from worker
       if (result.logs) {
         for (const log of result.logs) {
-          devLogger.log(log.category, log.label, log.data);
+          devLogger.log(log.category, log.label, log.data, log.level || 'info', log.rejectedLayout);
         }
       }
       

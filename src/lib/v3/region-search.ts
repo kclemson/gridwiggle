@@ -8,7 +8,7 @@
 import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray, coefficientOfVariation, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
+import { shuffleArray, coefficientOfVariation, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
 import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
@@ -110,9 +110,12 @@ export function findValidRegionAssignment(
   });
   
   for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
-    // Slice from ordered array (shuffled or sorted)
-    const besidePhotos = orderedPhotos.slice(0, besideCount);
-    const belowPhotos = orderedPhotos.slice(besideCount);
+    // Distribute using AR-stratified sampling (proportional from each AR bucket)
+    const [besidePhotos, belowPhotos] = stratifiedARDistribution(
+      orderedPhotos,
+      besideCount,
+      randomize
+    );
     
     // Early feasibility checks for beside configurations
     if (besideCount > 0) {

@@ -17,6 +17,7 @@ import { getDisplayCrop } from '@/lib/cropUtils';
 import { exportCollageAsPng, shareOrDownload } from '@/lib/exportCollage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { RejectionBadge } from '@/components/debug/RejectionBadge';
+import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
@@ -665,59 +666,15 @@ export default function Index() {
             {state.photos.length >= 2 && (
               <div className="relative">
                 <div className="space-y-2 pt-4 border-t border-border">
-                {!state.layout ? (
-                  // No layout yet - show error prompt if generation failed
-                  layoutError ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <AlertCircle className="h-5 w-5" />
-                        <span className="text-sm">{layoutError}</span>
-                      </div>
-                      <Button 
-                        variant="outline"
-                        size="sm"
-                        onClick={handleCreateCollage}
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Try Again
-                      </Button>
-                    </div>
-                  ) : null
-                ) : (
-                  // Layout exists - show collage preview with shuffle/download
+                {state.layout ? (
+                  // SUCCESS: Valid layout - show collage preview with shuffle/download
                   <>
-                    {/* Header row with title and action icons */}
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-                        Collage
-                      </h3>
-                      <div className="flex items-center gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8" 
-                          onClick={handleCreateCollage}
-                          disabled={isGenerating}
-                          title="Shuffle layout"
-                        >
-                          <RefreshCw className={cn("h-4 w-4", isGenerating && "animate-spin")} />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8" 
-                          onClick={handleExport}
-                          disabled={isExporting}
-                          title="Download PNG"
-                        >
-                          {isExporting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Download className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
+                    <CollageHeader
+                      onShuffle={handleCreateCollage}
+                      onDownload={handleExport}
+                      isShuffling={isGenerating}
+                      isDownloading={isExporting}
+                    />
                     
                     {exportError && (
                       <p className="text-sm text-destructive flex items-center gap-1 px-1">
@@ -745,71 +702,74 @@ export default function Index() {
                           <Loader2 className="h-8 w-8 animate-spin text-primary" />
                         </div>
                       )}
-                      
-                      {/* Error overlay - shown when layout generation fails */}
-                      {layoutError && !rejectedLayout && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl z-20">
-                          <p className="text-sm text-muted-foreground text-center mb-3 px-4">
-                            {layoutError}
-                          </p>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setLayoutError(null);
-                              regenerateCollage({ randomize: true });
-                            }}
-                          >
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Try Again
-                          </Button>
-                        </div>
-                      )}
                     </div>
                     
-                    {/* Rejected layout visualization - shown with real photos for subjective evaluation */}
-                    {layoutError && rejectedLayout && (
-                      <div className="relative">
-                        <div className="ring-4 ring-destructive rounded-lg overflow-hidden opacity-70">
-                          <CollagePreview
-                            photos={state.photos}
-                            layout={{
-                              width: rejectedLayout.canvasWidth,
-                              height: rejectedLayout.canvasHeight,
-                              cells: rejectedLayout.cells,
-                            }}
-                            gapColor={state.settings.gapColor}
-                            onSwapPhotos={() => {}} // Disabled for rejected
-                          />
-                        </div>
-                        <RejectionBadge 
-                          reason={rejectedLayout.reason} 
-                          details={rejectedLayout.details} 
-                        />
-                        <div className="mt-3 flex justify-center">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setLayoutError(null);
-                              setRejectedLayout(null);
-                              regenerateCollage({ randomize: true });
-                            }}
-                          >
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Try Again
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Configure - only shown when collage exists */}
                     <CollageSettings
                       settings={state.settings}
                       onUpdate={handleUpdateSettings}
                     />
                   </>
-                )}
+                ) : rejectedLayout ? (
+                  // REJECTION: Show failed layout with diagnostics
+                  <>
+                    <CollageHeader
+                      onShuffle={() => {
+                        setLayoutError(null);
+                        setRejectedLayout(null);
+                        regenerateCollage({ randomize: true });
+                      }}
+                      isShuffling={isGenerating}
+                      showDownload={false}
+                    />
+                    
+                    <div className="relative">
+                      <div className="ring-4 ring-destructive rounded-lg overflow-hidden opacity-70">
+                        <CollagePreview
+                          photos={state.photos}
+                          layout={{
+                            width: rejectedLayout.canvasWidth,
+                            height: rejectedLayout.canvasHeight,
+                            cells: rejectedLayout.cells,
+                          }}
+                          gapColor={state.settings.gapColor}
+                          onSwapPhotos={() => {}}
+                        />
+                      </div>
+                      <RejectionBadge 
+                        reason={rejectedLayout.reason} 
+                        details={rejectedLayout.details} 
+                      />
+                      
+                      {/* Generating overlay */}
+                      {isGenerating && (
+                        <div className="absolute inset-0 flex items-center justify-center z-10">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <CollageSettings
+                      settings={state.settings}
+                      onUpdate={handleUpdateSettings}
+                    />
+                  </>
+                ) : layoutError ? (
+                  // FALLBACK: No geometry available - text error only
+                  <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <AlertCircle className="h-5 w-5" />
+                      <span className="text-sm">{layoutError}</span>
+                    </div>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCreateCollage}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Try Again
+                    </Button>
+                  </div>
+                ) : null}
                 </div>
                 
                 {/* Dev-only Debug Panel - positioned next to collage */}

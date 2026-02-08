@@ -1,18 +1,19 @@
 import { Slider } from '@/components/ui/slider';
 
 interface HeroProminenceSliderProps {
-  /** Current prominence factor (1.0 = default) */
+  /** Current scale factor (1.0 = default) */
   value: number;
   /** Called on every drag movement for live preview */
-  onChange: (prominence: number) => void;
-  /** Called when user releases slider - commit the prominence */
-  onCommit?: (prominence: number) => void;
+  onChange: (scale: number) => void;
+  /** Called when user releases slider - commit the scale */
+  onCommit?: (scale: number) => void;
   disabled?: boolean;
 }
 
 /**
- * Slider for adjusting hero prominence (relative size).
+ * Slider for adjusting hero scale (relative size).
  * Range: 70% to 130% — makes hero bigger/smaller relative to other photos.
+ * Now uses synchronous reflow for instant feedback.
  */
 export function HeroProminenceSlider({ 
   value, 

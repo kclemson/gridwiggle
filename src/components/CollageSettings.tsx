@@ -5,12 +5,12 @@ import { HeroProminenceSlider } from '@/components/HeroProminenceSlider';
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
-  /** Hero prominence factor for live adjustment (1.0 = default) */
-  heroProminence?: number;
+  /** Hero scale factor for live adjustment (1.0 = default) */
+  heroScale?: number;
   /** Called on every slider drag for live preview */
-  onHeroProminenceChange?: (prominence: number) => void;
-  /** Called when user releases slider - commit the prominence */
-  onHeroProminenceCommit?: (prominence: number) => void;
+  onHeroScaleChange?: (scale: number) => void;
+  /** Called when user releases slider - commit the scale */
+  onHeroScaleCommit?: (scale: number) => void;
   /** Whether a hero photo exists in the current layout */
   hasHero?: boolean;
 }
@@ -18,9 +18,9 @@ interface CollageSettingsProps {
 export function CollageSettings({ 
   settings, 
   onUpdate,
-  heroProminence,
-  onHeroProminenceChange,
-  onHeroProminenceCommit,
+  heroScale,
+  onHeroScaleChange,
+  onHeroScaleCommit,
   hasHero = false,
 }: CollageSettingsProps) {
   return (
@@ -37,12 +37,12 @@ export function CollageSettings({
         />
       </div>
       
-      {/* Hero prominence - only shown when hero exists */}
-      {hasHero && heroProminence !== undefined && onHeroProminenceChange && (
+      {/* Hero scale - only shown when hero exists */}
+      {hasHero && heroScale !== undefined && onHeroScaleChange && (
         <HeroProminenceSlider
-          value={heroProminence}
-          onChange={onHeroProminenceChange}
-          onCommit={onHeroProminenceCommit}
+          value={heroScale}
+          onChange={onHeroScaleChange}
+          onCommit={onHeroScaleCommit}
         />
       )}
       

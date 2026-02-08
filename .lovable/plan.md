@@ -1,82 +1,67 @@
 
-# Fix: Rejection UI Not Rendering
+
+# Fix: Rejection UI Should Check for Ready Photos
 
 ## Problem
 
-The rejection visualization (red ring + RejectionBadge) never appears when:
-1. A previous layout generation succeeded (so `state.layout` is truthy)
-2. A new generation attempt fails with a `rejectedLayout`
+The rejection UI renders whenever `rejectedLayout` is truthy, but it doesn't verify that photos are actually ready. When you:
 
-The render logic at line 669 is:
-```tsx
-{state.layout ? <CollagePreview> : rejectedLayout ? <RejectionUI> : ...}
-```
+1. Clear all photos (or start fresh)
+2. Select 20 new photos to upload
 
-Since `state.layout` remains truthy, the rejection branch is never reached.
+The old `rejectedLayout` from the previous session is still in local state, and since `state.layout` is null (cleared), the UI immediately shows the stale rejection overlay — even though "0 of 20 photos ready."
 
 ## Solution
 
-When we have a rejected layout geometry to visualize, **clear `state.layout`** so the rejection UI can render.
+Add a simple guard: only show the rejection UI if there are actually **ready photos** (photos with dimensions loaded). If no photos are ready yet, the rejection state is stale and shouldn't be displayed.
 
-## File Change
+## Technical Change
 
-**`src/pages/Index.tsx`** - Lines 260-285
+**`src/pages/Index.tsx`** — Line 715
 
 Current:
-```typescript
-if (result.rejectedLayout) {
-  const SCALE = 1000;
-  setRejectedLayout({
-    cells: result.rejectedLayout.cells.map(c => ({...})),
-    canvasWidth: Math.round(result.rejectedLayout.canvasWidth * SCALE),
-    canvasHeight: Math.round(result.rejectedLayout.canvasHeight * SCALE),
-    reason: result.rejectedLayout.reason,
-    details: result.rejectedLayout.details,
-  });
-} else {
-  setRejectedLayout(null);
-}
-
-if (state.layout) {
-  setLayoutError("Couldn't generate a new layout...");
-} else {
-  setLayout(null);
-  setLayoutError("Couldn't generate a layout...");
-}
+```tsx
+) : rejectedLayout ? (
 ```
 
 Fixed:
-```typescript
-if (result.rejectedLayout) {
-  const SCALE = 1000;
-  setRejectedLayout({
-    cells: result.rejectedLayout.cells.map(c => ({...})),
-    canvasWidth: Math.round(result.rejectedLayout.canvasWidth * SCALE),
-    canvasHeight: Math.round(result.rejectedLayout.canvasHeight * SCALE),
-    reason: result.rejectedLayout.reason,
-    details: result.rejectedLayout.details,
-  });
-  // Clear layout so rejection visualization renders
-  setLayout(null);
-  setLayoutError("Layout rejected. Try shuffling or adjusting photos.");
-} else {
-  setRejectedLayout(null);
-  if (state.layout) {
-    // No geometry to show - keep old layout with error message
-    setLayoutError("Couldn't generate a new layout. Try shuffling or adjusting photos.");
-  } else {
-    setLayout(null);
-    setLayoutError("Couldn't generate a layout with these photos.");
-  }
-}
+```tsx
+) : rejectedLayout && readyPhotos >= 2 ? (
 ```
 
-## Behavior After Fix
+Where `readyPhotos` is already computed (or add if not):
+```tsx
+const readyPhotos = state.photos.filter(p => p.originalWidth > 0).length;
+```
 
-| Scenario | Current | After Fix |
-|----------|---------|-----------|
-| First generation fails with geometry | Shows nothing | Red rejection UI |
-| Shuffle fails with geometry | Shows old layout | Red rejection UI |
-| Generation fails, no geometry | Shows error text | Same (no change) |
+## Why This Works
 
-The key insight: we only clear the layout when we have a rejected geometry to show. If generation fails without geometry data, we keep the old layout visible (better UX than blank screen).
+| Scenario | `rejectedLayout` | `readyPhotos` | Shows Rejection UI? |
+|----------|------------------|---------------|---------------------|
+| Fresh upload (0 ready) | truthy (stale) | 0 | No |
+| Mid-upload (5 of 20 ready) | truthy (stale) | 5 | No (< 2 is impossible, but still gated) |
+| All photos ready, gen failed | truthy (fresh) | 20 | Yes |
+| Clear all, old rejection | truthy (stale) | 0 | No |
+
+The rejection UI now "understands" the collage state: if photos aren't ready, any rejection is stale and shouldn't render.
+
+## Same Fix for `layoutError`
+
+Apply the same guard to the `layoutError` branch (line 759):
+
+Current:
+```tsx
+) : layoutError ? (
+```
+
+Fixed:
+```tsx
+) : layoutError && readyPhotos >= 2 ? (
+```
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/pages/Index.tsx` | Add `readyPhotos >= 2` guard to rejection and error UI branches |
+

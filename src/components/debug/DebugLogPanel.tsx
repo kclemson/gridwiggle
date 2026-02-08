@@ -6,9 +6,11 @@
  */
 
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import { LogEntry } from '@/lib/devLogger';
 import { extractReasonFrequencies } from '@/lib/v3CaptureStorage';
 import { cn } from '@/lib/utils';
+import { RejectedLayoutPreview } from './RejectedLayoutPreview';
 
 // Thresholds for efficiency indicators
 const LOG_THRESHOLDS = { good: 30, warn: 80 };
@@ -132,37 +134,62 @@ export function DebugLogPanel({
               const isReject = entry.level === 'warn' || entry.level === 'error' 
                 || entry.category.includes('reject');
               const isFeasibility = entry.category === 'feasibility';
+              const hasGeometry = !!entry.rejectedLayout;
+              
+              const categoryLabel = (
+                <div className="flex gap-1 min-w-0">
+                  <span className={cn(
+                    "shrink-0",
+                    isReject ? "text-red-500" 
+                      : isFeasibility ? "text-amber-500" 
+                      : "text-blue-500"
+                  )}>
+                    [{entry.category}]
+                  </span>
+                  <span className={cn(
+                    "break-words min-w-0",
+                    isReject ? "text-red-400" 
+                      : isFeasibility ? "text-amber-400" 
+                      : "text-foreground",
+                    hasGeometry && "underline decoration-dotted cursor-pointer"
+                  )}>
+                    {entry.label}
+                  </span>
+                </div>
+              );
+              
+              const dataDisplay = Object.keys(entry.data).length > 0 && (
+                <span className={cn(
+                  "break-all",
+                  isReject ? "text-red-400/70" 
+                    : isFeasibility ? "text-amber-400/70" 
+                    : "text-muted-foreground"
+                )}>
+                  {formatLogData(entry.data)}
+                </span>
+              );
+              
+              // Wrap in HoverCard if geometry is attached
+              if (hasGeometry) {
+                return (
+                  <HoverCard key={idx} openDelay={100} closeDelay={50}>
+                    <HoverCardTrigger asChild>
+                      <div className="grid grid-cols-[260px_1fr] gap-2 cursor-pointer">
+                        {categoryLabel}
+                        {dataDisplay}
+                      </div>
+                    </HoverCardTrigger>
+                    <HoverCardContent side="right" align="start" className="w-auto p-2">
+                      <RejectedLayoutPreview {...entry.rejectedLayout!} />
+                    </HoverCardContent>
+                  </HoverCard>
+                );
+              }
               
               return (
                 <div key={idx} className="grid grid-cols-[260px_1fr] gap-2">
-                  <div className="flex gap-1 min-w-0">
-                    <span className={cn(
-                      "shrink-0",
-                      isReject ? "text-red-500" 
-                        : isFeasibility ? "text-amber-500" 
-                        : "text-blue-500"
-                    )}>
-                      [{entry.category}]
-                    </span>
-                    <span className={cn(
-                      "break-words min-w-0",
-                      isReject ? "text-red-400" 
-                        : isFeasibility ? "text-amber-400" 
-                        : "text-foreground"
-                    )}>
-                      {entry.label}
-                    </span>
-                  </div>
-                  {Object.keys(entry.data).length > 0 && (
-                    <span className={cn(
-                      "break-all",
-                      isReject ? "text-red-400/70" 
-                        : isFeasibility ? "text-amber-400/70" 
-                        : "text-muted-foreground"
-                    )}>
-                      {formatLogData(entry.data)}
-                    </span>
-                  )}
+                  {categoryLabel}
+                  {dataDisplay}
                 </div>
               );
             })

@@ -89,6 +89,9 @@ export default function Index() {
   
   // Request ID for stale response detection (worker-based generation)
   const latestRequestIdRef = useRef(0);
+  
+  // Hidden file input ref for Add Photos button
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Options for regenerating the collage layout
   interface RegenerateOptions {
@@ -491,6 +494,37 @@ export default function Index() {
     regenerateCollage({ randomize: !wasLayoutEmpty });
   }, [addPhotos, processSmartCrops, loadDimensionsOnly, state.layout, regenerateCollage]);
 
+  // File input handler for Add Photos button (reuses handlePhotosAdded logic)
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    // Create minimal photo objects (same as PhotoUploader)
+    const photos: PhotoItem[] = Array.from(files).map((file) => {
+      const objectUrl = URL.createObjectURL(file);
+      return {
+        id: crypto.randomUUID(),
+        filename: file.name,
+        objectUrl,
+        blob: file,
+        originalWidth: 0,
+        originalHeight: 0,
+        smartCrop: null,
+        manualCrop: null,
+        isProcessing: true,
+        error: null,
+        priority: 3,
+        previewUrl: objectUrl,
+        previewBlob: file,
+      };
+    });
+    
+    handlePhotosAdded(photos);
+    
+    // Reset input so same file(s) can be selected again
+    e.target.value = '';
+  }, [handlePhotosAdded]);
+
   // Process smart crop for a single photo (mobile manual trigger)
   const handleSingleSmartCrop = useCallback(async (photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
@@ -613,25 +647,18 @@ export default function Index() {
               <span className="text-primary">wiggle</span>
             </h1>
 
-            {state.photos.length > 0 && (
-              <div className="flex items-center gap-2">
-                <PhotoUploader 
-                  onPhotosAdded={handlePhotosAdded}
-                  hasPhotos={true}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={clearAll}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Clear All
-                </Button>
-              </div>
-            )}
           </div>
         </header>
+        
+        {/* Hidden file input for Add Photos button */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
 
         <main className="py-3 space-y-4 px-4">
         {/* Upload prompt when no photos */}
@@ -676,6 +703,8 @@ export default function Index() {
                 photos={state.photos}
                 autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
                 onViewAll={() => setNavigatorOpen(true)}
+                onAddPhotos={() => fileInputRef.current?.click()}
+                onClearAll={clearAll}
                 onGenerate={handleCreateCollage}
                 showGenerateButton={!state.layout}
                 isGenerating={isGenerating}

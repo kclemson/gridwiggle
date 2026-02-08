@@ -1,17 +1,27 @@
 
-# iOS Safari Crash Fix: transformers.js v3 Memory Leak
+# Fix: Conditional iOS Safari WASM Configuration
 
-## Root Cause
+## The Problem
 
-This is a **known bug in `@huggingface/transformers` v3** (GitHub issue #1242). The math you questioned is correct - 85MB + 6MB should NOT exceed 150MB. 
+The iOS Safari fix broke desktop browsers. Here's why:
 
-The real issue: Safari's JavaScriptCore engine has a memory leak when running the default threaded WASM binaries (`ort-wasm-simd-threaded.jsep.wasm`). Memory balloons to 10+GB during model inference, and iOS kills the page at ~150-200MB.
+| Setting | iOS Safari Needs | Desktop Needs |
+|---------|------------------|---------------|
+| WASM binaries | Non-JSEP (avoids memory leak) | JSEP (enables WebGPU) |
+| Device | WASM only | WebGPU preferred |
+| Threads | Single (Safari bug) | Multi (performance) |
 
-Your version (`^3.8.1`) is affected. The issue was reported in March 2025 and remains open.
+We applied iOS settings globally, so desktop browsers:
+1. Try to use WebGPU (line 34: `device = hasWebGPU ? "webgpu" : "wasm"`)
+2. Fail because we forced non-JSEP binaries (WebGPU **requires** JSEP)
+3. Error: "Failed to initialize JSEP. The WebAssembly module is not built with JSEP support."
 
-## The Fix
+## The Solution
 
-Configure ONNX runtime to use single-threaded, non-JSEP WASM binaries before loading the model. This must be set in the worker before `pipeline()` is called.
+Make the ONNX configuration **conditional** based on browser detection:
+
+- **Safari**: Force WASM device + single-threaded + non-JSEP binaries
+- **Other browsers**: Use defaults (WebGPU if available, multi-threaded)
 
 ---
 
@@ -19,55 +29,76 @@ Configure ONNX runtime to use single-threaded, non-JSEP WASM binaries before loa
 
 ### File: `src/workers/visionWorker.ts`
 
-Add environment configuration at the top of the file, before the `loadModel()` function:
-
 ```typescript
 import { pipeline, RawImage, env } from "@huggingface/transformers";
 
-// Fix iOS Safari memory leak (GitHub issue #1242)
-// Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
-// Using single-threaded non-JSEP binaries fixes the crash
-env.backends.onnx.wasm.numThreads = 1;
-env.backends.onnx.wasm.wasmPaths = {
-  mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
-  wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
-};
+// Detect Safari (both iOS and macOS) - all Safari versions share the JavaScriptCore bug
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+if (isSafari) {
+  // Fix iOS Safari memory leak (GitHub issue #1242)
+  // Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
+  // Using single-threaded non-JSEP binaries fixes the crash
+  env.backends.onnx.wasm.numThreads = 1;
+  env.backends.onnx.wasm.wasmPaths = {
+    mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
+    wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;
 
-// ... rest of existing code unchanged
+async function loadModel() {
+  if (!detector) {
+    self.postMessage({ type: 'status', message: 'Loading AI model (first time only)...' });
+    
+    // Safari must use WASM (non-JSEP binaries don't support WebGPU)
+    // Other browsers can use WebGPU for better performance
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+    const device = isSafari ? "wasm" : (hasWebGPU ? "webgpu" : "wasm");
+    
+    detector = await pipeline(
+      "object-detection",
+      "Xenova/detr-resnet-50",
+      { device }
+    );
+  }
+  return detector;
+}
+
+// ... rest of file unchanged
 ```
 
-### Key Changes
+---
 
-| Setting | Before | After |
-|---------|--------|-------|
-| `numThreads` | Default (multi-threaded) | `1` (single-threaded) |
-| `wasmPaths` | Default (uses threaded.jsep) | Explicit non-JSEP binaries |
+## Key Changes
+
+| Line | Before | After |
+|------|--------|-------|
+| Top-level config | Always applies iOS fix | Only applies if Safari detected |
+| Device selection | `hasWebGPU ? "webgpu" : "wasm"` | Safari → always WASM; Others → WebGPU if available |
 
 ---
 
 ## Why This Works
 
-1. **Single-threaded execution** avoids the multi-threaded WASM bug in JavaScriptCore
-2. **Non-JSEP binaries** (`ort-wasm-simd-threaded.wasm`) are the "Option B" that was confirmed working in the GitHub issue
-3. **CDN-hosted binaries** ensure we get exactly the version that works (1.21.0)
+1. **Desktop Chrome/Firefox/Edge**: No config changes applied → uses default JSEP binaries → WebGPU works
+2. **Safari (iOS + macOS)**: Forced to WASM + non-JSEP binaries → no memory leak
+3. **No global side effects**: Each browser gets optimal settings for its engine
 
 ---
 
-## Trade-offs
+## Safari Detection Regex Explained
 
-| Aspect | Impact |
-|--------|--------|
-| **Performance on desktop** | Slightly slower inference (single-threaded vs multi-threaded) |
-| **Memory stability** | Fixes the iOS crash completely |
-| **Compatibility** | Works on all platforms - the fix doesn't break desktop |
+```javascript
+/^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+```
 
-The performance hit is acceptable because:
-- DETR runs on a 640×640 resized image (already optimized)
-- Single photo processing, not real-time video
-- Users would rather wait 2s than crash
+- Matches strings containing "Safari" that DON'T contain "Chrome" or "Android"
+- Catches: iOS Safari, macOS Safari
+- Excludes: Chrome (which includes "Safari" in its UA), Android browsers
 
 ---
 
@@ -75,27 +106,13 @@ The performance hit is acceptable because:
 
 | File | Change |
 |------|--------|
-| `src/workers/visionWorker.ts` | Add ONNX environment config before model loading |
+| `src/workers/visionWorker.ts` | Wrap iOS fix in Safari conditional, update device selection logic |
 
 ---
 
-## Testing Plan
+## Expected Outcome
 
 After implementation:
-1. Load page on iOS Safari with 1 photo
-2. Should see "Loading AI model..." status
-3. Should complete without crashing
-4. Should show detected subjects (or "No subjects detected" for non-person photos)
-
----
-
-## Alternative: Remove iOS Detection
-
-Once this fix is deployed, the iOS detection code we added earlier (`src/lib/deviceUtils.ts`) can be removed since the AI will work on iOS. Or keep it as a fallback safety net.
-
----
-
-## References
-
-- GitHub Issue: https://github.com/huggingface/transformers.js/issues/1242
-- Confirmed fix by multiple users using "Option B" (single-threaded + non-JSEP binaries)
+- Desktop (Chrome/Firefox/Edge): WebGPU works, fast inference
+- Safari (iOS + macOS): WASM works, no memory crash
+- All browsers: Smart crop completes successfully

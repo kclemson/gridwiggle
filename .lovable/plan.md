@@ -1,109 +1,146 @@
 
 
-# Soften Dev Info Panel for Soft Rejections
+# Consolidate Action Buttons into Single Row
 
 ## Problem Summary
 
-The current soft rejection UI is too attention-grabbing:
-1. Amber ring around the entire canvas adds visual noise
-2. "SOFT REJECTION:" header with warning icon feels alarming for what's just informational metadata
+Currently, the buttons are split across two locations:
+1. **Header** (top right): "Add Photos" + "Clear All"
+2. **Below photo strip**: "View All" + optionally "Generate Collage"
+
+This creates visual fragmentation. Users have to look in two places for related actions.
 
 ---
 
 ## Design Intent
 
 **What behavior do we want?**
-- Soft rejections are informational, not warnings - they indicate the layout is usable but outside ideal bounds
-- Dev should see the metrics without being distracted from the actual collage
+- All action buttons live in one place below the photo strip
+- Clear visual grouping and logical ordering
+- Header becomes cleaner (just the logo)
 
-**What will developers experience?**
-- Clean canvas without border artifacts
-- Subtle info panel that blends into the dev UI without demanding attention
+**What will users experience?**
+- Single action row with all relevant buttons
+- Intuitive left-to-right flow: primary actions first, destructive action last
+
+---
+
+## Button Ordering Strategy
+
+Considering these buttons and when they appear:
+
+| Button | Appears when |
+|--------|--------------|
+| View All | Always (when photos exist) |
+| Add Photos | Always (when photos exist) |
+| Generate Collage | Only when no layout exists (recovery) |
+| Clear All | Always (when photos exist) |
+
+**Proposed order (left to right):**
+
+```
+[View All] [Add Photos] [Generate Collage*] [Clear All]
+           └─ grouped ─┘  └─ conditional ─┘  └─ danger ─┘
+```
+
+Rationale:
+- **View All** first - primary exploration action
+- **Add Photos** second - common additive action
+- **Generate Collage** third - only appears when needed (recovery)
+- **Clear All** last - destructive action, offset to the right
 
 ---
 
 ## Implementation Details
 
-### Remove Amber Ring from Index.tsx
+### Update PhotoStrip Component
 
-**File: `src/pages/Index.tsx`**
+**File: `src/components/PhotoStrip.tsx`**
 
-Remove the conditional amber ring class at line 711:
+Add props for onAddPhotos and onClearAll:
 
 ```typescript
-// Before
-<div className={cn(
-  "relative overflow-hidden transition-opacity duration-150",
-  isGenerating && "opacity-60",
-  // Dev-only amber ring for soft rejections
-  import.meta.env.DEV && softRejection && "ring-2 ring-amber-500 rounded-lg"
-)}>
-
-// After
-<div className={cn(
-  "relative overflow-hidden transition-opacity duration-150",
-  isGenerating && "opacity-60"
-)}>
-```
-
-### Rename and Restyle the Badge Component
-
-**File: `src/components/debug/SoftRejectionBadge.tsx`**
-
-Transform from warning badge to informational panel:
-
-| Element | Before | After |
-|---------|--------|-------|
-| Component name | `SoftRejectionBadge` | `LayoutInfoPanel` |
-| Background | `bg-amber-500/20` | `bg-muted/50` |
-| Border | `border-2 border-amber-500` | `border border-border` |
-| Header icon | `AlertTriangle` (warning) | `Info` (informational) |
-| Header text | `SOFT REJECTION: {reason}` | `Layout Info` |
-| Header style | `text-amber-600 font-bold text-lg` | `text-muted-foreground text-sm font-medium` |
-| Reason display | Part of header | Shown as first data row |
-| Text colors | amber throughout | muted-foreground |
-
-**New structure:**
-```tsx
-import { Info } from 'lucide-react';
-
-export function LayoutInfoPanel({ reason, details }: LayoutInfoPanelProps) {
-  return (
-    <div className="mt-3 p-3 bg-muted/50 border border-border rounded-lg">
-      <div className="flex items-center gap-1.5 text-muted-foreground text-sm font-medium mb-2">
-        <Info className="h-4 w-4" />
-        Layout Info
-      </div>
-      <div className="text-xs text-muted-foreground/80 font-mono space-y-0.5">
-        <div>reason: {reason.replace(/_/g, ' ')}</div>
-        {/* ...existing detail rows... */}
-      </div>
-    </div>
-  );
+interface PhotoStripProps {
+  photos: PhotoItem[];
+  autoCroppedCount: number;
+  onViewAll: () => void;
+  onAddPhotos: () => void;          // NEW
+  onClearAll: () => void;           // NEW
+  onGenerate?: () => void;
+  showGenerateButton?: boolean;
+  isGenerating?: boolean;
 }
 ```
 
-### Update Export in debug/index.ts
+Update the action buttons row:
 
-**File: `src/components/debug/index.ts`**
+```tsx
+{/* Actions */}
+<div className="flex justify-center items-center gap-2">
+  <Button variant="outline" size="sm" onClick={onViewAll}>
+    <Grid3X3 className="h-4 w-4 mr-1.5" />
+    View All
+  </Button>
+  <Button variant="outline" size="sm" onClick={onAddPhotos}>
+    <Plus className="h-4 w-4 mr-1.5" />
+    Add Photos
+  </Button>
+  {showGenerateButton && onGenerate && (
+    <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
+      {isGenerating ? (
+        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+      ) : (
+        <Wand2 className="h-4 w-4 mr-1.5" />
+      )}
+      Generate
+    </Button>
+  )}
+  <Button 
+    variant="ghost" 
+    size="sm" 
+    onClick={onClearAll}
+    className="text-destructive hover:text-destructive"
+  >
+    <Trash2 className="h-4 w-4 mr-1.5" />
+    Clear All
+  </Button>
+</div>
+```
 
-Rename the export from `SoftRejectionBadge` to `LayoutInfoPanel`.
-
-### Update Import in Index.tsx
+### Update Index.tsx
 
 **File: `src/pages/Index.tsx`**
 
-Update the import and usage:
-```typescript
-// Before
-import { SoftRejectionBadge } from '@/components/debug';
-// ...
-<SoftRejectionBadge reason={...} details={...} />
+1. **Remove header buttons** - delete the Add Photos and Clear All buttons from the header section (lines 616-632)
 
-// After
-import { LayoutInfoPanel } from '@/components/debug';
-// ...
-<LayoutInfoPanel reason={...} details={...} />
+2. **Add file input ref** - need a way to trigger file picker from PhotoStrip without the PhotoUploader component
+
+3. **Pass new props to PhotoStrip**:
+
+```tsx
+<PhotoStrip
+  photos={state.photos}
+  autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
+  onViewAll={() => setNavigatorOpen(true)}
+  onAddPhotos={() => fileInputRef.current?.click()}  // NEW
+  onClearAll={clearAll}                               // NEW
+  onGenerate={handleCreateCollage}
+  showGenerateButton={!state.layout}
+  isGenerating={isGenerating}
+/>
+```
+
+4. **Add hidden file input** - for Add Photos to trigger:
+
+```tsx
+<input
+  ref={fileInputRef}
+  type="file"
+  accept="image/*"
+  multiple
+  onChange={handleFileInputChange}
+  className="hidden"
+/>
 ```
 
 ---
@@ -112,9 +149,8 @@ import { LayoutInfoPanel } from '@/components/debug';
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Remove amber ring class, rename `SoftRejectionBadge` → `LayoutInfoPanel` |
-| `src/components/debug/SoftRejectionBadge.tsx` | Rename to `LayoutInfoPanel.tsx`, restyle as subtle info panel |
-| `src/components/debug/index.ts` | Update export name |
+| `src/components/PhotoStrip.tsx` | Add Add Photos + Clear All buttons to action row |
+| `src/pages/Index.tsx` | Remove header buttons, pass callbacks to PhotoStrip, add file input |
 
 ---
 
@@ -122,33 +158,32 @@ import { LayoutInfoPanel } from '@/components/debug';
 
 **Before:**
 ```
-┌─────────────────────────────────┐
-│  ╔═══════════════════════════╗  │  ← amber ring around canvas
-│  ║                           ║  │
-│  ║       [collage]           ║  │
-│  ║                           ║  │
-│  ╚═══════════════════════════╝  │
-│                                 │
-│  ┌───────────────────────────┐  │
-│  │ ⚠ SOFT REJECTION: reason  │  │  ← bright amber warning
-│  │ detail: 0.123             │  │
-│  │ detail2: 0.456            │  │
-│  └───────────────────────────┘  │
-└─────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│ gridwiggle       [+ Add Photos] [Clear All]│  ← header
+├────────────────────────────────────────────┤
+│ PHOTOS (16) · 16 auto-cropped              │
+│ [img][img][img][img][img]...               │
+│            [View All]                      │  ← separate row
+│ ─────────────────────────────────          │
+│ COLLAGE                                    │
+└────────────────────────────────────────────┘
 ```
 
 **After:**
 ```
-┌─────────────────────────────────┐
-│                                 │
-│       [collage]                 │  ← no border/ring
-│                                 │
-│                                 │
-│  ┌───────────────────────────┐  │
-│  │ ℹ Layout Info             │  │  ← subtle muted panel
-│  │ reason: canvas too tall   │  │
-│  │ detail: 0.123             │  │
-│  └───────────────────────────┘  │
-└─────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│ gridwiggle                                 │  ← clean header
+├────────────────────────────────────────────┤
+│ PHOTOS (16) · 16 auto-cropped              │
+│ [img][img][img][img][img]...               │
+│ [View All][Add Photos]        [Clear All]  │  ← unified row
+│ ─────────────────────────────────          │
+│ COLLAGE                                    │
+└────────────────────────────────────────────┘
+```
+
+**With Generate button (no layout):**
+```
+│ [View All][Add Photos][Generate] [Clear All]│
 ```
 

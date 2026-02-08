@@ -1,16 +1,16 @@
 import { CollageSettings as CollageSettingsType } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
-import { HeroScaleSlider } from '@/components/HeroScaleSlider';
+import { HeroProminenceSlider } from '@/components/HeroProminenceSlider';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
-  /** Hero scale factor for live adjustment (1.0 = default) */
-  heroScale?: number;
+  /** Hero prominence factor for live adjustment (1.0 = default) */
+  heroProminence?: number;
   /** Called on every slider drag for live preview */
-  onHeroScaleChange?: (scale: number) => void;
-  /** Called when user releases slider - commit the scale */
-  onHeroScaleCommit?: (scale: number) => void;
+  onHeroProminenceChange?: (prominence: number) => void;
+  /** Called when user releases slider - commit the prominence */
+  onHeroProminenceCommit?: (prominence: number) => void;
   /** Whether a hero photo exists in the current layout */
   hasHero?: boolean;
 }
@@ -18,9 +18,9 @@ interface CollageSettingsProps {
 export function CollageSettings({ 
   settings, 
   onUpdate,
-  heroScale,
-  onHeroScaleChange,
-  onHeroScaleCommit,
+  heroProminence,
+  onHeroProminenceChange,
+  onHeroProminenceCommit,
   hasHero = false,
 }: CollageSettingsProps) {
   return (
@@ -37,12 +37,12 @@ export function CollageSettings({
         />
       </div>
       
-      {/* Hero size - only shown when hero exists */}
-      {hasHero && heroScale !== undefined && onHeroScaleChange && (
-        <HeroScaleSlider
-          value={heroScale}
-          onChange={onHeroScaleChange}
-          onCommit={onHeroScaleCommit}
+      {/* Hero prominence - only shown when hero exists */}
+      {hasHero && heroProminence !== undefined && onHeroProminenceChange && (
+        <HeroProminenceSlider
+          value={heroProminence}
+          onChange={onHeroProminenceChange}
+          onCommit={onHeroProminenceCommit}
         />
       )}
       

@@ -93,13 +93,8 @@ export default function Index() {
   const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
   
-  // Hero scale factor for live adjustment (1.0 = default)
-  const [heroScale, setHeroScale] = useState(1.0);
-  
-  // Reset hero scale when layout regenerates (new layout = new base)
-  useEffect(() => {
-    setHeroScale(1.0);
-  }, [state.layout]);
+  // Hero prominence factor for relative sizing (1.0 = default tuning)
+  const [heroProminence, setHeroProminence] = useState(1.0);
   
   // Collapsible carousel state - default collapsed, user can expand
   const [carouselOpen, setCarouselOpen] = useState(() => {
@@ -511,42 +506,32 @@ export default function Index() {
     return state.photos.some(p => p.priority === 1);
   }, [state.photos]);
 
-  // Compute scaled layout for live hero size preview (avoids modifying actual layout state during drag)
-  const scaledLayout = useMemo(() => {
-    if (!state.layout || heroScale === 1.0) return state.layout;
-    return {
-      width: Math.round(state.layout.width * heroScale),
-      height: Math.round(state.layout.height * heroScale),
-      cells: state.layout.cells.map(cell => ({
-        ...cell,
-        x: Math.round(cell.x * heroScale),
-        y: Math.round(cell.y * heroScale),
-        width: Math.round(cell.width * heroScale),
-        height: Math.round(cell.height * heroScale),
-      })),
+  // Handle hero prominence slider drag - regenerates layout with modified prominence
+  // Critical: randomize=false preserves photo order (no shuffle)
+  const handleHeroProminenceChange = useCallback((prominence: number) => {
+    setHeroProminence(prominence);
+    
+    // Regenerate with modified prominence — no shuffle, same photo order
+    const modifiedTuning = {
+      ...v3Tuning,
+      hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
     };
-  }, [state.layout, heroScale]);
+    
+    regenerateCollage({ 
+      randomize: false,  // Critical: preserve photo order
+      v3Tuning: modifiedTuning,
+    });
+  }, [v3Tuning, regenerateCollage]);
 
-  // Commit hero scale on slider release - writes scaled dimensions to layout state
-  // Takes scale value directly from slider event to avoid stale state race condition
-  const handleHeroScaleCommit = useCallback((scale: number) => {
-    if (!state.layout || scale === 1.0) return;
-    
-    const newLayout = {
-      width: Math.round(state.layout.width * scale),
-      height: Math.round(state.layout.height * scale),
-      cells: state.layout.cells.map(cell => ({
-        ...cell,
-        x: Math.round(cell.x * scale),
-        y: Math.round(cell.y * scale),
-        width: Math.round(cell.width * scale),
-        height: Math.round(cell.height * scale),
-      })),
-    };
-    
-    setLayout(newLayout);
-    // heroScale will reset to 1.0 via the useEffect watching state.layout
-  }, [state.layout, setLayout]);
+  // Commit hero prominence on slider release - update tuning state
+  const handleHeroProminenceCommit = useCallback((prominence: number) => {
+    // Update v3Tuning state to persist the prominence
+    setV3Tuning(prev => ({
+      ...prev,
+      hero_targetProminence: DEFAULT_V3_TUNING.hero_targetProminence * prominence,
+    }));
+    setHeroProminence(1.0);  // Reset slider to new baseline
+  }, []);
 
   // Load dimensions + previews WITHOUT smart crop (for mobile upload)
   const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
@@ -871,7 +856,7 @@ export default function Index() {
                     )}>
                       <CollagePreview
                         photos={state.photos}
-                        layout={scaledLayout!}
+                        layout={state.layout}
                         gapColor={state.settings.gapColor}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
@@ -897,9 +882,9 @@ export default function Index() {
                     <CollageSettings
                       settings={state.settings}
                       onUpdate={handleUpdateSettings}
-                      heroScale={heroScale}
-                      onHeroScaleChange={setHeroScale}
-                      onHeroScaleCommit={handleHeroScaleCommit}
+                      heroProminence={heroProminence}
+                      onHeroProminenceChange={handleHeroProminenceChange}
+                      onHeroProminenceCommit={handleHeroProminenceCommit}
                       hasHero={hasHeroPhoto}
                     />
                   </>

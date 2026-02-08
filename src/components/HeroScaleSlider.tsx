@@ -5,8 +5,8 @@ interface HeroScaleSliderProps {
   value: number;
   /** Called on every drag movement for live preview */
   onChange: (scale: number) => void;
-  /** Called when user releases slider - commit the scale */
-  onCommit?: () => void;
+  /** Called when user releases slider - commit the scale with the value */
+  onCommit?: (scale: number) => void;
   disabled?: boolean;
 }
 
@@ -27,7 +27,7 @@ export function HeroScaleSlider({
       <Slider
         value={[value * 100]}
         onValueChange={([v]) => onChange(v / 100)}
-        onValueCommit={() => onCommit?.()}
+        onValueCommit={([v]) => onCommit?.(v / 100)}
         min={70}
         max={130}
         step={5}

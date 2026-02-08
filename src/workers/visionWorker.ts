@@ -1,13 +1,18 @@
 import { pipeline, RawImage, env } from "@huggingface/transformers";
 
-// Fix iOS Safari memory leak (GitHub issue #1242)
-// Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
-// Using single-threaded non-JSEP binaries fixes the crash
-env.backends.onnx.wasm.numThreads = 1;
-env.backends.onnx.wasm.wasmPaths = {
-  mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
-  wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
-};
+// Detect Safari (both iOS and macOS) - all Safari versions share the JavaScriptCore bug
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+if (isSafari) {
+  // Fix iOS Safari memory leak (GitHub issue #1242)
+  // Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
+  // Using single-threaded non-JSEP binaries fixes the crash
+  env.backends.onnx.wasm.numThreads = 1;
+  env.backends.onnx.wasm.wasmPaths = {
+    mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
+    wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;
@@ -29,9 +34,10 @@ async function loadModel() {
   if (!detector) {
     self.postMessage({ type: 'status', message: 'Loading AI model (first time only)...' });
     
-    // Try WebGPU first, fallback to WASM
+    // Safari must use WASM (non-JSEP binaries don't support WebGPU)
+    // Other browsers can use WebGPU for better performance
     const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
-    const device = hasWebGPU ? "webgpu" : "wasm";
+    const device = isSafari ? "wasm" : (hasWebGPU ? "webgpu" : "wasm");
     
     detector = await pipeline(
       "object-detection",

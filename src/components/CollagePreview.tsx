@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useMemo, memo } from 'react';
+import { useRef, useState, useCallback, useMemo, memo, useEffect } from 'react';
 import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
@@ -177,9 +177,24 @@ export function CollagePreview({
     setDragOver(null);
   }, []);
 
-  // Touch drag support
+  // Touch drag support with hold-to-drag pattern
   const [touchDragId, setTouchDragId] = useState<string | null>(null);
   const [touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
+  const [pendingDragId, setPendingDragId] = useState<string | null>(null);
+  const [touchStartPos, setTouchStartPos] = useState({ x: 0, y: 0 });
+  const holdTimerRef = useRef<number | null>(null);
+
+  const HOLD_THRESHOLD_MS = 300;  // Time to hold before drag activates
+  const MOVE_THRESHOLD_PX = 10;   // Movement tolerance during hold
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
     // Don't start drag if touching an interactive element (like the star button)
@@ -189,17 +204,56 @@ export function CollagePreview({
     }
     
     const touch = e.touches[0];
-    setTouchDragId(photoId);
-    setTouchPosition({ x: touch.clientX, y: touch.clientY });
+    const startPos = { x: touch.clientX, y: touch.clientY };
+    
+    // Set up pending drag - don't activate immediately
+    setPendingDragId(photoId);
+    setTouchStartPos(startPos);
+    
+    // Start hold timer - only activate drag after threshold
+    holdTimerRef.current = window.setTimeout(() => {
+      setTouchDragId(photoId);
+      setTouchPosition(startPos);
+      // Haptic feedback if available
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, HOLD_THRESHOLD_MS);
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!touchDragId) return;
     const touch = e.touches[0];
-    setTouchPosition({ x: touch.clientX, y: touch.clientY });
-  }, [touchDragId]);
+    const currentPos = { x: touch.clientX, y: touch.clientY };
+    
+    // If still pending (not yet activated), check if user moved too much
+    if (pendingDragId && !touchDragId) {
+      const dx = Math.abs(currentPos.x - touchStartPos.x);
+      const dy = Math.abs(currentPos.y - touchStartPos.y);
+      
+      if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) {
+        // User is scrolling - cancel pending drag
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
+        setPendingDragId(null);
+        return; // Allow normal scroll
+      }
+    }
+    
+    // If drag is active, update position
+    if (touchDragId) {
+      setTouchPosition(currentPos);
+    }
+  }, [pendingDragId, touchDragId, touchStartPos]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    // Clean up pending state
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setPendingDragId(null);
+    
+    // If no active drag, nothing to do
     if (!touchDragId) return;
 
     // Find the cell under the touch end position

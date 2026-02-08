@@ -419,18 +419,23 @@ export default function Index() {
     const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
     updatePhoto(photoId, { priority: newPriority });
     
-    // Reset shape to auto when adding a hero
-    if (newPriority === 1 && state.settings.shape !== 'auto') {
-      updateSettings({ shape: 'auto' });
+    // Only regenerate when ADDING a hero (new layout needed for hero prominence)
+    // Un-heroing should preserve the existing layout - user can refresh if they want a new one
+    if (newPriority === 1) {
+      // Reset shape to auto when adding a hero
+      if (state.settings.shape !== 'auto') {
+        updateSettings({ shape: 'auto' });
+      }
+      
+      if (state.layout) {
+        regenerateCollage({ 
+          priorityOverride: { photoId, priority: newPriority },
+          settings: { ...state.settings, shape: 'auto' },
+          randomize: true,
+        });
+      }
     }
-    
-    if (state.layout) {
-      regenerateCollage({ 
-        priorityOverride: { photoId, priority: newPriority },
-        settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
-        randomize: true,  // Shuffle for variety - avoids deterministic failures
-      });
-    }
+    // When un-heroing (newPriority === 3): just update state, keep existing layout
   }, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);
 
   const handleCreateCollage = useCallback(() => {

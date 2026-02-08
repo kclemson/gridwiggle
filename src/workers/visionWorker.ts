@@ -1,4 +1,13 @@
-import { pipeline, RawImage } from "@huggingface/transformers";
+import { pipeline, RawImage, env } from "@huggingface/transformers";
+
+// Fix iOS Safari memory leak (GitHub issue #1242)
+// Safari's JavaScriptCore has a bug with threaded WASM that causes 10+GB memory usage
+// Using single-threaded non-JSEP binaries fixes the crash
+env.backends.onnx.wasm.numThreads = 1;
+env.backends.onnx.wasm.wasmPaths = {
+  mjs: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.mjs',
+  wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm'
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;

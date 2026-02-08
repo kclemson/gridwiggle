@@ -202,6 +202,9 @@ function evaluateNormalizedProposal(
   
   const regionAssignment = regionResult.assignment;
   
+  // Carry forward soft rejection from region search (if any)
+  let softRejection: ScoredConfiguration['softRejection'] = regionAssignment.softRejection;
+  
   // Handle "no BESIDE" vs "with BESIDE" cases
   let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };
   let heroRowWidth: number;
@@ -294,9 +297,9 @@ function evaluateNormalizedProposal(
   );
   
   // Track soft rejection for canvas AR violations (layout is valid but outside aesthetic bounds)
-  let softRejection: ScoredConfiguration['softRejection'] = undefined;
+  // Only set if not already set by region search
   
-  if (canvasAR < effectiveMinAR - AR_EPSILON) {
+  if (!softRejection && canvasAR < effectiveMinAR - AR_EPSILON) {
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
       allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
@@ -311,7 +314,7 @@ function evaluateNormalizedProposal(
     // Continue instead of returning null - layout is geometrically valid
   }
   
-  if (canvasAR > effectiveMaxAR + AR_EPSILON) {
+  if (!softRejection && canvasAR > effectiveMaxAR + AR_EPSILON) {
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
       allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,

@@ -11,7 +11,8 @@ import {
   ChevronLeft, 
   ChevronRight,
   Grid3X3,
-  RefreshCw
+  RefreshCw,
+  Wand2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,8 @@ interface PhotoCarouselProps {
   onViewAll: () => void;
   onRefresh: () => void;
   isRefreshing?: boolean;
+  onSmartCrop?: (photoId: string) => void;
+  smartCroppingPhotoId?: string | null;
 }
 
 export function PhotoCarousel({
@@ -37,6 +40,8 @@ export function PhotoCarousel({
   onViewAll,
   onRefresh,
   isRefreshing = false,
+  onSmartCrop,
+  smartCroppingPhotoId,
 }: PhotoCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     startIndex: currentIndex,
@@ -161,6 +166,27 @@ export function PhotoCarousel({
                       )} />
                       Hero
                     </Button>
+                    
+                    {/* Smart Crop button - triggers AI subject detection */}
+                    {onSmartCrop && (
+                      <Button
+                        variant={photo.smartCrop ? "secondary" : "outline"}
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSmartCrop(photo.id);
+                        }}
+                        disabled={smartCroppingPhotoId !== null || photo.smartCrop !== null}
+                        className="gap-1.5"
+                        title={photo.smartCrop ? "Already smart cropped" : "Auto-detect subjects"}
+                      >
+                        <Wand2 className={cn(
+                          "h-4 w-4",
+                          smartCroppingPhotoId === photo.id && "animate-pulse"
+                        )} />
+                        {photo.smartCrop ? "Cropped" : "Smart"}
+                      </Button>
+                    )}
                     
                     <Button
                       variant="outline"

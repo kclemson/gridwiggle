@@ -20,6 +20,7 @@ import { RejectionBadge, SoftRejectionBadge } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
+import { isMobileDevice } from '@/lib/platform';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
 import { 
@@ -87,6 +88,9 @@ export default function Index() {
   // Carousel and navigator state
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
+  
+  // Single-photo smart crop (mobile manual trigger)
+  const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
   
   // Collapsible carousel state - default collapsed, user can expand
@@ -494,6 +498,32 @@ export default function Index() {
     regenerateCollage({ randomize: state.layout !== null });
   }, [state.layout, regenerateCollage]);
 
+  // Load dimensions + previews WITHOUT smart crop (for mobile upload)
+  const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
+    try {
+      const dimensions = await getImageDimensions(photo.objectUrl);
+      const [preview, thumbnail] = await Promise.all([
+        createDisplayPreview(photo.blob, 1200),
+        createDisplayPreview(photo.blob, 480),
+      ]);
+      
+      updatePhoto(photo.id, {
+        originalWidth: dimensions.width,
+        originalHeight: dimensions.height,
+        previewUrl: preview.url,
+        previewBlob: preview.blob,
+        thumbnailUrl: thumbnail.url,
+        thumbnailBlob: thumbnail.blob,
+        isProcessing: false,  // Done immediately
+      });
+    } catch (error) {
+      updatePhoto(photo.id, {
+        isProcessing: false,
+        error: error instanceof Error ? error.message : 'Failed to load',
+      });
+    }
+  }, [updatePhoto]);
+
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
     const { succeeded } = await addPhotos(newPhotos);
     
@@ -501,20 +531,61 @@ export default function Index() {
       return;
     }
     
-    remoteLogger.info('upload', 'Photos added', { count: succeeded.length });
+    remoteLogger.info('upload', 'Photos added', { count: succeeded.length, isMobile: isMobileDevice() });
 
     const wasLayoutEmpty = state.layout === null;
 
-    try {
-      await processSmartCrops(succeeded);
-    } catch (error) {
-      console.error('Smart crop processing failed:', error);
-      // Silent - photos still work, just without smart crop
-    } finally {
-      // Always generate collage, even if smart crop failed
-      regenerateCollage({ randomize: !wasLayoutEmpty });
+    // MOBILE: Skip auto smart crop - user triggers manually per photo
+    // DESKTOP: Run auto smart crop on all photos
+    if (!isMobileDevice()) {
+      try {
+        await processSmartCrops(succeeded);
+      } catch (error) {
+        console.error('Smart crop processing failed:', error);
+        // Silent - photos still work, just without smart crop
+      }
+    } else {
+      // Mobile: Just load dimensions + create previews (no AI)
+      for (const photo of succeeded) {
+        await loadDimensionsOnly(photo);
+      }
     }
-  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
+    
+    // Always generate collage after processing
+    regenerateCollage({ randomize: !wasLayoutEmpty });
+  }, [addPhotos, processSmartCrops, loadDimensionsOnly, state.layout, regenerateCollage]);
+
+  // Process smart crop for a single photo (mobile manual trigger)
+  const handleSingleSmartCrop = useCallback(async (photoId: string) => {
+    const photo = state.photos.find(p => p.id === photoId);
+    if (!photo || photo.smartCrop) return;  // Already has crop
+    
+    setSmartCroppingPhotoId(photoId);
+    
+    try {
+      const result = await getSmartCrop(
+        photo.objectUrl,
+        photo.blob,
+        photo.originalWidth,
+        photo.originalHeight,
+        (status) => setProcessingStatus(status)
+      );
+      
+      const smartCropToApply = result.skipCrop ? null : result.crop;
+      
+      updatePhoto(photoId, { smartCrop: smartCropToApply });
+      
+      // Regenerate layout with new crop
+      if (state.layout) {
+        regenerateCollage();
+      }
+    } catch (error) {
+      console.error('Smart crop failed:', error);
+      // Silent fail - photo still works
+    } finally {
+      setSmartCroppingPhotoId(null);
+    }
+  }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
 
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
@@ -713,6 +784,8 @@ export default function Index() {
                     onViewAll={() => setNavigatorOpen(true)}
                     onRefresh={handleCreateCollage}
                     isRefreshing={isGenerating}
+                    onSmartCrop={handleSingleSmartCrop}
+                    smartCroppingPhotoId={smartCroppingPhotoId}
                   />
                 )}
               </CollapsibleContent>

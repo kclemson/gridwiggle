@@ -100,6 +100,14 @@ export default function Index() {
   // Store normalized layout for reflow operations
   const normalizedLayoutRef = useRef<NormalizedLayout | null>(null);
   
+  // Sync normalizedLayoutRef with state.layout.normalized
+  // This ensures the ref is populated when layout is loaded from storage
+  useEffect(() => {
+    if (state.layout?.normalized) {
+      normalizedLayoutRef.current = state.layout.normalized;
+    }
+  }, [state.layout?.normalized]);
+  
   // Collapsible carousel state - default collapsed, user can expand
   const [carouselOpen, setCarouselOpen] = useState(() => {
     const saved = localStorage.getItem('carouselOpen');

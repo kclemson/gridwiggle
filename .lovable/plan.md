@@ -1,119 +1,73 @@
 
-# Fix Crop Handle Positioning at Image Edges
+# Fix Navigation: Return to View All After Crop Editor Cancel
 
 ## Problem Summary
 
-The crop editor handles appear offset from the actual corners when the crop region touches the image edge. This happens because `getHandlePosition` intentionally pushes handles inward by `handleRadius` to keep them inside the SVG viewBox. However, this makes the UI look buggy - handles appear to "jump" to the correct corner once dragging starts.
+Current flow:
+1. User clicks "View All" → `navigatorOpen = true`
+2. User clicks a photo → `editingPhotoId = photoId` AND `navigatorOpen = false`
+3. User clicks "Cancel" in CropEditor → `editingPhotoId = null`
+4. Result: Back to main page (navigator is closed)
 
-Looking at the screenshots:
-- In image 1 (mobile): handles are visibly inside the corners at the edges
-- In images 2-3 (desktop): when crop is full-frame, all corners are offset inward
+Expected flow:
+- Cancel should return to the View All gallery, not the main page
 
 ---
 
 ## Design Intent
 
 **What behavior do we want?**
-- Corner handles always render exactly at the crop corners
-- Handles can extend beyond the image boundary if needed (using SVG overflow)
-- No visual "jumping" when starting to drag
+- When opening a photo from View All, keep the navigator "open" in the background
+- CropEditor appears on top of the navigator
+- Canceling the CropEditor reveals the navigator again
 
 **What will users experience?**
-- Handles are precisely at corners, even when crop equals full image
-- Consistent, non-buggy appearance
-- Handles remain fully visible (just extend past image edge into the dialog padding)
-
----
-
-## Technical Approach
-
-The SVG element has padding around it (`p-4` on the container), so handles extending beyond the viewBox will still be visible in that padding area. We just need to:
-
-1. **Remove the inward offset logic** in `getHandlePosition`
-2. **Add `overflow="visible"`** to the SVG element so elements can render outside the viewBox
+- Natural back-navigation: Cancel returns to where they came from (View All)
+- No jarring jump back to the main collage view
 
 ---
 
 ## Implementation Details
 
-### File: `src/components/CropEditor.tsx`
+### File: `src/pages/Index.tsx`
 
-**Change 1: Simplify `getHandlePosition` (lines 197-210)**
-
-Remove the offset logic entirely - handles always at true corner:
-
-```typescript
-// Before (lines 197-210)
-const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
-  const handleRadius = handleSize / 2;
-  let cx = corner.includes('e') ? crop.x + crop.width : crop.x;
-  let cy = corner.includes('s') ? crop.y + crop.height : crop.y;
-  
-  // Offset inward if at image edge
-  if (corner.includes('w') && crop.x <= 0) cx += handleRadius;
-  if (corner.includes('e') && crop.x + crop.width >= photo.originalWidth) cx -= handleRadius;
-  if (corner.includes('n') && crop.y <= 0) cy += handleRadius;
-  if (corner.includes('s') && crop.y + crop.height >= photo.originalHeight) cy -= handleRadius;
-  
-  return { cx, cy };
-};
-
-// After - simple, no offset
-const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
-  const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
-  const cy = corner.includes('s') ? crop.y + crop.height : crop.y;
-  return { cx, cy };
-};
-```
-
-**Change 2: Add `overflow="visible"` to SVG (line 223-228)**
+**Change: Keep navigator open when selecting a photo (lines 819-822)**
 
 ```tsx
-// Before
-<svg
-  ref={svgRef}
-  viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
-  preserveAspectRatio="xMidYMid meet"
-  className="max-w-full block touch-none select-none"
-  style={{ maxHeight: 'calc(90vh - 120px)' }}
-  ...
+// Before (lines 819-822)
+onSelect={(photoId) => {
+  // Open crop editor directly - View All is for managing crops
+  setEditingPhotoId(photoId);
+  setNavigatorOpen(false);
+}}
 
-// After - add overflow="visible"
-<svg
-  ref={svgRef}
-  viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
-  preserveAspectRatio="xMidYMid meet"
-  overflow="visible"
-  className="max-w-full block touch-none select-none"
-  style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible' }}
-  ...
+// After - don't close navigator when selecting
+onSelect={(photoId) => {
+  // Open crop editor on top of navigator
+  setEditingPhotoId(photoId);
+  // Keep navigatorOpen=true so Cancel returns here
+}}
 ```
 
-Note: We need both the SVG attribute AND the CSS style because some browsers respect one over the other.
+With this change:
+- `navigatorOpen` stays `true` when opening a photo
+- CropEditor renders on top (it uses a Dialog with higher z-index)
+- When CropEditor closes (Cancel or Save), navigator is still visible
 
 ---
 
-## Visual Comparison
+## Visual Flow After Fix
 
-**Before (handles offset inward at edges):**
 ```
-    ○─────────────────────○
-    │                     │
-    │      [image]        │   ← handles NOT at corners
-    │                     │
-    ○─────────────────────○
+View All (z-50)     →    CropEditor (Dialog z-50+)    →    View All (z-50)
+   open                      on top of navigator              still open
+                                   
+                            [Cancel] or [Save]
+                                    ↓
+                           CropEditor closes
+                                    ↓
+                           Navigator revealed
 ```
-
-**After (handles at true corners):**
-```
-  ○───────────────────────○
-  │                       │
-  │       [image]         │   ← handles AT corners
-  │                       │
-  ○───────────────────────○
-```
-
-When handles extend beyond the image, they render into the dialog's `p-4` padding area - still fully visible.
 
 ---
 
@@ -121,5 +75,4 @@ When handles extend beyond the image, they render into the dialog's `p-4` paddin
 
 | Location | Change |
 |----------|--------|
-| Lines 197-210 | Simplify `getHandlePosition` - remove all offset logic |
-| Line 223-228 | Add `overflow="visible"` attribute and CSS to SVG |
+| Lines 819-823 | Remove `setNavigatorOpen(false)` from onSelect handler |

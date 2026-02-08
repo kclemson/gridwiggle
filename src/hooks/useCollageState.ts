@@ -16,6 +16,7 @@ import {
   StoredPhoto
 } from '@/lib/photoStorage';
 import { remoteLogger } from '@/lib/remoteLogger';
+import { devLogger } from '@/lib/devLogger';
 
 const STORAGE_KEY = 'smart-collage-state';
 const SAVE_DEBOUNCE_MS = 300;
@@ -49,12 +50,13 @@ function loadMetadataFromStorage(): PersistedCollageState {
         photos: parsed.photos || [],
         settings: { ...defaultSettings, ...parsed.settings },
         layout: parsed.layout || null,
+        debugLogs: parsed.debugLogs || [],
       };
     }
   } catch (e) {
     console.error('Failed to load collage metadata:', e);
   }
-  return { photos: [], settings: defaultSettings, layout: null };
+  return { photos: [], settings: defaultSettings, layout: null, debugLogs: [] };
 }
 
 /**
@@ -73,6 +75,7 @@ function saveMetadataToStorage(state: CollageState) {
       })),
       settings: state.settings,
       layout: state.layout,
+      debugLogs: devLogger.getLogs(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch (e) {
@@ -211,6 +214,14 @@ export function useCollageState() {
             (cell) => validIds.has(cell.photoId)
           );
         }
+      }
+
+      // Restore debug logs if present (hydrate devLogger)
+      if (persisted.debugLogs?.length) {
+        devLogger.clear();  // Clear any stale in-memory logs
+        persisted.debugLogs.forEach(log => 
+          devLogger.log(log.category, log.label, log.data, log.level)
+        );
       }
 
       setState({

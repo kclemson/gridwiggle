@@ -66,7 +66,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   row_flexPercent: 0.10,
   canvas_minAR: 0.5,
   canvas_maxAR: 2.25,
-  row_arBudgetJitter: 0.2,
+  row_arBudgetJitter: 0.4,
   row_maxHeightRatio: 1.8,
   hero_maxToSmallest: 45,
   hero_lowCountThreshold: 8,

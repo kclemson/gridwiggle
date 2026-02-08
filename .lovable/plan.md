@@ -1,146 +1,194 @@
 
 
-# Consolidate Action Buttons into Single Row
+# Natural Aspect Ratio Thumbnails with Per-Photo Smart Crop
 
 ## Problem Summary
 
-Currently, the buttons are split across two locations:
-1. **Header** (top right): "Add Photos" + "Clear All"
-2. **Below photo strip**: "View All" + optionally "Generate Collage"
+Currently, the ThumbnailNavigator shows photos in a forced **square grid** (using `aspect-square`), which:
+1. Clips landscape/portrait photos and doesn't represent what's actually in them
+2. On mobile where smart crop is disabled by default, users see distorted previews that don't match the actual photo content
 
-This creates visual fragmentation. Users have to look in two places for related actions.
+Additionally, users have no way to selectively apply smart crop to individual photos - it's all-or-nothing.
 
 ---
 
 ## Design Intent
 
 **What behavior do we want?**
-- All action buttons live in one place below the photo strip
-- Clear visual grouping and logical ordering
-- Header becomes cleaner (just the logo)
+- Thumbnails show photos with their **natural aspect ratios** (or cropped aspect ratio if already cropped)
+- Each photo has an "Auto-crop" action button to trigger smart cropping for that specific photo
+- Photos that have been smart-cropped show an "Undo" button to revert to uncropped state
+- The thumbnail updates immediately to reflect the new crop state
 
 **What will users experience?**
-- Single action row with all relevant buttons
-- Intuitive left-to-right flow: primary actions first, destructive action last
+- Gallery view that accurately represents each photo's shape
+- Ability to selectively smart-crop specific photos (especially useful on mobile)
+- Visual feedback showing which photos are cropped vs full-frame
+- Easy way to undo unwanted smart crops
 
 ---
 
-## Button Ordering Strategy
+## Technical Analysis
 
-Considering these buttons and when they appear:
+### Current Layout Issue
 
-| Button | Appears when |
-|--------|--------------|
-| View All | Always (when photos exist) |
-| Add Photos | Always (when photos exist) |
-| Generate Collage | Only when no layout exists (recovery) |
-| Clear All | Always (when photos exist) |
-
-**Proposed order (left to right):**
-
-```
-[View All] [Add Photos] [Generate Collage*] [Clear All]
-           └─ grouped ─┘  └─ conditional ─┘  └─ danger ─┘
+The ThumbnailNavigator uses:
+```tsx
+<button className="relative aspect-square">
 ```
 
-Rationale:
-- **View All** first - primary exploration action
-- **Add Photos** second - common additive action
-- **Generate Collage** third - only appears when needed (recovery)
-- **Clear All** last - destructive action, offset to the right
+This forces all thumbnails into squares, clipping content.
+
+### Solution: Row-based Flex Layout
+
+Instead of a grid with forced squares, use a **flex row layout with consistent height** (similar to PhotoGrid and PhotoStrip):
+
+```tsx
+// Fixed height, natural width based on aspect ratio
+style={{ height: THUMBNAIL_HEIGHT, width: calculated from aspect ratio }}
+```
+
+This matches the pattern already established in PhotoThumbnail (lines 31-35):
+```tsx
+const aspectRatio = activeCrop 
+  ? activeCrop.width / activeCrop.height 
+  : photo.originalWidth / photo.originalHeight;
+
+const width = Math.round(height * aspectRatio);
+```
+
+### Per-Photo Smart Crop Actions
+
+Need two new callbacks on ThumbnailNavigatorProps:
+- `onSmartCrop(photoId: string)` - trigger AI smart crop
+- `onUndoSmartCrop(photoId: string)` - clear the smart crop
+
+And state tracking for which photo is currently being processed:
+- `smartCroppingPhotoId` - passed from parent
 
 ---
 
 ## Implementation Details
 
-### Update PhotoStrip Component
+### ThumbnailNavigator Props (New)
 
-**File: `src/components/PhotoStrip.tsx`**
+| Prop | Type | Purpose |
+|------|------|---------|
+| `onSmartCrop` | `(photoId: string) => void` | Trigger smart crop for a photo |
+| `onUndoSmartCrop` | `(photoId: string) => void` | Clear smart crop from a photo |
+| `smartCroppingPhotoId` | `string \| null` | Currently processing (shows spinner) |
 
-Add props for onAddPhotos and onClearAll:
+### Layout Changes
 
-```typescript
-interface PhotoStripProps {
-  photos: PhotoItem[];
-  autoCroppedCount: number;
-  onViewAll: () => void;
-  onAddPhotos: () => void;          // NEW
-  onClearAll: () => void;           // NEW
-  onGenerate?: () => void;
-  showGenerateButton?: boolean;
-  isGenerating?: boolean;
-}
+**Before:** Grid with square cells
+```tsx
+<div 
+  className="grid gap-3"
+  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))` }}
+>
+  <button className="relative aspect-square" ...>
 ```
 
-Update the action buttons row:
-
+**After:** Flex wrap with natural aspect ratios
 ```tsx
-{/* Actions */}
-<div className="flex justify-center items-center gap-2">
-  <Button variant="outline" size="sm" onClick={onViewAll}>
-    <Grid3X3 className="h-4 w-4 mr-1.5" />
-    View All
-  </Button>
-  <Button variant="outline" size="sm" onClick={onAddPhotos}>
-    <Plus className="h-4 w-4 mr-1.5" />
-    Add Photos
-  </Button>
-  {showGenerateButton && onGenerate && (
-    <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
-      {isGenerating ? (
-        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-      ) : (
-        <Wand2 className="h-4 w-4 mr-1.5" />
-      )}
-      Generate
-    </Button>
-  )}
-  <Button 
-    variant="ghost" 
-    size="sm" 
-    onClick={onClearAll}
-    className="text-destructive hover:text-destructive"
+<div className="flex flex-wrap gap-3 justify-center">
+  <div 
+    className="flex flex-col items-center gap-1"
+    style={{ width: calculatedWidth }}
   >
-    <Trash2 className="h-4 w-4 mr-1.5" />
-    Clear All
-  </Button>
-</div>
+    <button style={{ height: THUMBNAIL_HEIGHT, width: calculatedWidth }}>
+      {/* Photo thumbnail */}
+    </button>
+    {/* Action button below */}
+    <Button size="sm" variant="ghost" onClick={...}>
+      {hasSmartCrop ? 'Undo' : 'Auto-crop'}
+    </Button>
+  </div>
 ```
 
-### Update Index.tsx
+### Thumbnail Item Structure
 
-**File: `src/pages/Index.tsx`**
+Each thumbnail becomes a vertical stack:
+```
+┌─────────────┐
+│             │
+│   [photo]   │ ← natural aspect ratio
+│             │
+├─────────────┤
+│ [Auto-crop] │ ← or "Undo" if already cropped
+│  or [Undo]  │
+└─────────────┘
+```
 
-1. **Remove header buttons** - delete the Add Photos and Clear All buttons from the header section (lines 616-632)
+### Action Button States
 
-2. **Add file input ref** - need a way to trigger file picker from PhotoStrip without the PhotoUploader component
+| State | Button Text | Icon | Action |
+|-------|------------|------|--------|
+| No crop | "Auto-crop" | Wand2 | Call onSmartCrop |
+| Has smart crop | "Undo" | Undo2 | Call onUndoSmartCrop |
+| Currently processing | Spinner + "Cropping..." | Loader2 | Disabled |
 
-3. **Pass new props to PhotoStrip**:
+### Index.tsx Integration
+
+Pass the existing `handleSingleSmartCrop` and add new `handleUndoSmartCrop`:
 
 ```tsx
-<PhotoStrip
+const handleUndoSmartCrop = useCallback((photoId: string) => {
+  updatePhoto(photoId, { smartCrop: null });
+  if (state.layout) {
+    regenerateCollage();
+  }
+}, [updatePhoto, state.layout, regenerateCollage]);
+
+// In render:
+<ThumbnailNavigator
   photos={state.photos}
-  autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
-  onViewAll={() => setNavigatorOpen(true)}
-  onAddPhotos={() => fileInputRef.current?.click()}  // NEW
-  onClearAll={clearAll}                               // NEW
-  onGenerate={handleCreateCollage}
-  showGenerateButton={!state.layout}
-  isGenerating={isGenerating}
+  currentIndex={0}
+  onSelect={(photoId) => {
+    setEditingPhotoId(photoId);
+    setNavigatorOpen(false);
+  }}
+  onClose={() => setNavigatorOpen(false)}
+  onSmartCrop={handleSingleSmartCrop}
+  onUndoSmartCrop={handleUndoSmartCrop}
+  smartCroppingPhotoId={smartCroppingPhotoId}
 />
 ```
 
-4. **Add hidden file input** - for Add Photos to trigger:
+---
 
-```tsx
-<input
-  ref={fileInputRef}
-  type="file"
-  accept="image/*"
-  multiple
-  onChange={handleFileInputChange}
-  className="hidden"
-/>
+## Visual Comparison
+
+**Before (square grid, no per-photo actions):**
+```
+┌──────────────────────────────┐
+│ Select Photo                 │
+├──────────────────────────────┤
+│ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐    │
+│ │🔳│ │🔳│ │🔳│ │🔳│ │🔳│    │  ← forced squares
+│ └──┘ └──┘ └──┘ └──┘ └──┘    │
+│ ┌──┐ ┌──┐ ┌──┐ ┌──┐         │
+│ │🔳│ │🔳│ │🔳│ │🔳│         │
+│ └──┘ └──┘ └──┘ └──┘         │
+└──────────────────────────────┘
+```
+
+**After (natural aspect ratios with actions):**
+```
+┌──────────────────────────────────────────┐
+│ Select Photo                             │
+├──────────────────────────────────────────┤
+│  ┌─────┐   ┌──┐  ┌────────┐  ┌───┐      │
+│  │     │   │  │  │        │  │   │      │  ← natural shapes
+│  │     │   │  │  └────────┘  │   │      │
+│  └─────┘   └──┘  [Auto-crop] └───┘      │
+│ [Auto-crop][✓Undo]          [Auto-crop] │
+│                                          │
+│  ┌──────┐  ┌───┐  ┌──┐  ┌─────────┐     │
+│  │      │  │   │  │  │  │         │     │
+│  └──────┘  └───┘  │  │  └─────────┘     │
+│ [Auto-crop] [✓]   └──┘  [Cropping...]   │
+└──────────────────────────────────────────┘
 ```
 
 ---
@@ -149,41 +197,16 @@ Update the action buttons row:
 
 | File | Change |
 |------|--------|
-| `src/components/PhotoStrip.tsx` | Add Add Photos + Clear All buttons to action row |
-| `src/pages/Index.tsx` | Remove header buttons, pass callbacks to PhotoStrip, add file input |
+| `src/components/ThumbnailNavigator.tsx` | Change to flex layout with natural aspect ratios; add per-photo action buttons |
+| `src/pages/Index.tsx` | Add `handleUndoSmartCrop` callback; pass new props to ThumbnailNavigator |
 
 ---
 
-## Visual Comparison
+## Implementation Notes
 
-**Before:**
-```
-┌────────────────────────────────────────────┐
-│ gridwiggle       [+ Add Photos] [Clear All]│  ← header
-├────────────────────────────────────────────┤
-│ PHOTOS (16) · 16 auto-cropped              │
-│ [img][img][img][img][img]...               │
-│            [View All]                      │  ← separate row
-│ ─────────────────────────────────          │
-│ COLLAGE                                    │
-└────────────────────────────────────────────┘
-```
-
-**After:**
-```
-┌────────────────────────────────────────────┐
-│ gridwiggle                                 │  ← clean header
-├────────────────────────────────────────────┤
-│ PHOTOS (16) · 16 auto-cropped              │
-│ [img][img][img][img][img]...               │
-│ [View All][Add Photos]        [Clear All]  │  ← unified row
-│ ─────────────────────────────────          │
-│ COLLAGE                                    │
-└────────────────────────────────────────────┘
-```
-
-**With Generate button (no layout):**
-```
-│ [View All][Add Photos][Generate] [Clear All]│
-```
+1. **Height constant**: Keep `THUMBNAIL_HEIGHT = 85` (or similar) for consistent row heights
+2. **Width calculation**: `width = height * aspectRatio` where aspectRatio comes from crop or original dimensions
+3. **Minimum width**: Clamp to prevent extremely narrow thumbnails (e.g., `minWidth: 50`)
+4. **Button styling**: Use `variant="ghost"` and `size="sm"` to keep buttons subtle
+5. **Cropped indicator**: Keep the existing crop icon badge in the corner to show at-a-glance status
 

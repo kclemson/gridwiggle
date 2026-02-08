@@ -226,21 +226,43 @@ export function calculateBesideCountRange(
   // === Upper Bound (maxBeside) ===
   
   // Constraint 1: Canvas width limit (prevent too-wide)
-  // heroRowWidth = heroAR + gap + besideWidth
-  // canvasWidth = heroRowWidth + 2*gap
-  // canvasAR ≤ canvas_maxAR → canvasWidth ≤ canvas_maxAR × minHeight
-  // minHeight = 1.0 + 2*gap (hero row + borders, no BELOW)
-  const minCanvasHeight = 1.0 + 2 * normalizedGap;
-  const maxCanvasWidth = effectiveMaxAR * minCanvasHeight;
-  const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
-  const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
+  // Key insight: BELOW adds height, which allows MORE width within AR limit
+  // Iterate to find where width limit kicks in
   
-  // besideWidth ≈ besideCount × avgContentAR / besideRows
-  // Assume minimum 2 rows for conservative estimate
-  const assumedMinRows = 2;
-  const maxBesideByWidth = maxBesideWidth > 0 
-    ? Math.floor(maxBesideWidth * assumedMinRows / avgContentAR)
-    : 0;
+  let maxBesideByWidth = 0;
+  const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
+  
+  for (let testBeside = 0; testBeside <= maxTestBeside; testBeside++) {
+    const testBelowCount = totalContentCount - testBeside;
+    
+    // Estimate BELOW height geometrically
+    // belowHeight ≈ √(belowCount × avgContentAR / width)
+    // Use heroAR as width estimate (conservative - actual width may be wider)
+    const estimatedBelowHeight = testBelowCount > 0
+      ? Math.sqrt(testBelowCount * avgContentAR / heroAR)
+      : 0;
+    
+    // Actual canvas height includes hero row + gap + below + borders
+    const estimatedCanvasHeight = 1.0 + normalizedGap + estimatedBelowHeight + 2 * normalizedGap;
+    
+    // Width limit from this height
+    const maxCanvasWidth = effectiveMaxAR * estimatedCanvasHeight;
+    const maxHeroRowWidth = maxCanvasWidth - 2 * normalizedGap;
+    
+    // Available width for BESIDE (beside is stacked, so divide by row count)
+    const maxBesideWidth = maxHeroRowWidth - heroAR - normalizedGap;
+    
+    // How many photos can fit in that width? (estimate rows based on beside count)
+    const assumedBesideRows = testBeside > 0 ? Math.max(2, Math.ceil(testBeside / 4)) : 1;
+    const fitsInWidth = maxBesideWidth > 0
+      ? Math.floor(maxBesideWidth * assumedBesideRows / avgContentAR)
+      : 0;
+    
+    // If this besideCount fits, update max
+    if (testBeside <= fitsInWidth) {
+      maxBesideByWidth = testBeside;
+    }
+  }
   
   // Constraint 2: Physical limit - can't exceed total photos
   // Note: ALL photos beside (empty BELOW) is valid for portrait heroes!

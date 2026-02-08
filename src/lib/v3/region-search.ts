@@ -183,7 +183,15 @@ export function findValidRegionAssignment(
       if (canvasAR < effectiveMinARNoBeside - AR_EPSILON) {
         softRejectionNoBeside = {
           reason: 'canvas_too_tall',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}` },
+          details: { 
+            canvasAR: +canvasAR.toFixed(2), 
+            allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
+            besideCount: 0,
+            besideRowCount: 0,
+            belowRowCount,
+            belowConstraints: belowRowResult.constraints,
+            heroAR: +heroAR.toFixed(2),
+          },
         };
         devLogger.warn('region', 'Canvas AR below minimum - soft rejection (no BESIDE)', {
           besideCount: 0,
@@ -194,7 +202,15 @@ export function findValidRegionAssignment(
       } else if (canvasAR > effectiveMaxARNoBeside + AR_EPSILON) {
         softRejectionNoBeside = {
           reason: 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}` },
+          details: { 
+            canvasAR: +canvasAR.toFixed(2), 
+            allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
+            besideCount: 0,
+            besideRowCount: 0,
+            belowRowCount,
+            belowConstraints: belowRowResult.constraints,
+            heroAR: +heroAR.toFixed(2),
+          },
         };
         devLogger.warn('region', 'Canvas AR above maximum - soft rejection (no BESIDE)', {
           besideCount: 0,
@@ -310,7 +326,15 @@ export function findValidRegionAssignment(
       if (canvasAR < effectiveMinAR - AR_EPSILON) {
         softRejection = {
           reason: 'canvas_too_tall',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}` },
+          details: { 
+            canvasAR: +canvasAR.toFixed(2), 
+            allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
+            besideCount,
+            besideRowCount,
+            belowRowCount,
+            belowConstraints: belowRowResult.constraints,
+            heroAR: +heroAR.toFixed(2),
+          },
         };
         devLogger.warn('region', 'Canvas AR below minimum - soft rejection', {
           besideCount,
@@ -322,7 +346,15 @@ export function findValidRegionAssignment(
       } else if (canvasAR > effectiveMaxAR + AR_EPSILON) {
         softRejection = {
           reason: 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}` },
+          details: { 
+            canvasAR: +canvasAR.toFixed(2), 
+            allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
+            besideCount,
+            besideRowCount,
+            belowRowCount,
+            belowConstraints: belowRowResult.constraints,
+            heroAR: +heroAR.toFixed(2),
+          },
         };
         devLogger.warn('region', 'Canvas AR above maximum - soft rejection', {
           besideCount,

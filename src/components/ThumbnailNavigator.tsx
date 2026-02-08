@@ -5,7 +5,7 @@ import { CroppedImage } from './common/CroppedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Star, Crop } from 'lucide-react';
+import { X, Star, Crop, Wand2, Undo2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
@@ -13,16 +13,23 @@ interface ThumbnailNavigatorProps {
   currentIndex: number;
   onSelect: (photoId: string) => void;
   onClose: () => void;
+  onSmartCrop?: (photoId: string) => void;
+  onUndoSmartCrop?: (photoId: string) => void;
+  smartCroppingPhotoId?: string | null;
 }
 
 const BATCH_SIZE = 8;
-const THUMBNAIL_SIZE = 85; // px
+const THUMBNAIL_HEIGHT = 85; // px
+const MIN_THUMBNAIL_WIDTH = 50; // px
 
 export function ThumbnailNavigator({
   photos,
   currentIndex,
   onSelect,
   onClose,
+  onSmartCrop,
+  onUndoSmartCrop,
+  smartCroppingPhotoId,
 }: ThumbnailNavigatorProps) {
   const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set());
 
@@ -78,100 +85,147 @@ export function ThumbnailNavigator({
       <div className="flex flex-col w-full max-w-lg sm:max-w-xl md:max-w-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
-        <div>
-          <h2 className="text-lg font-semibold">Select Photo</h2>
-          {isLoading && (
-            <p className="text-sm text-muted-foreground">
-              Loading {loadedCount} of {totalCount}...
-            </p>
-          )}
+          <div>
+            <h2 className="text-lg font-semibold">Select Photo</h2>
+            {isLoading && (
+              <p className="text-sm text-muted-foreground">
+                Loading {loadedCount} of {totalCount}...
+              </p>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+          >
+            <X className="h-5 w-5" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-        >
-          <X className="h-5 w-5" />
-        </Button>
-      </div>
 
-      {/* Thumbnail Grid */}
-      <ScrollArea className="flex-1 p-4">
-        <div 
-          className="grid gap-3 p-2"
-          style={{
-            gridTemplateColumns: `repeat(auto-fill, minmax(${THUMBNAIL_SIZE}px, 1fr))`,
-          }}
-        >
-          {photos.map((photo, index) => {
-            const isLoaded = loadedIds.has(photo.id);
-            const isSelected = index === currentIndex;
-            const isHero = photo.priority === 1;
-            const crop = getDisplayCrop(photo);
-            
-            return (
-              <button
-                key={photo.id}
-                onClick={() => handleSelect(photo.id)}
-                className={cn(
-                  "relative aspect-square transition-all",
-                  "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-                  isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
-                )}
-                style={{ 
-                  minHeight: THUMBNAIL_SIZE,
-                  minWidth: THUMBNAIL_SIZE,
-                }}
-              >
-                {isLoaded ? (
-                  <>
-                    <div className="w-full h-full rounded overflow-hidden">
-                    {crop ? (
-                        <CroppedImage
-                          src={photo.objectUrl}
-                          previewSrc={photo.previewUrl}
-                          thumbnailSrc={photo.thumbnailUrl}
-                          crop={crop}
-                          originalWidth={photo.originalWidth}
-                          originalHeight={photo.originalHeight}
-                          className="w-full h-full object-cover"
-                        />
+        {/* Thumbnail Grid - Flex layout with natural aspect ratios */}
+        <ScrollArea className="flex-1 p-4">
+          <div className="flex flex-wrap gap-3 justify-center p-2">
+            {photos.map((photo, index) => {
+              const isLoaded = loadedIds.has(photo.id);
+              const isSelected = index === currentIndex;
+              const isHero = photo.priority === 1;
+              const crop = getDisplayCrop(photo);
+              const hasSmartCrop = photo.smartCrop !== null;
+              const isProcessing = smartCroppingPhotoId === photo.id;
+              
+              // Calculate width based on aspect ratio (natural shape)
+              const aspectRatio = crop 
+                ? crop.width / crop.height 
+                : photo.originalWidth / photo.originalHeight || 1;
+              const calculatedWidth = Math.max(
+                MIN_THUMBNAIL_WIDTH, 
+                Math.round(THUMBNAIL_HEIGHT * aspectRatio)
+              );
+              
+              return (
+                <div 
+                  key={photo.id}
+                  className="flex flex-col items-center gap-1"
+                  style={{ width: calculatedWidth }}
+                >
+                  {/* Photo thumbnail */}
+                  <button
+                    onClick={() => handleSelect(photo.id)}
+                    className={cn(
+                      "relative transition-all overflow-hidden rounded",
+                      "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                      isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+                    )}
+                    style={{ 
+                      height: THUMBNAIL_HEIGHT,
+                      width: calculatedWidth,
+                    }}
+                  >
+                    {isLoaded ? (
+                      <>
+                        <div className="w-full h-full">
+                          {crop ? (
+                            <CroppedImage
+                              src={photo.objectUrl}
+                              previewSrc={photo.previewUrl}
+                              thumbnailSrc={photo.thumbnailUrl}
+                              crop={crop}
+                              originalWidth={photo.originalWidth}
+                              originalHeight={photo.originalHeight}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <img
+                              src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                        </div>
+                        
+                        {/* Hero badge */}
+                        {isHero && (
+                          <div className="absolute top-0.5 left-0.5 bg-yellow-500 rounded-full p-0.5">
+                            <Star className="h-2.5 w-2.5 fill-yellow-950 text-yellow-950" />
+                          </div>
+                        )}
+
+                        {/* Crop indicator - shows if photo has any cropping applied */}
+                        {(photo.smartCrop || photo.manualCrop) && (
+                          <div className="absolute bottom-0.5 left-0.5 p-0.5 rounded bg-primary/80 text-white shadow-sm">
+                            <Crop className="h-2 w-2" />
+                          </div>
+                        )}
+                        
+                        {/* Index number */}
+                        <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[10px] px-1 rounded">
+                          {index + 1}
+                        </div>
+                      </>
+                    ) : (
+                      <Skeleton className="w-full h-full rounded" />
+                    )}
+                  </button>
+                  
+                  {/* Per-photo action button */}
+                  {isLoaded && onSmartCrop && onUndoSmartCrop && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      disabled={isProcessing}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (hasSmartCrop) {
+                          onUndoSmartCrop(photo.id);
+                        } else {
+                          onSmartCrop(photo.id);
+                        }
+                      }}
+                    >
+                      {isProcessing ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          <span className="sr-only">Cropping...</span>
+                        </>
+                      ) : hasSmartCrop ? (
+                        <>
+                          <Undo2 className="h-3 w-3 mr-1" />
+                          Undo
+                        </>
                       ) : (
-                        <img
-                          src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          <Wand2 className="h-3 w-3 mr-1" />
+                          Auto-crop
+                        </>
                       )}
-                    </div>
-                    
-                    {/* Hero badge */}
-                    {isHero && (
-                      <div className="absolute top-0.5 left-0.5 bg-yellow-500 rounded-full p-0.5">
-                        <Star className="h-2.5 w-2.5 fill-yellow-950 text-yellow-950" />
-                      </div>
-                    )}
-
-                    {/* Crop indicator - shows if photo has any cropping applied */}
-                    {(photo.smartCrop || photo.manualCrop) && (
-                      <div className="absolute bottom-0.5 left-0.5 p-0.5 rounded bg-primary/80 text-white shadow-sm">
-                        <Crop className="h-2 w-2" />
-                      </div>
-                    )}
-                    
-                    {/* Index number */}
-                    <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[10px] px-1 rounded">
-                      {index + 1}
-                    </div>
-                  </>
-                ) : (
-                  <Skeleton className="w-full h-full rounded" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </ScrollArea>
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
 
         {/* Loading progress bar */}
         {isLoading && (

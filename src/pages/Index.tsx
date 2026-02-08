@@ -557,6 +557,15 @@ export default function Index() {
     }
   }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
 
+  // Undo smart crop for a single photo (remove AI crop)
+  const handleUndoSmartCrop = useCallback((photoId: string) => {
+    updatePhoto(photoId, { smartCrop: null });
+    
+    if (state.layout) {
+      regenerateCollage();
+    }
+  }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
+
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
     setLayoutError(null);  // Clear error when user adjusts settings
@@ -813,6 +822,9 @@ export default function Index() {
             setNavigatorOpen(false);
           }}
           onClose={() => setNavigatorOpen(false)}
+          onSmartCrop={handleSingleSmartCrop}
+          onUndoSmartCrop={handleUndoSmartCrop}
+          smartCroppingPhotoId={smartCroppingPhotoId}
         />
       )}
     </div>

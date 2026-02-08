@@ -39,21 +39,6 @@ export interface LayoutGenerationResult {
     reason: string;
     details: Record<string, unknown>;
   };
-  /** Normalized layout for reflow operations */
-  normalized?: {
-    normalizedWidth: number;
-    normalizedHeight: number;
-    normalizedCells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    metadata: {
-      heroId: string | null;
-      heroPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-      normalizedGap: number;
-      besidePhotoIds: string[];
-      belowPhotoIds: string[];
-      besideRowCount: number;
-      belowRowCount: number;
-    };
-  };
 }
 
 // ============================================================================
@@ -195,7 +180,6 @@ export async function generateLayoutInWorker(
         usedWorker: true,
         rejectedLayout: e.data.rejectedLayout,
         softRejection: e.data.softRejection,
-        normalized: e.data.normalized,
       });
     };
     

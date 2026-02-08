@@ -232,9 +232,6 @@ export interface RegionAssignment {
 // Layout Result Types
 // ============================================================================
 
-// Import NormalizedLayout type from collage types
-import type { NormalizedLayout } from '@/types/collage';
-
 /**
  * A scored layout configuration.
  */
@@ -258,8 +255,6 @@ export interface ScoredConfiguration {
     reason: string;
     details: Record<string, unknown>;
   };
-  /** Normalized layout for reflow operations */
-  normalized?: NormalizedLayout;
 }
 
 // ============================================================================

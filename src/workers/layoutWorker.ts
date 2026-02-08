@@ -57,21 +57,6 @@ export interface LayoutResponse {
     reason: string;
     details: Record<string, unknown>;
   };
-  /** Normalized layout for reflow operations */
-  normalized?: {
-    normalizedWidth: number;
-    normalizedHeight: number;
-    normalizedCells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    metadata: {
-      heroId: string | null;
-      heroPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-      normalizedGap: number;
-      besidePhotoIds: string[];
-      belowPhotoIds: string[];
-      besideRowCount: number;
-      belowRowCount: number;
-    };
-  };
 }
 
 // ============================================================================
@@ -94,7 +79,6 @@ function shuffleArray<T>(array: T[]): T[] {
 interface GenerationResult {
   layout: CollageLayout | null;
   softRejection?: { reason: string; details: Record<string, unknown> };
-  normalized?: LayoutResponse['normalized'];
 }
 
 // ============================================================================
@@ -169,23 +153,13 @@ function generateLayout(
     aspectRatio: (config.canvasWidth / config.canvasHeight).toFixed(2),
   });
   
-  // Build normalized layout for response
-  const normalizedForResponse: LayoutResponse['normalized'] = config.normalized ? {
-    normalizedWidth: config.normalized.normalizedWidth,
-    normalizedHeight: config.normalized.normalizedHeight,
-    normalizedCells: config.normalized.normalizedCells,
-    metadata: config.normalized.metadata,
-  } : undefined;
-  
   return {
     layout: {
       width: Math.round(config.canvasWidth * VIRTUAL_CANVAS_BASE),
       height: Math.round(config.canvasHeight * VIRTUAL_CANVAS_BASE),
       cells,
-      normalized: config.normalized,
     },
     softRejection: config.softRejection,
-    normalized: normalizedForResponse,
   };
 }
 
@@ -214,7 +188,6 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
       durationMs,
       logs: isDev ? workerLogs : undefined,
       softRejection: result.softRejection,
-      normalized: result.normalized,
     };
     
     if (!result.layout) {

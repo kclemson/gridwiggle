@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { PhotoCarousel } from '@/components/PhotoCarousel';
@@ -92,6 +92,14 @@ export default function Index() {
   // Single-photo smart crop (mobile manual trigger)
   const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
+  
+  // Hero scale factor for live adjustment (1.0 = default)
+  const [heroScale, setHeroScale] = useState(1.0);
+  
+  // Reset hero scale when layout regenerates (new layout = new base)
+  useEffect(() => {
+    setHeroScale(1.0);
+  }, [state.layout]);
   
   // Collapsible carousel state - default collapsed, user can expand
   const [carouselOpen, setCarouselOpen] = useState(() => {
@@ -498,6 +506,47 @@ export default function Index() {
     regenerateCollage({ randomize: state.layout !== null });
   }, [state.layout, regenerateCollage]);
 
+  // Detect if current layout has a hero photo
+  const hasHeroPhoto = useMemo(() => {
+    return state.photos.some(p => p.priority === 1);
+  }, [state.photos]);
+
+  // Compute scaled layout for live hero size preview (avoids modifying actual layout state during drag)
+  const scaledLayout = useMemo(() => {
+    if (!state.layout || heroScale === 1.0) return state.layout;
+    return {
+      width: Math.round(state.layout.width * heroScale),
+      height: Math.round(state.layout.height * heroScale),
+      cells: state.layout.cells.map(cell => ({
+        ...cell,
+        x: Math.round(cell.x * heroScale),
+        y: Math.round(cell.y * heroScale),
+        width: Math.round(cell.width * heroScale),
+        height: Math.round(cell.height * heroScale),
+      })),
+    };
+  }, [state.layout, heroScale]);
+
+  // Commit hero scale on slider release - writes scaled dimensions to layout state
+  const handleHeroScaleCommit = useCallback(() => {
+    if (!state.layout || heroScale === 1.0) return;
+    
+    const newLayout = {
+      width: Math.round(state.layout.width * heroScale),
+      height: Math.round(state.layout.height * heroScale),
+      cells: state.layout.cells.map(cell => ({
+        ...cell,
+        x: Math.round(cell.x * heroScale),
+        y: Math.round(cell.y * heroScale),
+        width: Math.round(cell.width * heroScale),
+        height: Math.round(cell.height * heroScale),
+      })),
+    };
+    
+    setLayout(newLayout);
+    // heroScale will reset to 1.0 via the useEffect watching state.layout
+  }, [state.layout, heroScale, setLayout]);
+
   // Load dimensions + previews WITHOUT smart crop (for mobile upload)
   const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
     try {
@@ -821,7 +870,7 @@ export default function Index() {
                     )}>
                       <CollagePreview
                         photos={state.photos}
-                        layout={state.layout}
+                        layout={scaledLayout!}
                         gapColor={state.settings.gapColor}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
@@ -847,6 +896,10 @@ export default function Index() {
                     <CollageSettings
                       settings={state.settings}
                       onUpdate={handleUpdateSettings}
+                      heroScale={heroScale}
+                      onHeroScaleChange={setHeroScale}
+                      onHeroScaleCommit={handleHeroScaleCommit}
+                      hasHero={hasHeroPhoto}
                     />
                   </>
                 ) : rejectedLayout && readyPhotos >= 2 && !isRejectionStale ? (

@@ -1,12 +1,28 @@
 import { CollageSettings as CollageSettingsType } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
+import { HeroScaleSlider } from '@/components/HeroScaleSlider';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
+  /** Hero scale factor for live adjustment (1.0 = default) */
+  heroScale?: number;
+  /** Called on every slider drag for live preview */
+  onHeroScaleChange?: (scale: number) => void;
+  /** Called when user releases slider - commit the scale */
+  onHeroScaleCommit?: () => void;
+  /** Whether a hero photo exists in the current layout */
+  hasHero?: boolean;
 }
 
-export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ 
+  settings, 
+  onUpdate,
+  heroScale,
+  onHeroScaleChange,
+  onHeroScaleCommit,
+  hasHero = false,
+}: CollageSettingsProps) {
   return (
     <div className="flex items-center justify-between gap-6 py-2 px-1">
       {/* Background color */}
@@ -20,6 +36,15 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
           aria-label="Background color"
         />
       </div>
+      
+      {/* Hero size - only shown when hero exists */}
+      {hasHero && heroScale !== undefined && onHeroScaleChange && (
+        <HeroScaleSlider
+          value={heroScale}
+          onChange={onHeroScaleChange}
+          onCommit={onHeroScaleCommit}
+        />
+      )}
       
       {/* Spacing */}
       <div className="flex items-center gap-2">

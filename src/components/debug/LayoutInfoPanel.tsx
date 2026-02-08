@@ -1,20 +1,20 @@
 /**
- * SoftRejectionBadge Component
+ * LayoutInfoPanel Component
  * 
- * Displays soft rejection reason and metrics for layouts that are geometrically valid
+ * Displays layout information and metrics for layouts that are geometrically valid
  * but fall outside aesthetic bounds (e.g., canvas AR too tall/wide).
  * Dev-only component - not shown in production.
  */
 
-import { AlertTriangle } from 'lucide-react';
+import { Info } from 'lucide-react';
 
-interface SoftRejectionBadgeProps {
+interface LayoutInfoPanelProps {
   reason: string;
   details: Record<string, unknown>;
 }
 
-export function SoftRejectionBadge({ reason, details }: SoftRejectionBadgeProps) {
-  // Extract belowConstraints for inline display (same as RejectionBadge)
+export function LayoutInfoPanel({ reason, details }: LayoutInfoPanelProps) {
+  // Extract belowConstraints for inline display
   const belowConstraints = details.belowConstraints as {
     maxRowsByMinAR: number;
     minRowsByMaxAR: number;
@@ -28,12 +28,13 @@ export function SoftRejectionBadge({ reason, details }: SoftRejectionBadgeProps)
   );
   
   return (
-    <div className="mt-3 p-4 bg-amber-500/20 border-2 border-amber-500 rounded-lg">
-      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-lg">
-        <AlertTriangle className="h-5 w-5" />
-        SOFT REJECTION: {reason.replace(/_/g, ' ')}
+    <div className="mt-3 p-3 bg-muted/50 border border-border rounded-lg">
+      <div className="flex items-center gap-1.5 text-muted-foreground text-sm font-medium mb-2">
+        <Info className="h-4 w-4" />
+        Layout Info
       </div>
-      <div className="mt-2 text-sm text-amber-600/80 dark:text-amber-400/80 font-mono">
+      <div className="text-xs text-muted-foreground/80 font-mono space-y-0.5">
+        <div>reason: {reason.replace(/_/g, ' ')}</div>
         {displayEntries.map(([k, v]) => {
           // Special handling for belowRowCount - append constraints inline
           if (k === 'belowRowCount' && belowConstraints) {
@@ -41,7 +42,7 @@ export function SoftRejectionBadge({ reason, details }: SoftRejectionBadgeProps)
             return (
               <div key={k}>
                 {k}: {String(v)}
-                <span className="text-amber-600/60 dark:text-amber-400/60 ml-2">
+                <span className="text-muted-foreground/60 ml-2">
                   [h≤{maxRowsByMinAR} w≥{minRowsByMaxAR} c≥{minRowsByCellSize} tw:{targetWidth.toFixed(2)}]
                 </span>
               </div>

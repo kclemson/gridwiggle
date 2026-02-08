@@ -1,148 +1,233 @@
 
 
-# Weighted Random Selection for Region Assignments
+# Convert All Hard Rejections to Soft Rejections
 
-## Problem
+## Summary
 
-Currently in `randomize` mode, candidates are selected with uniform probability:
-
-```typescript
-validRegionAssignments[Math.floor(Math.random() * validRegionAssignments.length)]
-```
-
-This means a candidate with score 0.52 has the same chance of being picked as one with score 0.86 — wasting all the work the scoring function does.
+Transition from "fail loudly" (return null) to "always succeed with diagnostics" — users always see a layout when they refresh. In dev mode, the debug log panel continues to show all rejection logs with **hoverable CSS previews** for algorithm tuning.
 
 ---
 
-## Solution: Score-Weighted Selection
+## Design Intent
 
-Replace uniform random with a probability distribution where higher-scoring candidates are more likely to be selected, while still allowing variety.
+**What problem are we solving?**
+- Users currently see error states and red boxes when the algorithm can't find an "ideal" layout
+- This creates a bad UX when in reality, the "rejected" layout is still better than no layout
 
-### The Math
-
-**Step 1: Normalize scores to [0, 1] range**
-```typescript
-const minScore = Math.min(...scores);
-const maxScore = Math.max(...scores);
-const range = maxScore - minScore || 1; // Avoid division by zero
-const normalized = (score - minScore) / range;
-```
-
-**Step 2: Apply power function + floor constant**
-```typescript
-// Square emphasizes differences, +0.1 ensures no candidate has zero weight
-const weight = Math.pow(normalized, 2) + 0.1;
-```
-
-**Step 3: Build cumulative probability distribution**
-```typescript
-const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-const probabilities = weights.map(w => w / totalWeight);
-const cumulative = probabilities.reduce((acc, p, i) => {
-  acc.push((acc[i - 1] || 0) + p);
-  return acc;
-}, []);
-```
-
-**Step 4: Sample from distribution**
-```typescript
-const r = Math.random();
-const selectedIndex = cumulative.findIndex(cp => r <= cp);
-```
-
-### Example: 4 Candidates
-
-| Candidate | Raw Score | Normalized | Weight (n² + 0.1) | Probability |
-|-----------|-----------|------------|-------------------|-------------|
-| A         | 0.52      | 0.00       | 0.10              | 5%          |
-| B         | 0.67      | 0.44       | 0.29              | 14%         |
-| C         | 0.78      | 0.76       | 0.68              | 33%         |
-| D         | 0.86      | 1.00       | 1.10              | 53%         |
-
-The best candidate (D) is picked ~53% of the time instead of 25%. The worst (A) is picked ~5% instead of 25%. Variety is preserved, but quality is strongly favored.
+**What will users experience after this change?**
+- **Production**: Every refresh produces a visible collage — no red rings, no error messages, no "try again" prompts
+- **Development**: 
+  - Layouts that would have been rejected are highlighted with amber ring + SoftRejectionBadge
+  - Debug log panel shows all `[region-reject]` and `[layout-reject]` entries
+  - **Hovering over rejection logs shows the CSS boxy preview** (existing behavior preserved)
 
 ---
 
-## Technical Implementation
+## Preserving Hover Previews (Dev Mode)
+
+The existing hover preview system will continue to work because:
+
+1. **Geometry capture stays unchanged**: `devLogger.warn()` calls in `region-search.ts` and `intersection.ts` already pass `RejectedLayoutGeometry` as the 4th argument
+2. **LogEntry.rejectedLayout preserved**: The `rejectedLayout` field continues to be populated on warn/error logs
+3. **Worker→Main thread transfer unchanged**: `workerLogs` array transfers complete LogEntry objects including geometry
+4. **DebugLogPanel rendering unchanged**: The HoverCard wrapper with RejectedLayoutPreview component remains intact
+
+The key insight: **soft rejections still log warnings** — they just don't return `null`. The geometry is captured for visualization regardless of whether the layout is "accepted" or "soft-rejected".
+
+---
+
+## Implementation
+
+### File: `src/lib/v3/intersection.ts`
+
+**Change 1: evaluateNormalizedProposal always returns a config (never null)**
+
+Convert prominence and smallest-cell validation failures from `return null` to `softRejection` annotation. **Continue to log warnings with geometry** for dev hover preview:
+
+```typescript
+// Lines 341-363 - Prominence validation
+if (!prominence.valid) {
+  const rejectedCells = computeRejectedCells();
+  const details = { ... };
+  
+  // Still log warning WITH GEOMETRY for hover preview
+  devLogger.warn('layout-reject', 'Prominence too low (soft)', details, {
+    cells: rejectedCells,
+    canvasWidth,
+    canvasHeight,
+  });
+  
+  // Mark as soft rejection instead of returning null
+  if (!softRejection) {
+    softRejection = { reason: 'prominence_too_low', details };
+  }
+  // Remove: setRejectedLayout(...); setRejection(...); return null;
+}
+```
+
+Same pattern for smallest-cell validation (lines 371-399).
+
+**Change 2: Region assignment failure becomes soft rejection**
+
+When `findValidRegionAssignment` returns no assignment, use a fallback assignment and mark as soft rejection:
+
+```typescript
+// Lines 183-201
+if (!regionResult.assignment) {
+  // Fallback: put all content in BELOW region
+  const fallbackAssignment = createFallbackAssignment(contentPhotos, heroAR, normalizedGap, tuning);
+  softRejection = { reason: 'no_valid_region_assignment', details: { ... } };
+  // Continue with fallbackAssignment instead of returning null
+}
+```
+
+**Change 3: findValidConfiguration always returns best available**
+
+```typescript
+// Lines 108-140
+const allConfigs: ScoredConfiguration[] = [];
+
+for (const proposal of proposals) {
+  const config = evaluateNormalizedProposal(...);
+  // config is now always non-null
+  allConfigs.push(config);
+}
+
+// Sort by score (soft-rejected configs naturally score lower)
+allConfigs.sort((a, b) => b.score - a.score);
+
+// Always return best available
+return allConfigs[0];
+// Remove: if (validConfigs.length === 0) return null;
+```
 
 ### File: `src/lib/v3/region-search.ts`
 
-**Add helper function** (new function, ~25 lines):
+**Change 4: Region search returns fallback when no valid assignment found**
+
+Currently returns `{ assignment: null, lastRejectedPack }`. Change to always return an assignment:
 
 ```typescript
-/**
- * Select a candidate using score-weighted random selection.
- * Higher-scoring candidates have higher probability of being selected.
- * 
- * Uses squared normalized scores to emphasize quality differences,
- * with a floor constant to ensure all candidates have non-zero probability.
- */
-function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
-  if (candidates.length === 1) return candidates[0];
+// Lines 505-520
+if (validRegionAssignments.length === 0) {
+  // Create fallback assignment (e.g., all photos in BELOW)
+  const fallbackResult = packToFillWidth(photos, heroAR, normalizedGap, ...);
   
-  // Extract scores and compute range
-  const scores = candidates.map(c => c.score);
-  const minScore = Math.min(...scores);
-  const maxScore = Math.max(...scores);
-  const range = maxScore - minScore || 1; // Avoid division by zero
+  // Still log warning WITH GEOMETRY for hover preview
+  devLogger.warn('region-reject', 'Using fallback assignment (all BELOW)', {
+    photoCount: photos.length,
+  }, lastRejectedPack ? {
+    cells: lastRejectedPack.cells,
+    canvasWidth: lastRejectedPack.canvasWidth,
+    canvasHeight: lastRejectedPack.canvasHeight,
+  } : undefined);
   
-  // Compute weights: squared normalized score + floor constant
-  const weights = scores.map(s => {
-    const normalized = (s - minScore) / range;
-    return Math.pow(normalized, 2) + 0.1; // 0.1 floor ensures non-zero probability
-  });
-  
-  // Build cumulative distribution
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  let cumulative = 0;
-  const cumulativeWeights = weights.map(w => {
-    cumulative += w / totalWeight;
-    return cumulative;
-  });
-  
-  // Sample from distribution
-  const r = Math.random();
-  const selectedIndex = cumulativeWeights.findIndex(cp => r <= cp);
-  return candidates[selectedIndex >= 0 ? selectedIndex : candidates.length - 1];
+  return {
+    assignment: {
+      besidePhotos: [],
+      belowPhotos: photos,
+      besideRowCount: 0,
+      belowRowCount: fallbackResult.rowCount,
+      score: 0.1, // Low score so valid assignments are preferred
+      softRejection: { reason: 'fallback_all_below', details: { ... } },
+    },
+    lastRejectedPack,
+  };
 }
 ```
 
-**Update selection logic** (lines 453-466):
+### File: `src/pages/Index.tsx`
+
+**Change 5: Remove hard rejection UI**
+
+- Remove `rejectedLayout` state and the red ring preview (lines 288-317)
+- Remove `layoutError` state for rejection cases (keep only for true exceptions)
+- Keep `softRejection` state for dev mode amber ring + badge
 
 ```typescript
-if (validRegionAssignments.length > 0) {
-  // Pick using weighted random for variety OR pick best score for determinism
-  const selected = randomize
-    ? weightedRandomSelect(validRegionAssignments)
-    : validRegionAssignments.reduce((best, current) => current.score > best.score ? current : best);
-  
-  devLogger.log('region', `Assignment selected ${randomize ? 'by weighted random' : 'by best score'}`, {
-    totalCandidates: validRegionAssignments.length,
-    besideCount: selected.besidePhotos.length,
-    belowCount: selected.belowPhotos.length,
-    besideRowCount: selected.besideRowCount,
-    score: selected.score.toFixed(3),
-  });
-  return { assignment: selected };
+// Lines 271-318 - Simplified layout generation callback
+if (layout) {
+  setLayout(layout);
+  setLayoutError(null);
+  setSoftRejection(result.softRejection ?? null);
+}
+// Remove: the entire else branch that handles null layout
+// (layout will never be null now)
+```
+
+**Change 6: Simplify preview rendering**
+
+Remove the `rejectedLayout` conditional branch (lines 852-895):
+- No more red ring preview
+- No more RejectionBadge in preview area
+
+Keep the soft rejection amber ring (dev-only):
+```typescript
+{import.meta.env.DEV && softRejection && (
+  <div className="ring-2 ring-amber-500 ...">
+    ...
+    <SoftRejectionBadge ... />
+  </div>
+)}
+```
+
+### File: `src/workers/layoutWorker.ts`
+
+**Change 7: Worker response always has layout**
+
+- Remove `rejectedLayout` from response (no longer needed for UI)
+- Keep `softRejection` for dev logging/display
+- Remove `failure` field (layout always returned)
+
+```typescript
+const response: LayoutResponse = {
+  type: 'result',
+  requestId,
+  layout: result.layout,  // Always non-null now
+  durationMs,
+  logs: isDev ? workerLogs : undefined,
+  softRejection: result.softRejection,
+  // Remove: failure, rejectedLayout
+};
+```
+
+### File: `src/services/layoutGenerationService.ts`
+
+**Change 8: Service interface cleanup**
+
+```typescript
+export interface LayoutGenerationResult {
+  layout: CollageLayout;  // No longer nullable
+  durationMs: number;
+  logs?: LogEntry[];
+  usedWorker: boolean;
+  softRejection?: { reason: string; details: Record<string, unknown> };
+  // Remove: failure, rejectedLayout
 }
 ```
 
 ---
 
-## Test Matrix: Selection Probability Changes
+## Dev Mode Hover Preview: Unchanged Flow
 
-| Scenario | Scores | Uniform (Before) | Weighted (After) |
-|----------|--------|------------------|------------------|
-| 4 candidates, wide spread | 0.52, 0.67, 0.78, 0.86 | 25% each | 5%, 14%, 33%, 53% |
-| 4 candidates, tight cluster | 0.80, 0.82, 0.84, 0.86 | 25% each | 15%, 21%, 29%, 35% |
-| 2 candidates, one bad | 0.30, 0.85 | 50% each | 8%, 92% |
-| 8 candidates, all similar | 0.70-0.75 | 12.5% each | ~12% each (floor dominates) |
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. region-search.ts / intersection.ts                              │
+│    devLogger.warn('region-reject', label, data, geometryObject)    │
+│                          ↓                                         │
+│ 2. devLogger stores entry with rejectedLayout field                │
+│                          ↓                                         │
+│ 3. Worker collects logs in workerLogs array                        │
+│                          ↓                                         │
+│ 4. Worker posts response with logs: workerLogs                     │
+│                          ↓                                         │
+│ 5. DebugLogPanel receives logs, renders each entry                 │
+│    - If entry.rejectedLayout exists → HoverCard wrapper            │
+│    - On hover → RejectedLayoutPreview renders CSS boxes            │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-Key behaviors:
-- **Wide score spreads**: Best candidates heavily favored
-- **Tight clusters**: Distribution remains relatively uniform (variety preserved)
-- **One outlier bad**: Bad candidate almost never picked
-- **All similar**: Floor constant keeps selection fairly uniform
+This flow is **completely unchanged** — soft rejections still log warnings, warnings still have geometry attached, hover previews still work.
 
 ---
 
@@ -150,20 +235,33 @@ Key behaviors:
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/region-search.ts` | Add `weightedRandomSelect()` helper, update selection logic |
+| `src/lib/v3/intersection.ts` | Convert 3 hard rejection points to soft rejections; keep geometry logging |
+| `src/lib/v3/region-search.ts` | Return fallback assignment when no valid found; keep geometry logging |
+| `src/pages/Index.tsx` | Remove rejection UI (red ring, error states); keep dev soft-rejection badge |
+| `src/workers/layoutWorker.ts` | Remove `rejectedLayout` and `failure` from response |
+| `src/services/layoutGenerationService.ts` | Update interface, remove `rejectedLayout` and `failure` |
 
 ---
 
-## Expected Behavior
+## Test Matrix: Expected Behavior Changes
 
-### Before
-- 8 candidates collected, scores range 0.52 to 0.86
-- Uniform random picks any with 12.5% probability
-- Worst candidate (0.52) gets selected, prominence fails in intersection
+| Scenario | Before | After |
+|----------|--------|-------|
+| Prominence too low (all proposals) | Red ring + error + blocked | Amber ring (dev) + layout shown |
+| Smallest cell too tiny | Red ring + error + blocked | Amber ring (dev) + layout shown |
+| No valid region split | "Couldn't generate layout" | Layout generated (may be suboptimal) |
+| Canvas AR out of bounds | Already soft rejection | Unchanged |
+| Debug log hover preview | Shows CSS boxes on hover | **Still shows CSS boxes on hover** |
 
-### After
-- Same 8 candidates, scores 0.52 to 0.86
-- Weighted selection: best (0.86) has ~40% chance, worst (0.52) has ~2% chance
-- High-scoring candidates with healthy prominence margins are picked ~95% of the time
-- Double-validation failures become rare edge cases, not common occurrences
+---
+
+## Validation
+
+1. Load photo sets that currently fail (portrait-heavy, extreme ARs)
+2. Verify layouts always appear — no red rings, no error messages in production
+3. In dev mode:
+   - Verify amber ring + SoftRejectionBadge appear for suboptimal layouts
+   - **Verify hover over [region-reject] logs shows CSS boxy preview**
+4. Check debug logs still capture rejection reasons with geometry attached
+5. Verify high-quality layouts (that pass all constraints) show no badges/rings
 

@@ -817,9 +817,8 @@ export default function Index() {
           photos={state.photos}
           currentIndex={0}
           onSelect={(photoId) => {
-            // Open crop editor directly - View All is for managing crops
+            // Open crop editor on top of navigator - Cancel returns here
             setEditingPhotoId(photoId);
-            setNavigatorOpen(false);
           }}
           onClose={() => setNavigatorOpen(false)}
           onSmartCrop={handleSingleSmartCrop}

@@ -1,41 +1,84 @@
 
+# Prevent Layout Re-shuffle When Un-marking Hero
 
-# Rename and Adjust Beside Placement Score
+## Problem
 
-## Changes
+When a user un-marks a hero photo (removes star), the app currently triggers a full layout regeneration with `randomize: true`. This causes all photos to flip to new positions, which is disorienting since the layout "shifts underneath" the user's cursor/finger.
 
-### File: `src/lib/v3/region-search.ts`
+## Desired Behavior
 
-**Location:** Lines 643-648
+Un-heroing a photo should **not** change the layout. The existing layout remains in place. If the user wants a new layout, they can explicitly click the refresh button.
 
-**Before:**
+## Technical Change
+
+### File: `src/pages/Index.tsx`
+
+**Location:** `handleToggleHero` function (lines 415-434)
+
+**Current logic:**
 ```typescript
-// Variety bonus: reward having beside photos (structural interest)
-// 0-beside layouts are valid but less visually interesting
-// Penalty increased from 0.7 to 0.5 to reduce full-width hero frequency
-const varietyScore = besideResult.cells.length > 0 ? 1.0 : 0.5;
-
-// Combined score: uniformity (35%) + parity (35%) + variety (30%)
-return (uniformityScore * 0.35) + (parityScore * 0.35) + (varietyScore * 0.30);
+const handleToggleHero = useCallback((photoId: string) => {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (!photo) return;
+  
+  const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
+  updatePhoto(photoId, { priority: newPriority });
+  
+  // Reset shape to auto when adding a hero
+  if (newPriority === 1 && state.settings.shape !== 'auto') {
+    updateSettings({ shape: 'auto' });
+  }
+  
+  if (state.layout) {
+    regenerateCollage({                           // ← ALWAYS regenerates
+      priorityOverride: { photoId, priority: newPriority },
+      settings: newPriority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
+      randomize: true,
+    });
+  }
+}, [...]);
 ```
 
-**After:**
+**Updated logic:**
 ```typescript
-// Beside placement bonus: reward layouts with photos beside the hero
-// Full-width hero layouts (0 beside) receive a penalty to reduce their frequency
-const besidePlacementScore = besideResult.cells.length > 0 ? 1.0 : 0.4;
-
-// Combined score: uniformity (35%) + parity (35%) + beside placement (30%)
-return (uniformityScore * 0.35) + (parityScore * 0.35) + (besidePlacementScore * 0.30);
+const handleToggleHero = useCallback((photoId: string) => {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (!photo) return;
+  
+  const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
+  updatePhoto(photoId, { priority: newPriority });
+  
+  // Only regenerate when ADDING a hero (new layout needed for hero prominence)
+  // Un-heroing should preserve the existing layout
+  if (newPriority === 1) {
+    // Reset shape to auto when adding a hero
+    if (state.settings.shape !== 'auto') {
+      updateSettings({ shape: 'auto' });
+    }
+    
+    if (state.layout) {
+      regenerateCollage({ 
+        priorityOverride: { photoId, priority: newPriority },
+        settings: { ...state.settings, shape: 'auto' },
+        randomize: true,
+      });
+    }
+  }
+  // When un-heroing (newPriority === 3): just update state, keep existing layout
+}, [...]);
 ```
 
-## Impact
+## Behavior Summary
 
-The 0.4 value creates an **0.18 point penalty** for full-width layouts (30% × 0.6 difference), up from 0.15 with the 0.5 value. This should push full-width frequency lower.
+| Action | Old Behavior | New Behavior |
+|--------|-------------|--------------|
+| **Mark as hero** (star ON) | Full regenerate with shuffle | Same - regenerate with shuffle |
+| **Un-mark hero** (star OFF) | Full regenerate with shuffle | No regeneration - layout preserved |
 
-| Value | Penalty | Expected Effect |
-|-------|---------|-----------------|
-| 0.7 (original) | 0.09 | ~50% full-width |
-| 0.5 (previous) | 0.15 | ~30% full-width |
-| 0.4 (new) | 0.18 | ~15-20% full-width |
+## Why This Works
 
+The layout stores `photoId` references in cells, not priority information. When a photo is un-heroed:
+- Its position in the layout remains unchanged
+- Only the metadata (`priority`) is updated in state
+- The star icon updates visually (no longer filled)
+- No layout recalculation needed

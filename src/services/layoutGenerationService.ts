@@ -34,6 +34,11 @@ export interface LayoutGenerationResult {
     reason: string;
     details: Record<string, unknown>;
   };
+  /** Soft rejection info (layout is usable but outside ideal bounds) - dev-only display */
+  softRejection?: {
+    reason: string;
+    details: Record<string, unknown>;
+  };
 }
 
 // ============================================================================
@@ -174,6 +179,7 @@ export async function generateLayoutInWorker(
         failure: e.data.failure,
         usedWorker: true,
         rejectedLayout: e.data.rejectedLayout,
+        softRejection: e.data.softRejection,
       });
     };
     

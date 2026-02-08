@@ -242,6 +242,10 @@ export function findValidRegionAssignment(
           besideCount: 0,
           prominenceRatio: prominenceRatioNoAside.toFixed(2),
           required: effectiveMinProminenceNoAside,
+        }, {
+          cells: lastRejectedPack.cells,
+          canvasWidth: lastRejectedPack.canvasWidth,
+          canvasHeight: lastRejectedPack.canvasHeight,
         });
         continue;
       }
@@ -391,6 +395,10 @@ export function findValidRegionAssignment(
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),
           required: effectiveMinProminence,
+        }, {
+          cells: lastRejectedPack.cells,
+          canvasWidth: lastRejectedPack.canvasWidth,
+          canvasHeight: lastRejectedPack.canvasHeight,
         });
         continue;
       }

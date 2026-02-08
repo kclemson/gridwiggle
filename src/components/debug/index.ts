@@ -2,3 +2,4 @@ export { DebugLogPanel, LogCountBadge, DurationBadge } from './DebugLogPanel';
 export { CaptureControls } from './CaptureControls';
 export { RejectionBadge } from './RejectionBadge';
 export { SoftRejectionBadge } from './SoftRejectionBadge';
+export { RejectedLayoutPreview } from './RejectedLayoutPreview';

@@ -1,95 +1,41 @@
 
 
-# Move Thumbnail Below Dots with Better Spacing
+# Rename and Adjust Beside Placement Score
 
-## Problem Summary
+## Changes
 
-Looking at your screenshot:
-1. There's a large vertical gap between the header and the dots (from `pt-16` on the parent)
-2. The thumbnail is currently above the dots but too close to them
-3. You want the layout inverted: dots on top, thumbnail below with some breathing room
+### File: `src/lib/v3/region-search.ts`
 
-## Design Intent
+**Location:** Lines 643-648
 
-**What behavior do we want?**
-- Dots appear near the top of the processing section (less wasted vertical space)
-- Thumbnail appears BELOW the dots, pointing up to its dot
-- A comfortable gap between dots and thumbnail
+**Before:**
+```typescript
+// Variety bonus: reward having beside photos (structural interest)
+// 0-beside layouts are valid but less visually interesting
+// Penalty increased from 0.7 to 0.5 to reduce full-width hero frequency
+const varietyScore = besideResult.cells.length > 0 ? 1.0 : 0.5;
 
-**What will users experience?**
-- More compact vertical layout
-- Clearer visual hierarchy: progress bar first, then the current photo preview below
-
-## Visual Comparison
-
-**Current layout:**
-```
-                              ← lots of empty space
-      [thumbnail]             ← thumbnail above, cramped
-●●●●●●●○●●●●●●●●●●           ← dots
+// Combined score: uniformity (35%) + parity (35%) + variety (30%)
+return (uniformityScore * 0.35) + (parityScore * 0.35) + (varietyScore * 0.30);
 ```
 
-**New layout:**
-```
-●●●●●●●○●●●●●●●●●●           ← dots at top
-        ↓
-      [thumbnail]             ← thumbnail below with gap
-```
+**After:**
+```typescript
+// Beside placement bonus: reward layouts with photos beside the hero
+// Full-width hero layouts (0 beside) receive a penalty to reduce their frequency
+const besidePlacementScore = besideResult.cells.length > 0 ? 1.0 : 0.4;
 
-## Implementation Details
-
-### File: `src/components/PhotoProgressDots.tsx`
-
-**Changes:**
-1. Swap the order: render dots container FIRST, then thumbnail container
-2. Change thumbnail positioning from `bottom-0` to `top-0` (since it's now below)
-3. Adjust the reserved space height and add a small gap (`mt-3`) between dots and thumbnail
-
-```tsx
-return (
-  <div className={cn("flex flex-col items-center", className)}>
-    {/* Dots scroll container - NOW FIRST */}
-    <div 
-      ref={containerRef}
-      className="flex gap-1 overflow-x-auto max-w-xs px-2 scrollbar-hide"
-    >
-      {/* ... dots mapping unchanged ... */}
-    </div>
-    
-    {/* Thumbnail - NOW BELOW dots, with gap */}
-    <div className="h-14 mt-3 relative w-full flex justify-center">
-      <div className="relative max-w-xs w-full px-2">
-        {currentPhoto && thumbnailOffset !== null && (
-          <div 
-            className="absolute top-0 -translate-x-1/2 z-10"
-            style={{ left: thumbnailOffset }}
-          >
-            <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
-              <img ... />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  </div>
-);
+// Combined score: uniformity (35%) + parity (35%) + beside placement (30%)
+return (uniformityScore * 0.35) + (parityScore * 0.35) + (besidePlacementScore * 0.30);
 ```
 
-### File: `src/components/PhotoProcessingView.tsx`
+## Impact
 
-**Change:** Reduce the top padding from `pt-16` to `pt-8` to bring the dots closer to the header.
+The 0.4 value creates an **0.18 point penalty** for full-width layouts (30% × 0.6 difference), up from 0.15 with the 0.5 value. This should push full-width frequency lower.
 
-```tsx
-// Line 26: change pt-16 to pt-8
-<div className="space-y-4 pt-8">
-```
-
-## File Changes Summary
-
-| File | Location | Change |
-|------|----------|--------|
-| PhotoProgressDots.tsx | Lines 56-75 | Swap order: dots first, then thumbnail container |
-| PhotoProgressDots.tsx | Line 58 | Add `mt-3` for gap between dots and thumbnail |
-| PhotoProgressDots.tsx | Line 62 | Change `bottom-0` to `top-0` for downward positioning |
-| PhotoProcessingView.tsx | Line 26 | Reduce `pt-16` to `pt-8` |
+| Value | Penalty | Expected Effect |
+|-------|---------|-----------------|
+| 0.7 (original) | 0.09 | ~50% full-width |
+| 0.5 (previous) | 0.15 | ~30% full-width |
+| 0.4 (new) | 0.18 | ~15-20% full-width |
 

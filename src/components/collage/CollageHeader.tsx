@@ -33,22 +33,23 @@ export function CollageHeader({
         >
           <RefreshCw className={cn("h-4 w-4", isShuffling && "animate-spin")} />
         </Button>
-        {showDownload && onDownload && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-8 w-8" 
-            onClick={onDownload}
-            disabled={isDownloading}
-            title="Download PNG"
-          >
-            {isDownloading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-          </Button>
-        )}
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className={cn(
+            "h-8 w-8",
+            !showDownload && "invisible"
+          )}
+          onClick={onDownload}
+          disabled={isDownloading || !showDownload}
+          title="Download PNG"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+        </Button>
       </div>
     </div>
   );

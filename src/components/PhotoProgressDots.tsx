@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { PhotoItem } from '@/types/collage';
 import { cn } from '@/lib/utils';
 
@@ -15,8 +15,33 @@ export function PhotoProgressDots({
   currentPhoto,
   className,
 }: PhotoProgressDotsProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+  const [thumbnailOffset, setThumbnailOffset] = useState<number | null>(null);
 
+  // Update thumbnail position when active dot changes or scroll happens
+  useEffect(() => {
+    const updatePosition = () => {
+      if (activeRef.current && containerRef.current) {
+        const dotRect = activeRef.current.getBoundingClientRect();
+        const containerRect = containerRef.current.getBoundingClientRect();
+        // Center of dot relative to container's left edge
+        const offset = dotRect.left - containerRect.left + dotRect.width / 2;
+        setThumbnailOffset(offset);
+      } else {
+        setThumbnailOffset(null);
+      }
+    };
+    
+    updatePosition();
+    
+    // Also update on scroll
+    const container = containerRef.current;
+    container?.addEventListener('scroll', updatePosition);
+    return () => container?.removeEventListener('scroll', updatePosition);
+  }, [currentlyProcessingId]);
+
+  // Auto-scroll to active dot
   useEffect(() => {
     if (activeRef.current) {
       activeRef.current.scrollIntoView({ 
@@ -29,10 +54,31 @@ export function PhotoProgressDots({
 
   return (
     <div className={cn("flex flex-col items-center", className)}>
-      {/* Reserve space for thumbnail above */}
-      <div className="h-14" />
+      {/* Thumbnail - OUTSIDE scroll container, positioned via JS */}
+      <div className="h-14 relative w-full flex justify-center">
+        <div className="relative max-w-xs w-full px-2">
+          {currentPhoto && thumbnailOffset !== null && (
+            <div 
+              className="absolute bottom-0 -translate-x-1/2 z-10"
+              style={{ left: thumbnailOffset }}
+            >
+              <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
+                <img
+                  src={currentPhoto.objectUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
       
-      <div className="flex gap-1 overflow-x-auto max-w-xs px-2 scrollbar-hide">
+      {/* Dots scroll container */}
+      <div 
+        ref={containerRef}
+        className="flex gap-1 overflow-x-auto max-w-xs px-2 scrollbar-hide"
+      >
         {photos.map((photo) => {
           const isProcessing = photo.id === currentlyProcessingId;
           const isComplete = !photo.isProcessing && !photo.error;
@@ -42,21 +88,8 @@ export function PhotoProgressDots({
             <div 
               key={photo.id} 
               ref={isProcessing ? activeRef : null}
-              className="relative flex-shrink-0"
+              className="flex-shrink-0"
             >
-              {/* Thumbnail floating above active dot */}
-              {isProcessing && currentPhoto && (
-                <div className="absolute -top-14 left-1/2 -translate-x-1/2">
-                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
-                    <img
-                      src={currentPhoto.objectUrl}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              )}
-              
               {/* The dot */}
               <div
                 className={cn(

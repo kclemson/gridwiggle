@@ -54,27 +54,7 @@ export function PhotoProgressDots({
 
   return (
     <div className={cn("flex flex-col items-center", className)}>
-      {/* Thumbnail - OUTSIDE scroll container, positioned via JS */}
-      <div className="h-14 relative w-full flex justify-center">
-        <div className="relative max-w-xs w-full px-2">
-          {currentPhoto && thumbnailOffset !== null && (
-            <div 
-              className="absolute bottom-0 -translate-x-1/2 z-10"
-              style={{ left: thumbnailOffset }}
-            >
-              <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
-                <img
-                  src={currentPhoto.objectUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Dots scroll container */}
+      {/* Dots scroll container - FIRST */}
       <div 
         ref={containerRef}
         className="flex gap-1 overflow-x-auto max-w-xs px-2 scrollbar-hide"
@@ -103,6 +83,26 @@ export function PhotoProgressDots({
             </div>
           );
         })}
+      </div>
+      
+      {/* Thumbnail - BELOW dots, with gap */}
+      <div className="h-14 mt-3 relative w-full flex justify-center">
+        <div className="relative max-w-xs w-full px-2">
+          {currentPhoto && thumbnailOffset !== null && (
+            <div 
+              className="absolute top-0 -translate-x-1/2 z-10"
+              style={{ left: thumbnailOffset }}
+            >
+              <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted shadow-sm">
+                <img
+                  src={currentPhoto.objectUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

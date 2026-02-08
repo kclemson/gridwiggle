@@ -23,7 +23,7 @@ export function PhotoProcessingView({
     : null;
 
   return (
-    <div className="space-y-4 pt-16">
+    <div className="space-y-4 pt-8">
       {/* Error count only - ready count is in header */}
       {stats.errors > 0 && (
         <div className="flex justify-center text-sm">

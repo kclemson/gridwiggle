@@ -55,7 +55,7 @@ export interface V3Tuning {
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
-  hero_minProminence: 1.3,
+  hero_minProminence: 1.1,
   hero_targetProminence: 1.5,
   decomp_edgeMinPhotos: 8,
   decomp_floatingMinPhotos: 15,

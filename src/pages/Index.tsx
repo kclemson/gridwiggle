@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useCollageState } from '@/hooks/useCollageState';
 import { PhotoUploader } from '@/components/PhotoUploader';
-import { PhotoCarousel } from '@/components/PhotoCarousel';
 import { ThumbnailNavigator } from '@/components/ThumbnailNavigator';
 import { PhotoProcessingView } from '@/components/PhotoProcessingView';
+import { PhotoStrip } from '@/components/PhotoStrip';
 import { CollageSettings } from '@/components/CollageSettings';
 import { CropEditor } from '@/components/CropEditor';
 import { CollagePreview } from '@/components/CollagePreview';
 import { DebugPanel } from '@/components/DebugPanel';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { getSmartCrop } from '@/services/smartCropService';
 import { generateLayoutInWorker } from '@/services/layoutGenerationService';
@@ -36,8 +35,7 @@ import {
   Loader2,
   Trash2,
   RefreshCw,
-  AlertCircle,
-  ChevronDown
+  AlertCircle
 } from 'lucide-react';
 
 export default function Index() {
@@ -79,18 +77,11 @@ export default function Index() {
   } | null>(null);
   
   // Carousel and navigator state
-  const [carouselIndex, setCarouselIndex] = useState(0);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   
   // Single-photo smart crop (mobile manual trigger)
   const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
   const [currentlyProcessingId, setCurrentlyProcessingId] = useState<string | null>(null);
-  
-  // Collapsible carousel state - default collapsed, user can expand
-  const [carouselOpen, setCarouselOpen] = useState(() => {
-    const saved = localStorage.getItem('carouselOpen');
-    return saved !== null ? saved === 'true' : false;
-  });
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(state.photos);
@@ -597,13 +588,6 @@ export default function Index() {
 
   const isProcessing = isProcessingSmartCrop || state.photos.some((p) => p.isProcessing);
 
-  
-  // Persist carousel open state
-  const handleCarouselOpenChange = (open: boolean) => {
-    setCarouselOpen(open);
-    localStorage.setItem('carouselOpen', String(open));
-  };
-
   const editingPhoto = editingPhotoId 
     ? state.photos.find((p) => p.id === editingPhotoId) 
     : null;
@@ -661,80 +645,39 @@ export default function Index() {
         {/* Review UI when photos exist */}
         {state.photos.length > 0 && (
           <div className="space-y-4">
-            {/* Collapsible Photo carousel with progress dots in header */}
-            <Collapsible open={carouselOpen} onOpenChange={handleCarouselOpenChange}>
-              <CollapsibleTrigger asChild>
-                <button className="flex items-center justify-between w-full px-1 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors">
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {isProcessing ? (
-                      <>
-                        Photos
-                        <span className="mx-2 text-muted-foreground/50">·</span>
-                        <Loader2 className="inline h-3 w-3 animate-spin text-muted-foreground" />
-                        <span className="ml-1.5 text-emerald-600 normal-case tracking-normal">
-                          {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
-                        </span>
-                        {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
-                          <>
-                            <span className="mx-2 text-muted-foreground/50">·</span>
-                            <span className="text-primary/80 normal-case tracking-normal">
-                              {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
-                            </span>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        Photos ({state.photos.length})
-                        {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
-                          <>
-                            <span className="mx-2 text-muted-foreground/50 normal-case">·</span>
-                            <span className="text-primary/80 normal-case font-normal tracking-normal">
-                              {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
-                            </span>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </h3>
-                  
-                  <ChevronDown 
-                    className={cn(
-                      "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                      carouselOpen && "rotate-180"
-                    )} 
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
-                {/* Show processing view when expanded and processing */}
-                {isProcessing ? (
-                  <PhotoProcessingView
-                    photos={state.photos}
-                    currentlyProcessingId={currentlyProcessingId}
-                  />
-                ) : (
-                  <PhotoCarousel
-                    photos={state.photos}
-                    currentIndex={carouselIndex}
-                    onIndexChange={setCarouselIndex}
-                    onPhotoClick={(photoId) => {
-                      const photo = state.photos.find(p => p.id === photoId);
-                      if (photo && !photo.isProcessing) {
-                        setEditingPhotoId(photoId);
-                      }
-                    }}
-                    onRemove={handleRemovePhoto}
-                    onToggleHero={handleToggleHero}
-                    onViewAll={() => setNavigatorOpen(true)}
-                    onRefresh={handleCreateCollage}
-                    isRefreshing={isGenerating}
-                    onSmartCrop={handleSingleSmartCrop}
-                    smartCroppingPhotoId={smartCroppingPhotoId}
-                  />
-                )}
-              </CollapsibleContent>
-            </Collapsible>
+            {/* Photo section - conditional based on processing state */}
+            {isProcessing ? (
+              // Processing: show header + dots with floating thumbnail
+              <div className="space-y-3">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+                  Photos
+                  <span className="mx-2 text-muted-foreground/50">·</span>
+                  <Loader2 className="inline h-3 w-3 animate-spin text-muted-foreground" />
+                  <span className="ml-1.5 text-emerald-600 normal-case tracking-normal">
+                    {state.photos.filter(p => !p.isProcessing && !p.error).length} of {state.photos.length} ready
+                  </span>
+                  {state.photos.filter(p => p.smartCrop !== null).length > 0 && (
+                    <>
+                      <span className="mx-2 text-muted-foreground/50">·</span>
+                      <span className="text-primary/80 normal-case tracking-normal">
+                        {state.photos.filter(p => p.smartCrop !== null).length} auto-cropped
+                      </span>
+                    </>
+                  )}
+                </h3>
+                <PhotoProcessingView
+                  photos={state.photos}
+                  currentlyProcessingId={currentlyProcessingId}
+                />
+              </div>
+            ) : (
+              // Complete: show photo strip with View All
+              <PhotoStrip
+                photos={state.photos}
+                autoCroppedCount={state.photos.filter(p => p.smartCrop !== null).length}
+                onViewAll={() => setNavigatorOpen(true)}
+              />
+            )}
 
 
             {/* Generate button or Collage preview - always visible when 2+ photos */}
@@ -833,7 +776,7 @@ export default function Index() {
       {navigatorOpen && (
         <ThumbnailNavigator
           photos={state.photos}
-          currentIndex={carouselIndex}
+          currentIndex={0}
           onSelect={(photoId) => {
             // Open crop editor directly - View All is for managing crops
             setEditingPhotoId(photoId);

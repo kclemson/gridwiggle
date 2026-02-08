@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { PhotoItem } from '@/types/collage';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { PhotoProgressDots } from './PhotoProgressDots';
 
 interface PhotoProcessingViewProps {
@@ -15,8 +15,7 @@ export function PhotoProcessingView({
   const stats = useMemo(() => {
     const completed = photos.filter(p => !p.isProcessing && !p.error).length;
     const errors = photos.filter(p => p.error).length;
-    const processing = photos.filter(p => p.isProcessing).length;
-    return { completed, errors, processing, total: photos.length };
+    return { completed, errors, total: photos.length };
   }, [photos]);
 
   const currentPhoto = currentlyProcessingId 
@@ -24,21 +23,7 @@ export function PhotoProcessingView({
     : null;
 
   return (
-    <div className="space-y-4">
-
-      {/* Current photo thumbnail */}
-      {currentPhoto && (
-        <div className="flex justify-center">
-          <div className="relative w-32 h-32 rounded-lg overflow-hidden bg-muted">
-            <img
-              src={currentPhoto.objectUrl}
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          </div>
-        </div>
-      )}
-
+    <div className="space-y-4 pt-16">
       {/* Error count only - ready count is in header */}
       {stats.errors > 0 && (
         <div className="flex justify-center text-sm">
@@ -49,11 +34,12 @@ export function PhotoProcessingView({
         </div>
       )}
 
-      {/* Processing queue preview - small dots */}
+      {/* Processing dots with integrated thumbnail */}
       <div className="flex justify-center">
         <PhotoProgressDots 
           photos={photos}
           currentlyProcessingId={currentlyProcessingId}
+          currentPhoto={currentPhoto}
           className="max-w-xs justify-center"
         />
       </div>

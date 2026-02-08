@@ -6,6 +6,24 @@
  */
 
 import { PhotoDimension, ContentStats, V3Tuning } from './types';
+
+// ============================================================================
+// Prominence Helper
+// ============================================================================
+
+/**
+ * Calculate effective minimum prominence based on content count.
+ * Returns reduced threshold for low photo counts to improve success rate.
+ */
+export function getEffectiveMinProminence(
+  contentCount: number,
+  tuning: V3Tuning
+): number {
+  if (contentCount < tuning.hero_lowCountThreshold) {
+    return tuning.hero_minProminence * tuning.hero_lowCountMultiplier;
+  }
+  return tuning.hero_minProminence;
+}
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================

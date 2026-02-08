@@ -98,6 +98,30 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
             />
           </div>
           
+          {/* Row: Low count accommodation */}
+          <div className="grid grid-cols-2 gap-2">
+            <TuningInput
+              label="Low Count Threshold"
+              tooltip="Use reduced prominence for content counts below this (6 = ≤5 photos)"
+              value={tuning.hero_lowCountThreshold}
+              onChange={(v) => onTuningChange('hero_lowCountThreshold', v)}
+              step={1}
+              min={3}
+              max={10}
+              defaultValue={DEFAULT_V3_TUNING.hero_lowCountThreshold}
+            />
+            <TuningInput
+              label="Low Count Multiplier"
+              tooltip="Multiplier for minProminence at low counts (0.85 = 1.3 → 1.1)"
+              value={tuning.hero_lowCountMultiplier}
+              onChange={(v) => onTuningChange('hero_lowCountMultiplier', v)}
+              step={0.05}
+              min={0.5}
+              max={1.0}
+              defaultValue={DEFAULT_V3_TUNING.hero_lowCountMultiplier}
+            />
+          </div>
+          
           {/* Row 2: Canvas AR limits */}
           <div className="grid grid-cols-2 gap-2">
             <TuningInput

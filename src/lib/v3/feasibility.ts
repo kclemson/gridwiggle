@@ -8,6 +8,7 @@
 
 import { PhotoDimension, V3Tuning } from './types';
 import { devLogger } from '@/lib/devLogger';
+import { getEffectiveMinProminence } from './utils';
 
 /**
  * Check if ANY row configuration can satisfy BOTH prominence constraints.
@@ -28,6 +29,7 @@ export function canMeetProminenceConstraints(
   heroAR: number,
   besideCount: number,
   avgBesideAR: number,
+  contentCount: number,
   tuning: V3Tuning
 ): { feasible: boolean; minRows: number; maxRows: number; reason?: string } {
   // No beside photos = prominence will be determined by BELOW
@@ -35,6 +37,9 @@ export function canMeetProminenceConstraints(
   if (besideCount === 0) {
     return { feasible: true, minRows: 0, maxRows: 0 };
   }
+  
+  // Get effective prominence threshold (lower for small photo counts)
+  const effectiveMinProminence = getEffectiveMinProminence(contentCount, tuning);
   
   // Geometric formulas derived from:
   // cellArea ≈ avgBesideAR / R² (where R = row count)
@@ -44,7 +49,7 @@ export function canMeetProminenceConstraints(
   // heroAR × R² / avgBesideAR >= minProminence
   // R >= sqrt(minProminence × avgBesideAR / heroAR)
   const minRowsForProminence = Math.ceil(
-    Math.sqrt((tuning.hero_minProminence * avgBesideAR) / heroAR)
+    Math.sqrt((effectiveMinProminence * avgBesideAR) / heroAR)
   );
   
   // Constraint 2: Maximum prominence (smallest cells)

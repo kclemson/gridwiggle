@@ -57,6 +57,47 @@ export function sampleAspectRatio(orientationBias: number): number {
 }
 
 /**
+ * Sample hero aspect ratio based on photo count.
+ * Low counts get a distribution biased toward "safer" ARs.
+ */
+function sampleHeroAspectRatio(photoCount: number): number {
+  const roll = Math.random();
+  
+  // Low photo counts: bias toward square-ish and moderate landscape
+  if (photoCount <= 8) {
+    if (roll < 0.02) {
+      // 2%: Very tall portrait
+      return 0.4 + Math.random() * 0.2;  // AR 0.4 - 0.6
+    } else if (roll < 0.22) {
+      // 20%: Portrait
+      return 0.6 + Math.random() * 0.3;  // AR 0.6 - 0.9
+    } else if (roll < 0.57) {
+      // 35%: Square-ish (safe zone)
+      return 0.9 + Math.random() * 0.3;  // AR 0.9 - 1.2
+    } else if (roll < 0.95) {
+      // 38%: Moderate landscape
+      return 1.2 + Math.random() * 0.6;  // AR 1.2 - 1.8
+    } else {
+      // 5%: Wide panorama (reduced)
+      return 2.0 + Math.random() * 1.0;  // AR 2.0 - 3.0
+    }
+  }
+  
+  // Standard distribution for higher counts
+  if (roll < 0.05) {
+    return 0.4 + Math.random() * 0.2;  // 5%: Very tall portrait
+  } else if (roll < 0.30) {
+    return 0.6 + Math.random() * 0.3;  // 25%: Portrait
+  } else if (roll < 0.55) {
+    return 0.9 + Math.random() * 0.3;  // 25%: Square-ish
+  } else if (roll < 0.90) {
+    return 1.2 + Math.random() * 0.6;  // 35%: Moderate landscape
+  } else {
+    return 2.0 + Math.random() * 1.0;  // 10%: Wide panorama
+  }
+}
+
+/**
  * Generate a synthetic photo with the given aspect ratio and priority.
  */
 function createSyntheticPhoto(
@@ -96,27 +137,7 @@ export function generatePhotoSet(
     let aspectRatio: number;
     
     if (isHero) {
-      // Realistic hero AR distribution
-      // 5% very tall portrait, 25% portrait, 25% square-ish,
-      // 35% moderate landscape, 10% wide panorama
-      const roll = Math.random();
-      
-      if (roll < 0.05) {
-        // 5%: Very tall portrait (tight face crops, vertical products)
-        aspectRatio = 0.4 + Math.random() * 0.2;  // AR 0.4 - 0.6
-      } else if (roll < 0.30) {
-        // 25%: Portrait
-        aspectRatio = 0.6 + Math.random() * 0.3;  // AR 0.6 - 0.9
-      } else if (roll < 0.55) {
-        // 25%: Square-ish
-        aspectRatio = 0.9 + Math.random() * 0.3;  // AR 0.9 - 1.2
-      } else if (roll < 0.90) {
-        // 35%: Moderate landscape
-        aspectRatio = 1.2 + Math.random() * 0.6;  // AR 1.2 - 1.8
-      } else {
-        // 10%: Wide panorama
-        aspectRatio = 2.0 + Math.random() * 1.0;  // AR 2.0 - 3.0
-      }
+      aspectRatio = sampleHeroAspectRatio(count);
     } else {
       aspectRatio = sampleAspectRatio(orientationBias);
     }

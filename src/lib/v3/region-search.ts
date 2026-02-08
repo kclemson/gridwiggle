@@ -29,10 +29,10 @@ export interface RejectedPack {
 
 /**
  * Result of region assignment search.
- * Includes optional lastRejectedPack when no valid assignment found but packing was attempted.
+ * Always contains an assignment (fallback used if no valid found).
  */
 export interface RegionSearchResult {
-  assignment: RegionAssignment | null;
+  assignment: RegionAssignment;
   lastRejectedPack?: RejectedPack;
 }
 
@@ -105,7 +105,16 @@ export function findValidRegionAssignment(
   randomize: boolean = false
 ): RegionSearchResult {
   if (photos.length === 0) {
-    return { assignment: null };
+    // Edge case: no content photos - return empty assignment
+    return { 
+      assignment: {
+        besidePhotos: [],
+        belowPhotos: [],
+        besideRowCount: 0,
+        belowRowCount: 0,
+        score: 0,
+      }
+    };
   }
   
   // Edge case: only 1 photo - must go to BELOW (BESIDE would leave BELOW empty)
@@ -116,7 +125,7 @@ export function findValidRegionAssignment(
         belowPhotos: photos,
         besideRowCount: 0,
         belowRowCount: 1,
-        score: 0,
+        score: 0.5, // Basic score
       }
     };
   }
@@ -506,10 +515,45 @@ export function findValidRegionAssignment(
     return { assignment: selected };
   }
   
-  devLogger.warn('region-reject', 'No valid assignment found', {
+  // Fallback: if no valid assignments, create one with all photos in BELOW
+  // This ensures we always return a layout
+  devLogger.warn('region-reject', 'No valid assignment found, using fallback (all BELOW)', {
+    photoCount: photos.length,
+    heroAR: heroAR.toFixed(2),
     hasLastRejected: lastRejectedPack !== undefined,
-  });
-  return { assignment: null, lastRejectedPack };
+  }, lastRejectedPack ? {
+    cells: lastRejectedPack.cells,
+    canvasWidth: lastRejectedPack.canvasWidth,
+    canvasHeight: lastRejectedPack.canvasHeight,
+  } : undefined);
+  
+  // Pack all photos below hero
+  const fallbackRowResult = calculateBelowRowCount(
+    orderedPhotos, 
+    heroAR, // Hero row width = just hero
+    normalizedGap,
+    heroAR,
+    tuning,
+    false // Deterministic for fallback
+  );
+  
+  return { 
+    assignment: {
+      besidePhotos: [],
+      belowPhotos: orderedPhotos,
+      besideRowCount: 0,
+      belowRowCount: fallbackRowResult.value,
+      score: 0.1, // Low score so valid assignments are preferred
+      softRejection: { 
+        reason: 'fallback_all_below', 
+        details: { 
+          photoCount: photos.length,
+          heroAR: +heroAR.toFixed(2),
+        } 
+      },
+    },
+    lastRejectedPack,
+  };
 }
 
 // ============================================================================

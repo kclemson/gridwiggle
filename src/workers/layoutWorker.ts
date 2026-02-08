@@ -7,7 +7,7 @@
 
 import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { CollageLayout, CollageCell } from '@/types/collage';
-import { findValidConfiguration, getLastRejection, getLastRejectedLayout, clearRejections, clearRejectedLayout } from '@/lib/v3/intersection';
+import { findValidConfiguration, clearRejections } from '@/lib/v3/intersection';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
@@ -41,17 +41,9 @@ export interface LayoutRequest {
 export interface LayoutResponse {
   type: 'result';
   requestId: string;
-  layout: CollageLayout | null;
+  layout: CollageLayout;  // Always non-null now (soft rejections instead of hard)
   durationMs: number;
   logs?: LogEntry[];
-  failure?: { reason: string; details?: Record<string, unknown> };
-  rejectedLayout?: {
-    cells: { photoId: string; x: number; y: number; width: number; height: number }[];
-    canvasWidth: number;
-    canvasHeight: number;
-    reason: string;
-    details: Record<string, unknown>;
-  };
   /** Soft rejection info (layout is usable but outside ideal bounds) - dev-only display */
   softRejection?: {
     reason: string;
@@ -91,11 +83,16 @@ function generateLayout(
   tuningOverrides: Partial<V3Tuning>,
   randomize: boolean
 ): GenerationResult {
-  // Clear worker logs and rejected layout at start of each generation
+  // Clear worker logs at start of each generation
   workerLogs = [];
-  clearRejectedLayout();
   
-  if (dimensions.length < 2) return { layout: null };
+  // Edge case: <2 photos - return minimal empty layout with soft rejection
+  if (dimensions.length < 2) {
+    return { 
+      layout: { width: 1000, height: 1000, cells: [] }, 
+      softRejection: { reason: 'insufficient_photos', details: { photoCount: dimensions.length } },
+    };
+  }
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
   
@@ -123,19 +120,16 @@ function generateLayout(
   clearRejections();
   
   // Find valid configuration through constraint intersection
+  // Config is always non-null now (soft rejections instead of hard)
   // All devLogger.log() calls from v3/*.ts now go to workerLogs
   const config = findValidConfiguration(dims, normalizedGap, tuning, randomize);
-  
-  if (!config) {
-    devLogger.log('v3', 'No valid configuration found');
-    return { layout: null };
-  }
   
   devLogger.log('v3', 'Selected layout', {
     mode: config.proposal.mode,
     position: config.proposal.position,
     prominenceRatio: config.prominenceRatio.toFixed(2),
     score: config.score.toFixed(3),
+    hasSoftRejection: !!config.softRejection,
   });
   
   // Convert to CollageLayout format
@@ -181,53 +175,34 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
     const result = generateLayout(dimensions, normalizedGap, tuning, randomize);
     const durationMs = performance.now() - startTime;
     
+    // Layout is now always non-null (soft rejections instead of hard)
     const response: LayoutResponse = {
       type: 'result',
       requestId,
-      layout: result.layout,
+      layout: result.layout!,
       durationMs,
       logs: isDev ? workerLogs : undefined,
       softRejection: result.softRejection,
     };
     
-    if (!result.layout) {
-      const rejection = getLastRejection();
-      const avgAR = dimensions.reduce((s, d) => s + d.aspectRatio, 0) / dimensions.length;
-      response.failure = {
-        reason: rejection?.reason ?? 'No valid proposals',
-        details: {
-          photoCount: dimensions.length,
-          heroCount: dimensions.filter(d => d.weight > 1).length,
-          avgAR: +avgAR.toFixed(2),
-          ...rejection?.details,
-        },
-      };
-      
-      // Capture rejected layout geometry for visualization
-      const rejectedLayout = getLastRejectedLayout();
-      if (rejectedLayout?.cells) {
-        response.rejectedLayout = {
-          cells: rejectedLayout.cells,
-          canvasWidth: rejectedLayout.canvasWidth,
-          canvasHeight: rejectedLayout.canvasHeight,
-          reason: rejectedLayout.reason,
-          details: rejectedLayout.details,
-        };
-      }
-    }
-    
     self.postMessage(response);
   } catch (error) {
+    // For true errors (crashes), create a minimal empty layout
+    // This should be extremely rare - log for debugging
+    console.error('Layout worker error:', error);
     const durationMs = performance.now() - startTime;
     const response: LayoutResponse = {
       type: 'result',
       requestId,
-      layout: null,
+      layout: { width: 1000, height: 1000, cells: [] },  // Empty fallback layout
       durationMs,
       logs: isDev ? workerLogs : undefined,
-      failure: {
-        reason: error instanceof Error ? error.message : 'Unknown error',
-        details: { stack: error instanceof Error ? error.stack : undefined },
+      softRejection: {
+        reason: 'worker_error',
+        details: { 
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+        },
       },
     };
     self.postMessage(response);

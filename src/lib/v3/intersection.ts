@@ -74,15 +74,15 @@ export function clearRejectedLayout() {
  * 2. For each proposal: find best BESIDE/BELOW split
  * 3. Pack both regions in normalized space (hero height = 1)
  * 4. Scale entire layout to pixel dimensions
- * 5. Validate constraints (canvas AR, prominence)
- * 6. Return best valid config (or null - no silent fallbacks)
+ * 5. Validate constraints (canvas AR, prominence) - mark violations as soft rejections
+ * 6. Always return best config (soft rejections instead of hard failures)
  */
 export function findValidConfiguration(
   photos: PhotoDimension[],
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning = DEFAULT_V3_TUNING,
   randomize: boolean = false
-): ScoredConfiguration | null {
+): ScoredConfiguration {
   // Find hero and content photos
   const heroPhoto = findHeroPhoto(photos);
   const contentPhotos = getContentPhotos(photos);
@@ -104,8 +104,8 @@ export function findValidConfiguration(
     contentCount: contentStats.count,
   });
   
-  // Evaluate each proposal
-  const validConfigs: ScoredConfiguration[] = [];
+  // Evaluate each proposal - all proposals now return configs (never null)
+  const allConfigs: ScoredConfiguration[] = [];
   
   for (const proposal of proposals) {
     const config = evaluateNormalizedProposal(
@@ -117,27 +117,24 @@ export function findValidConfiguration(
       randomize
     );
     
-    if (config) {
-      validConfigs.push(config);
-    }
+    // Config is now always non-null (soft rejections instead of hard)
+    allConfigs.push(config);
   }
   
-  // Return null if no valid configurations (no silent fallback)
-  if (validConfigs.length === 0) {
-    devLogger.warn('layout-reject', 'No valid configurations found');
-    return null;
-  }
+  // Sort by score (soft-rejected configs naturally score lower)
+  allConfigs.sort((a, b) => b.score - a.score);
   
-  // Sort by score and return best
-  validConfigs.sort((a, b) => b.score - a.score);
+  // Always return best available
+  const best = allConfigs[0];
   
   devLogger.log('layout', 'Best configuration selected', {
-    score: validConfigs[0].score.toFixed(3),
-    prominenceRatio: validConfigs[0].prominenceRatio.toFixed(2),
-    canvasHeight: Math.round(validConfigs[0].canvasHeight),
+    score: best.score.toFixed(3),
+    prominenceRatio: best.prominenceRatio.toFixed(2),
+    canvasHeight: Math.round(best.canvasHeight),
+    hasSoftRejection: !!best.softRejection,
   });
   
-  return validConfigs[0];
+  return best;
 }
 
 // ============================================================================
@@ -154,8 +151,11 @@ function evaluateNormalizedProposal(
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning,
   randomize: boolean
-): ScoredConfiguration | null {
+): ScoredConfiguration {
   const heroAR = heroPhoto.aspectRatio;
+  
+  // Track soft rejection (layout is usable but outside ideal bounds)
+  let softRejection: ScoredConfiguration['softRejection'] = undefined;
   
   devLogger.log('layout', 'Evaluating normalized proposal', {
     mode: proposal.mode,
@@ -165,12 +165,13 @@ function evaluateNormalizedProposal(
   });
   
   // Edge and floating modes not yet implemented - use corner decomposition
+  // For now, treat non-corner as soft rejection and use corner logic
   if (proposal.mode !== 'corner') {
-    devLogger.log('layout', 'Mode not implemented, skipping', { mode: proposal.mode });
-    return null;
+    devLogger.log('layout', 'Mode not implemented, using corner fallback', { mode: proposal.mode });
+    // Continue with corner mode logic - softRejection will be set if needed
   }
   
-  // Find valid region assignment
+  // Find valid region assignment (now always returns an assignment)
   const regionResult = findValidRegionAssignment(
     contentPhotos,
     heroAR,
@@ -180,30 +181,13 @@ function evaluateNormalizedProposal(
     randomize
   );
   
-  if (!regionResult.assignment) {
-    // Capture last rejected pack if available
-    if (regionResult.lastRejectedPack) {
-      setRejectedLayout({
-        cells: regionResult.lastRejectedPack.cells,
-        canvasWidth: regionResult.lastRejectedPack.canvasWidth,
-        canvasHeight: regionResult.lastRejectedPack.canvasHeight,
-        reason: regionResult.lastRejectedPack.reason,
-        details: regionResult.lastRejectedPack.details,
-        timestamp: Date.now(),
-      });
-    }
-    devLogger.warn('layout-reject', 'No valid region assignment', {
-      mode: proposal.mode,
-      position: proposal.position,
-      hasLastRejectedPack: !!regionResult.lastRejectedPack,
-    });
-    return null;
-  }
-  
-  const regionAssignment = regionResult.assignment;
+  // regionResult.assignment is now always non-null
+  const regionAssignment = regionResult.assignment!;
   
   // Carry forward soft rejection from region search (if any)
-  let softRejection: ScoredConfiguration['softRejection'] = regionAssignment.softRejection;
+  if (regionAssignment.softRejection) {
+    softRejection = regionAssignment.softRejection;
+  }
   
   // Handle "no BESIDE" vs "with BESIDE" cases
   let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };
@@ -350,17 +334,19 @@ function evaluateNormalizedProposal(
       heroAR: +heroAR.toFixed(2),
       canvasAR: +canvasAR.toFixed(2),
     };
-    setRejectedLayout({
+    
+    // Log warning with geometry for dev hover preview
+    devLogger.warn('layout-reject', 'Prominence too low (soft)', details, {
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
-      reason: 'prominence_too_low',
-      details,
-      timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Prominence too low', details);
-    setRejection('Prominence too low', details);
-    return null;
+    
+    // Mark as soft rejection instead of returning null
+    if (!softRejection) {
+      softRejection = { reason: 'prominence_too_low', details };
+    }
+    // Continue - layout is geometrically valid
   }
   
   // Validate hero-to-smallest ratio (prevent tiny content cells)
@@ -371,7 +357,7 @@ function evaluateNormalizedProposal(
   if (!smallestCheck.valid) {
     const rejectedCells = computeRejectedCells();
     // Include smallest 3 areas for debugging
-    const sortedAreas = contentAreas.sort((a, b) => a - b);
+    const sortedAreas = [...contentAreas].sort((a, b) => a - b);
     const smallestAreas = sortedAreas.slice(0, 3).map(a => +a.toFixed(4));
     const details = { 
       ratio: +smallestCheck.ratio.toFixed(1), 
@@ -385,17 +371,19 @@ function evaluateNormalizedProposal(
       heroAR: +heroAR.toFixed(2),
       canvasAR: +canvasAR.toFixed(2),
     };
-    setRejectedLayout({
+    
+    // Log warning with geometry for dev hover preview
+    devLogger.warn('layout-reject', 'Hero too large vs smallest cells (soft)', details, {
       cells: rejectedCells,
       canvasWidth,
       canvasHeight,
-      reason: 'hero_too_large_vs_smallest_cells',
-      details,
-      timestamp: Date.now(),
     });
-    devLogger.warn('layout-reject', 'Hero too large vs smallest cells', details);
-    setRejection('Hero too large vs smallest cells', details);
-    return null;
+    
+    // Mark as soft rejection instead of returning null
+    if (!softRejection) {
+      softRejection = { reason: 'hero_too_large_vs_smallest', details };
+    }
+    // Continue - layout is geometrically valid
   }
   
   // For corner mode, apply random position selection for variety
@@ -588,9 +576,24 @@ function generateSimpleRowsLayout(
   photos: PhotoDimension[],
   normalizedGap: number,  // Already in normalized space (0-0.04)
   tuning: V3Tuning
-): ScoredConfiguration | null {
+): ScoredConfiguration {
+  // Edge case: no photos - return minimal empty layout
   if (photos.length === 0) {
-    return null;
+    const dummyProposal: HeroProposal = {
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      mode: 'corner',
+      position: 'top-left',
+    };
+    return {
+      proposal: dummyProposal,
+      distribution: { assignments: new Map(), totalAssigned: 0 },
+      cells: [],
+      canvasHeight: 1,
+      canvasWidth: 1,
+      prominenceRatio: 1,
+      score: 0,
+      softRejection: { reason: 'no_photos', details: {} },
+    };
   }
   
   // Determine row count using geometry-aware calculation (enforces both min and max AR)
@@ -634,7 +637,10 @@ function generateSimpleRowsLayout(
   
   const canvasAR = canvasWidth / canvasHeight;
   
-  // Validate canvas AR bounds
+  // Track soft rejection for canvas AR bounds
+  let softRejection: ScoredConfiguration['softRejection'] = undefined;
+  
+  // Validate canvas AR bounds - soft rejection (layout is valid, just outside aesthetic bounds)
   if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
     const details = { 
       canvasAR: +canvasAR.toFixed(2), 
@@ -642,18 +648,19 @@ function generateSimpleRowsLayout(
       rowCount,
       photoCount: photos.length,
     };
-    // Capture rejected layout for visualization
-    setRejectedLayout({
+    
+    // Log warning with geometry for dev hover preview
+    devLogger.warn('layout-reject', 'Simple rows AR out of bounds (soft)', details, {
       cells,
       canvasWidth,
       canvasHeight,
-      reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide',
-      details,
-      timestamp: Date.now(),
     });
     
-    devLogger.log('layout', 'Simple rows layout outside AR bounds', details);
-    return null;
+    softRejection = { 
+      reason: canvasAR < tuning.canvas_minAR ? 'canvas_too_tall' : 'canvas_too_wide', 
+      details 
+    };
+    // Continue - layout is geometrically valid
   }
   
   // Create dummy proposal for compatibility
@@ -675,5 +682,6 @@ function generateSimpleRowsLayout(
     canvasWidth,
     prominenceRatio: 1,
     score: areaUniformity,
+    softRejection,
   };
 }

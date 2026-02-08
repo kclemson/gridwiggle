@@ -332,6 +332,10 @@ export default function Index() {
     }
   }, [state.settings, state.layout, setLayout, v3Tuning]);
 
+  // Helper to give browser time to garbage collect between heavy operations
+  // Critical for iOS Safari which leaks memory without explicit GC pauses
+  const gcDelay = () => new Promise(resolve => setTimeout(resolve, 100));
+
   // Process smart crops for photos - called directly from event handler
   // Also loads dimensions + creates display previews (moved here for instant UI feedback)
   const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
@@ -423,6 +427,11 @@ export default function Index() {
       
       completed++;
       setSmartCropProgress((completed / total) * 100);
+      
+      // Give browser time to GC between photos (critical for iOS Safari)
+      if (completed < total) {
+        await gcDelay();
+      }
     }
     
     setCurrentlyProcessingId(null);

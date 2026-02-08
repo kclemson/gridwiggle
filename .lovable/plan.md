@@ -1,82 +1,140 @@
 
+# Clickable Region-Reject Logs with Layout Popovers
 
-# Persist Debug Logs with Collage State
+## What You'll Get
+When you hover over any `[region-reject]` log entry in the debug panel, a popover will appear showing the CSS visualization of the layout that was rejected. This lets you visually inspect all 7 intermediate rejection candidates, not just the last one.
 
-## Design Intent
+## Design Approach
 
-Allow debug sessions to survive page refreshes. When you reload the page, the last layout's debug logs are restored so you can continue investigating issues.
+### Data Flow
+The geometry is already calculated at rejection time. We need to:
+1. Capture it with each log entry (instead of overwriting a single variable)
+2. Render it in the log panel when the entry is hovered
 
-## User Outcome
+### Visual Behavior
+- Hover over any red `[region-reject]` row → mini layout appears in a popover
+- Layout uses same CSS visualization as the main canvas (colored rectangles, labels)
+- Popover sized appropriately (~200px wide, maintaining aspect ratio)
+- Red ring around the popover to indicate "rejected"
 
-- Refresh the page → debug panel shows the same logs as before
-- Clear all photos → debug logs also clear
-- Simple, automatic, no extra buttons
+---
 
-## Technical Approach
+## Technical Implementation
 
-### 1. Extend Persisted State (`src/types/collage.ts`)
+### Step 1: Extend LogEntry to carry geometry
 
-Add optional `debugLogs` to `PersistedCollageState`:
+**File: `src/lib/devLogger.ts`**
+
+Add an optional `rejectedLayout` field to `LogEntry`:
 
 ```typescript
-export interface PersistedCollageState {
-  photos: PhotoMetadata[];
-  settings: CollageSettings;
-  layout: CollageLayout | null;
-  debugLogs?: LogEntry[];  // NEW - optional for backwards compatibility
+export interface LogEntry {
+  timestamp: number;
+  category: string;
+  label: string;
+  data: Record<string, unknown>;
+  level?: 'info' | 'warn' | 'error';
+  // NEW: optional geometry for rejected layouts
+  rejectedLayout?: {
+    cells: Array<{ photoId: string; x: number; y: number; width: number; height: number }>;
+    canvasWidth: number;
+    canvasHeight: number;
+  };
 }
 ```
 
-### 2. Save Logs When Layout Changes (`src/hooks/useCollageState.ts`)
+Update `devLogger.log()` signature to accept the optional geometry.
 
-Import `devLogger` and include its logs when saving:
+### Step 2: Attach geometry at rejection time
+
+**File: `src/lib/v3/region-search.ts`**
+
+At each `[region-reject]` log call, pass the geometry as a fourth argument:
 
 ```typescript
-import { devLogger, LogEntry } from '@/lib/devLogger';
-
-// In saveMetadataToStorage():
-const persisted: PersistedCollageState = {
-  // ...existing fields
-  debugLogs: devLogger.getLogs(),
-};
+devLogger.warn('region-reject', 'Prominence too low', {
+  besideCount,
+  besideRowCount,
+  prominenceRatio: prominenceRatio.toFixed(2),
+  required: effectiveMinProminence,
+}, {
+  cells: buildRejectedCells(...),
+  canvasWidth: normalizedWidthWithBorder,
+  canvasHeight: normalizedHeightWithBorder,
+});
 ```
 
-### 3. Restore Logs on Load (`src/hooks/useCollageState.ts`)
+This captures the geometry inline with each rejection log.
 
-In `loadMetadataFromStorage()`, return the logs if present:
+### Step 3: Create a mini layout preview component
 
-```typescript
-return {
-  photos: parsed.photos || [],
-  settings: { ...defaultSettings, ...parsed.settings },
-  layout: parsed.layout || null,
-  debugLogs: parsed.debugLogs || [],  // NEW
-};
-```
+**File: `src/components/debug/RejectedLayoutPreview.tsx`** (new file)
 
-### 4. Hydrate devLogger on Mount
-
-In the `initialize()` function, after loading persisted state:
+A compact version of `LayoutVisualization` sized for popovers:
 
 ```typescript
-// Restore debug logs if present
-if (persisted.debugLogs?.length) {
-  persisted.debugLogs.forEach(log => devLogger.log(log.category, log.label, log.data, log.level));
+interface RejectedLayoutPreviewProps {
+  cells: Array<{ photoId: string; x: number; y: number; width: number; height: number }>;
+  canvasWidth: number;
+  canvasHeight: number;
+}
+
+export function RejectedLayoutPreview({ cells, canvasWidth, canvasHeight }: RejectedLayoutPreviewProps) {
+  // Scale from normalized space to ~200px preview
+  // Render colored rectangles with photo labels
+  // Red ring around the container
 }
 ```
 
-### 5. Clear Logs on clearAll
+### Step 4: Wrap rejection logs in HoverCard
 
-Already handled - `clearAll` removes localStorage which includes logs.
+**File: `src/components/debug/DebugLogPanel.tsx`**
+
+For log entries with `rejectedLayout` attached:
+
+```typescript
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
+import { RejectedLayoutPreview } from './RejectedLayoutPreview';
+
+// In the render loop:
+{entry.rejectedLayout ? (
+  <HoverCard openDelay={100}>
+    <HoverCardTrigger asChild>
+      <div className="cursor-pointer underline decoration-dotted ...">
+        [{entry.category}] {entry.label}
+      </div>
+    </HoverCardTrigger>
+    <HoverCardContent side="right" className="w-auto p-2">
+      <RejectedLayoutPreview {...entry.rejectedLayout} />
+    </HoverCardContent>
+  </HoverCard>
+) : (
+  // Current non-interactive rendering
+)}
+```
+
+---
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/types/collage.ts` | Add optional `debugLogs` to `PersistedCollageState` |
-| `src/hooks/useCollageState.ts` | Save logs in `saveMetadataToStorage`, restore in `initialize` |
+| `src/lib/devLogger.ts` | Add `rejectedLayout` to `LogEntry`, update `log()` signature |
+| `src/lib/v3/region-search.ts` | Pass geometry to each `region-reject` log call (3 locations) |
+| `src/components/debug/RejectedLayoutPreview.tsx` | New component - mini CSS visualization |
+| `src/components/debug/DebugLogPanel.tsx` | Wrap rejection entries in `HoverCard` |
+| `src/components/debug/index.ts` | Export new component |
 
-## Size Consideration
+---
 
-Debug logs are typically small (50-200 entries, ~10-50KB). localStorage limit is 5MB. This is well within safe bounds.
+## Edge Cases Handled
 
+- **Logs without geometry**: Non-rejection logs render normally (no hover behavior)
+- **No photos data**: Preview shows just colored cells without AR labels (since the log doesn't have the full photo data, just IDs)
+- **Scroll behavior**: HoverCard positions itself appropriately within the ScrollArea
+
+---
+
+## Result
+
+After implementation, you can shuffle in V3Test and hover over any of the 7 `[region-reject] Prominence too low` entries to see exactly what that particular candidate layout looked like — making it immediately clear whether the rejection was justified or overly strict.

@@ -103,8 +103,8 @@ export function ThumbnailNavigator({
         </div>
 
         {/* Thumbnail Grid - Flex layout with natural aspect ratios */}
-        <ScrollArea className="flex-1 p-4">
-          <div className="flex flex-wrap gap-3 justify-center p-2">
+        <ScrollArea className="flex-1 p-3">
+          <div className="flex flex-wrap gap-2 justify-start">
             {photos.map((photo, index) => {
               const isLoaded = loadedIds.has(photo.id);
               const isSelected = index === currentIndex;

@@ -1,138 +1,207 @@
 
-# Fix: Mobile Touch Scroll vs Drag-and-Drop Detection
+# Disable Auto Smart Crop on Mobile + Add Manual Button
 
-## What Users Experience Now
+## What Changes for Users
 
-When you touch the collage canvas on mobile:
-- Your finger immediately triggers drag-and-drop mode
-- You can't scroll the page by swiping over the collage
-- Even a tap-and-hold (common scroll gesture) activates the drag preview
+### Current Behavior
+- When you upload photos, **every photo** is automatically analyzed by the AI vision model
+- On iOS Safari this often crashes mid-batch due to memory pressure
 
-## What Users Should Experience
+### New Mobile Behavior
+1. Upload → Photos appear immediately, **no AI processing**
+2. In the photo carousel, a new **"Smart Crop"** button appears per photo
+3. Tap it → AI analyzes just that one photo → applies smart crop
+4. You can still manually crop any photo via the Edit button
 
-| Gesture | Expected Behavior |
-|---------|-------------------|
-| Quick swipe | Page scrolls normally |
-| Tap and hold (~300ms) then move | Drag-and-drop activates |
-| Tap on star button | Toggle hero (already working) |
-
-## The Solution
-
-Implement a **hold-to-drag** pattern with a time threshold:
-
-1. On `touchstart`: Record the touch position and start a timer
-2. On `touchmove` (before threshold): Cancel the timer if finger moves too far (user is scrolling)
-3. On timer complete (300ms): Activate drag mode
-4. Allow normal scrolling unless drag mode is active
+### Desktop Behavior
+- Unchanged: auto smart crop still runs on upload
 
 ---
 
-## Technical Changes
+## Technical Implementation
 
-### File: `src/components/CollagePreview.tsx`
+### 1. Detect Mobile Platform
 
-**Add state for pending drag detection:**
+Create a utility to check if running on mobile (not just viewport width—actual device):
+
+**New file: `src/lib/platform.ts`**
+
 ```typescript
-const [pendingDragId, setPendingDragId] = useState<string | null>(null);
-const [touchStartPos, setTouchStartPos] = useState({ x: 0, y: 0 });
-const holdTimerRef = useRef<number | null>(null);
-
-const HOLD_THRESHOLD_MS = 300;  // Time to hold before drag activates
-const MOVE_THRESHOLD_PX = 10;   // Movement tolerance during hold
+/**
+ * Detect if running on a mobile device (phone/tablet).
+ * Uses User-Agent for reliable device detection.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  
+  const ua = navigator.userAgent.toLowerCase();
+  
+  // Match phones and tablets
+  return /android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini/i.test(ua);
+}
 ```
 
-**Update `handleTouchStart`:**
+---
+
+### 2. Skip Auto Smart Crop on Mobile Upload
+
+**File: `src/pages/Index.tsx`**
+
+Modify `handlePhotosAdded` to skip `processSmartCrops` on mobile:
+
 ```typescript
-const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
-  // Don't start drag if touching an interactive element
-  const target = e.target as HTMLElement;
-  if (target.closest('button')) return;
+import { isMobileDevice } from '@/lib/platform';
+
+const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+  const { succeeded } = await addPhotos(newPhotos);
   
-  const touch = e.touches[0];
-  const startPos = { x: touch.clientX, y: touch.clientY };
+  if (succeeded.length === 0) return;
   
-  // Set up pending drag - don't activate immediately
-  setPendingDragId(photoId);
-  setTouchStartPos(startPos);
+  remoteLogger.info('upload', 'Photos added', { count: succeeded.length });
+  const wasLayoutEmpty = state.layout === null;
+
+  // MOBILE: Skip auto smart crop - user triggers manually
+  // DESKTOP: Run auto smart crop on all photos
+  if (!isMobileDevice()) {
+    try {
+      await processSmartCrops(succeeded);
+    } catch (error) {
+      console.error('Smart crop processing failed:', error);
+    }
+  } else {
+    // Mobile: Just load dimensions + create previews (no AI)
+    for (const photo of succeeded) {
+      await loadDimensionsOnly(photo);
+    }
+  }
   
-  // Start hold timer - only activate drag after threshold
-  holdTimerRef.current = window.setTimeout(() => {
-    setTouchDragId(photoId);
-    setTouchPosition(startPos);
-    // Haptic feedback if available
-    if (navigator.vibrate) navigator.vibrate(50);
-  }, HOLD_THRESHOLD_MS);
-}, []);
+  regenerateCollage({ randomize: !wasLayoutEmpty });
+}, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
 ```
 
-**Update `handleTouchMove`:**
+Add a new helper that loads dimensions without calling the vision worker:
+
 ```typescript
-const handleTouchMove = useCallback((e: React.TouchEvent) => {
-  const touch = e.touches[0];
-  const currentPos = { x: touch.clientX, y: touch.clientY };
-  
-  // If still pending (not yet activated), check if user moved too much
-  if (pendingDragId && !touchDragId) {
-    const dx = Math.abs(currentPos.x - touchStartPos.x);
-    const dy = Math.abs(currentPos.y - touchStartPos.y);
+// Load dimensions + previews WITHOUT smart crop (for mobile upload)
+const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
+  try {
+    const dimensions = await getImageDimensions(photo.objectUrl);
+    const [preview, thumbnail] = await Promise.all([
+      createDisplayPreview(photo.blob, 1200),
+      createDisplayPreview(photo.blob, 480),
+    ]);
     
-    if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) {
-      // User is scrolling - cancel pending drag
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-      setPendingDragId(null);
-      return; // Allow normal scroll
-    }
+    updatePhoto(photo.id, {
+      originalWidth: dimensions.width,
+      originalHeight: dimensions.height,
+      previewUrl: preview.url,
+      previewBlob: preview.blob,
+      thumbnailUrl: thumbnail.url,
+      thumbnailBlob: thumbnail.blob,
+      isProcessing: false,  // Done immediately
+    });
+  } catch (error) {
+    updatePhoto(photo.id, {
+      isProcessing: false,
+      error: error instanceof Error ? error.message : 'Failed to load',
+    });
   }
-  
-  // If drag is active, update position
-  if (touchDragId) {
-    setTouchPosition(currentPos);
-  }
-}, [pendingDragId, touchDragId, touchStartPos]);
-```
-
-**Update `handleTouchEnd`:**
-```typescript
-const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-  // Clean up pending state
-  if (holdTimerRef.current) {
-    clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
-  }
-  setPendingDragId(null);
-  
-  // If no active drag, nothing to do
-  if (!touchDragId) return;
-  
-  // ... existing swap logic ...
-  setTouchDragId(null);
-}, [touchDragId, onSwapPhotos]);
-```
-
-**Add cleanup on unmount:**
-```typescript
-useEffect(() => {
-  return () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-    }
-  };
-}, []);
+}, [updatePhoto]);
 ```
 
 ---
 
-## User-Facing Behavior After Fix
+### 3. Add "Smart Crop" Button to PhotoCarousel
 
-| Action | Result |
-|--------|--------|
-| Swipe across collage | Page scrolls normally |
-| Hold finger on photo for 300ms | Drag mode activates (with haptic feedback) |
-| Hold briefly then scroll | Scroll works (drag cancelled) |
-| Tap star button | Hero toggle (unchanged) |
+**File: `src/components/PhotoCarousel.tsx`**
+
+Add a new callback prop and button:
+
+```typescript
+import { Wand2 } from 'lucide-react';  // Add to imports
+
+interface PhotoCarouselProps {
+  // ... existing props
+  onSmartCrop?: (photoId: string) => void;  // New
+  isSmartCropping?: boolean;                 // New - shows loading on button
+}
+
+// In the action buttons section, add this button:
+<Button
+  variant="outline"
+  size="sm"
+  onClick={(e) => {
+    e.stopPropagation();
+    onSmartCrop?.(photo.id);
+  }}
+  disabled={isSmartCropping || photo.smartCrop !== null}
+  className="gap-1.5"
+  title={photo.smartCrop ? "Already smart cropped" : "Auto-detect subjects"}
+>
+  <Wand2 className={cn("h-4 w-4", isSmartCropping && "animate-pulse")} />
+  {photo.smartCrop ? "Cropped" : "Smart Crop"}
+</Button>
+```
+
+Button behavior:
+- Shows "Cropped" (disabled) if smart crop already applied
+- Shows spinner while processing
+- On click → triggers single-photo smart crop
+
+---
+
+### 4. Handle Single Photo Smart Crop in Index
+
+**File: `src/pages/Index.tsx`**
+
+Add state and handler for single-photo cropping:
+
+```typescript
+const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
+
+// Process smart crop for a single photo (mobile manual trigger)
+const handleSingleSmartCrop = useCallback(async (photoId: string) => {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (!photo || photo.smartCrop) return;  // Already has crop
+  
+  setSmartCroppingPhotoId(photoId);
+  
+  try {
+    const result = await getSmartCrop(
+      photo.objectUrl,
+      photo.blob,
+      photo.originalWidth,
+      photo.originalHeight,
+      (status) => setProcessingStatus(status)
+    );
+    
+    const smartCropToApply = result.skipCrop ? null : result.crop;
+    
+    updatePhoto(photoId, { smartCrop: smartCropToApply });
+    
+    // Regenerate layout with new crop
+    if (state.layout) {
+      regenerateCollage();
+    }
+  } catch (error) {
+    console.error('Smart crop failed:', error);
+    // Silent fail - photo still works
+  } finally {
+    setSmartCroppingPhotoId(null);
+  }
+}, [state.photos, state.layout, updatePhoto, regenerateCollage]);
+```
+
+Pass to PhotoCarousel:
+
+```tsx
+<PhotoCarousel
+  photos={state.photos}
+  // ... existing props
+  onSmartCrop={handleSingleSmartCrop}
+  isSmartCropping={smartCroppingPhotoId !== null}
+/>
+```
 
 ---
 
@@ -140,13 +209,33 @@ useEffect(() => {
 
 | File | Change |
 |------|--------|
-| `src/components/CollagePreview.tsx` | Add hold-to-drag detection with timer and movement threshold |
+| `src/lib/platform.ts` | **New** - `isMobileDevice()` utility |
+| `src/pages/Index.tsx` | Skip auto smart crop on mobile, add `handleSingleSmartCrop`, add `loadDimensionsOnly` |
+| `src/components/PhotoCarousel.tsx` | Add "Smart Crop" button with `onSmartCrop` prop |
 
 ---
 
-## Why This Pattern
+## User Experience Flow
 
-This matches iOS/Android native drag behavior:
-- iOS Springboard (home screen) requires hold-to-rearrange
-- Android home screens work the same way
-- It's the expected mobile UX for distinguishing scroll from drag
+### Mobile Upload (4 photos)
+1. Tap "Add Photos" → Select 4 images
+2. Photos appear instantly (no waiting, no spinners)
+3. Collage generates immediately with full-image crops
+4. Swipe to photo 2 → Tap "Smart Crop" → AI finds the subject → Crop applied
+5. Collage regenerates with better framing
+
+### Desktop Upload (unchanged)
+1. Drag photos → Progress spinner shows
+2. All photos processed automatically
+3. Collage appears with smart crops applied
+
+---
+
+## Why This Solves the Problem
+
+| Issue | Solution |
+|-------|----------|
+| iOS crashes on batch AI inference | No batch inference on mobile—one photo at a time, user-triggered |
+| Memory accumulation | Single inference → GC → next inference (if user wants) |
+| Long wait times | Photos available immediately; smart crop is optional |
+| Feature preserved | Users who want smart crop can still use it (just manually) |

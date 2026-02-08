@@ -88,7 +88,11 @@ export function proposePositions(
 /**
  * Validate that the hero achieves minimum prominence.
  * 
- * Prominence = heroArea / runnerUpArea
+ * Prominence = heroArea / avg(top N% of contentAreas)
+ * This is more forgiving than comparing against the single largest photo,
+ * allowing one or two content photos to be similar in size to the hero
+ * as long as the hero is prominent relative to the group of large photos.
+ * 
  * Must be >= hero_minProminence to be valid.
  */
 export function validateProminence(
@@ -100,8 +104,15 @@ export function validateProminence(
     return { valid: true, ratio: Infinity };
   }
   
-  const runnerUpArea = Math.max(...contentAreas);
-  const ratio = heroArea / runnerUpArea;
+  // Sort descending, take top N% (minimum 1)
+  const sorted = [...contentAreas].sort((a, b) => b - a);
+  const topCount = Math.max(1, Math.ceil(sorted.length * tuning.hero_prominenceTopFraction));
+  const topAreas = sorted.slice(0, topCount);
+  
+  // Average of top N%
+  const avgTopArea = topAreas.reduce((s, v) => s + v, 0) / topAreas.length;
+  
+  const ratio = heroArea / avgTopArea;
   
   return {
     valid: ratio >= tuning.hero_minProminence,

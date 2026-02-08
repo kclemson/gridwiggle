@@ -52,10 +52,14 @@ export interface V3Tuning {
   hero_lowCountThreshold: number;
   /** Multiplier applied to hero_minProminence for low counts (0.85 = 1.3 → 1.1) */
   hero_lowCountMultiplier: number;
+  
+  // === Prominence Calculation ===
+  /** Top fraction of content photos used for prominence comparison (0.25 = top 25%) */
+  hero_prominenceTopFraction: number;
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
-  hero_minProminence: 1.1,
+  hero_minProminence: 0.85,
   hero_targetProminence: 1.5,
   decomp_edgeMinPhotos: 8,
   decomp_floatingMinPhotos: 15,
@@ -67,6 +71,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   hero_maxToSmallest: 45,
   hero_lowCountThreshold: 8,
   hero_lowCountMultiplier: 0.85,
+  hero_prominenceTopFraction: 0.25,
 };
 
 // ============================================================================

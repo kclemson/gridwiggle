@@ -1,29 +1,28 @@
 import { Slider } from '@/components/ui/slider';
 
-interface HeroScaleSliderProps {
-  /** Current scale factor (1.0 = default) */
+interface HeroProminenceSliderProps {
+  /** Current prominence factor (1.0 = default) */
   value: number;
   /** Called on every drag movement for live preview */
-  onChange: (scale: number) => void;
-  /** Called when user releases slider - commit the scale with the value */
-  onCommit?: (scale: number) => void;
+  onChange: (prominence: number) => void;
+  /** Called when user releases slider - commit the prominence */
+  onCommit?: (prominence: number) => void;
   disabled?: boolean;
 }
 
 /**
- * Slider for adjusting hero photo size.
- * Range: 70% to 130% of default size.
- * Scales the entire layout uniformly to preserve relative positions.
+ * Slider for adjusting hero prominence (relative size).
+ * Range: 70% to 130% — makes hero bigger/smaller relative to other photos.
  */
-export function HeroScaleSlider({ 
+export function HeroProminenceSlider({ 
   value, 
   onChange, 
   onCommit,
   disabled = false,
-}: HeroScaleSliderProps) {
+}: HeroProminenceSliderProps) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-muted-foreground">Size</span>
+      <span className="text-sm text-muted-foreground">Hero</span>
       <Slider
         value={[value * 100]}
         onValueChange={([v]) => onChange(v / 100)}

@@ -1,206 +1,175 @@
 
-# Disable Auto Smart Crop on Mobile + Add Manual Button
 
-## What Changes for Users
+# AR-Stratified Sampling + Fix Rejection Preview in App UI
 
-### Current Behavior
-- When you upload photos, **every photo** is automatically analyzed by the AI vision model
-- On iOS Safari this often crashes mid-batch due to memory pressure
+## Summary
 
-### New Mobile Behavior
-1. Upload → Photos appear immediately, **no AI processing**
-2. In the photo carousel, a new **"Smart Crop"** button appears per photo
-3. Tap it → AI analyzes just that one photo → applies smart crop
-4. You can still manually crop any photo via the Edit button
-
-### Desktop Behavior
-- Unchanged: auto smart crop still runs on upload
+Two changes:
+1. **AR-Stratified Sampling**: Distribute photos to BESIDE/BELOW regions by proportional sampling from AR buckets (Portrait/Square/Landscape) instead of sequential slicing
+2. **Fix Rejection Preview**: The app UI's debug panel doesn't show hover previews for rejections because the worker-to-main-thread log rehydration drops `rejectedLayout` and `level` fields
 
 ---
 
-## Technical Implementation
+## Part 1: Fix Rejection Preview (Root Cause)
 
-### 1. Detect Mobile Platform
+### The Bug
 
-Create a utility to check if running on mobile (not just viewport width—actual device):
-
-**New file: `src/lib/platform.ts`**
+In `src/pages/Index.tsx`, when logs come back from the worker, they're re-added to `devLogger` like this:
 
 ```typescript
+for (const log of result.logs) {
+  devLogger.log(log.category, log.label, log.data);  // ← Drops level and rejectedLayout!
+}
+```
+
+The `rejectedLayout` geometry is attached to each log entry by the worker, but this code only passes 3 of 5 fields. The V3Test page works because it runs layout generation on the main thread (no worker), so `devLogger.getLogs()` has the full objects.
+
+### The Fix
+
+**File: `src/pages/Index.tsx`** (lines 210-214)
+
+Change the log rehydration to preserve all fields:
+
+```typescript
+if (result.logs) {
+  for (const log of result.logs) {
+    devLogger.log(log.category, log.label, log.data, log.level || 'info', log.rejectedLayout);
+  }
+}
+```
+
+This passes the full `LogEntry` including:
+- `level` (for proper warn/error styling)
+- `rejectedLayout` (for hover preview geometry)
+
+---
+
+## Part 2: AR-Stratified Sampling
+
+### What This Solves
+
+Currently, photos are assigned to BESIDE vs BELOW regions via sequential slicing:
+
+```typescript
+const besidePhotos = orderedPhotos.slice(0, besideCount);
+const belowPhotos = orderedPhotos.slice(besideCount);
+```
+
+When photos are sorted by AR, all narrow portraits cluster in one region, creating visual imbalance (the "11 portraits beside, 2 landscapes below" problem from your screenshot).
+
+### The Solution
+
+Distribute photos so that both regions receive a proportional sample from each AR bucket:
+
+| Bucket | AR Range |
+|--------|----------|
+| Portrait | AR < 0.8 |
+| Square | 0.8 ≤ AR ≤ 1.25 |
+| Landscape | AR > 1.25 |
+
+### Implementation
+
+**File: `src/lib/v3/utils.ts`** — Add new utility:
+
+```typescript
+// AR bucket thresholds
+const AR_BUCKET_PORTRAIT = 0.8;
+const AR_BUCKET_LANDSCAPE = 1.25;
+
+type ARBucket = 'portrait' | 'square' | 'landscape';
+
+function getARBucket(ar: number): ARBucket {
+  if (ar < AR_BUCKET_PORTRAIT) return 'portrait';
+  if (ar > AR_BUCKET_LANDSCAPE) return 'landscape';
+  return 'square';
+}
+
 /**
- * Detect if running on a mobile device (phone/tablet).
- * Uses User-Agent for reliable device detection.
+ * Distribute photos to two regions using stratified sampling by AR bucket.
+ * Each region receives a proportional sample from each bucket,
+ * ensuring shape diversity rather than clustering.
  */
-export function isMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
+export function stratifiedARDistribution(
+  photos: PhotoDimension[],
+  besideCount: number,
+  randomize: boolean
+): [PhotoDimension[], PhotoDimension[]] {
+  if (besideCount <= 0) return [[], photos];
+  if (besideCount >= photos.length) return [photos, []];
   
-  const ua = navigator.userAgent.toLowerCase();
+  // Group photos by AR bucket
+  const buckets: Record<ARBucket, PhotoDimension[]> = {
+    portrait: [],
+    square: [],
+    landscape: [],
+  };
   
-  // Match phones and tablets
-  return /android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini/i.test(ua);
+  for (const photo of photos) {
+    buckets[getARBucket(photo.aspectRatio)].push(photo);
+  }
+  
+  // Shuffle within buckets if randomizing
+  if (randomize) {
+    buckets.portrait = shuffleArray(buckets.portrait);
+    buckets.square = shuffleArray(buckets.square);
+    buckets.landscape = shuffleArray(buckets.landscape);
+  }
+  
+  // Proportional allocation per bucket
+  const total = photos.length;
+  const besideFraction = besideCount / total;
+  
+  const besideFromPortrait = Math.round(buckets.portrait.length * besideFraction);
+  const besideFromSquare = Math.round(buckets.square.length * besideFraction);
+  let besideFromLandscape = besideCount - besideFromPortrait - besideFromSquare;
+  besideFromLandscape = Math.max(0, Math.min(besideFromLandscape, buckets.landscape.length));
+  
+  // Build arrays
+  const beside: PhotoDimension[] = [
+    ...buckets.portrait.slice(0, besideFromPortrait),
+    ...buckets.square.slice(0, besideFromSquare),
+    ...buckets.landscape.slice(0, besideFromLandscape),
+  ];
+  
+  const below: PhotoDimension[] = [
+    ...buckets.portrait.slice(besideFromPortrait),
+    ...buckets.square.slice(besideFromSquare),
+    ...buckets.landscape.slice(besideFromLandscape),
+  ];
+  
+  // Handle rounding errors
+  while (beside.length > besideCount && below.length < photos.length - besideCount) {
+    below.push(beside.pop()!);
+  }
+  while (beside.length < besideCount && below.length > 0) {
+    beside.push(below.shift()!);
+  }
+  
+  // Final shuffle to mix buckets within each region
+  return randomize 
+    ? [shuffleArray(beside), shuffleArray(below)]
+    : [beside, below];
 }
 ```
 
----
-
-### 2. Skip Auto Smart Crop on Mobile Upload
-
-**File: `src/pages/Index.tsx`**
-
-Modify `handlePhotosAdded` to skip `processSmartCrops` on mobile:
+**File: `src/lib/v3/region-search.ts`** — Use new utility:
 
 ```typescript
-import { isMobileDevice } from '@/lib/platform';
+// Import at top
+import { stratifiedARDistribution } from './utils';
 
-const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
-  const { succeeded } = await addPhotos(newPhotos);
-  
-  if (succeeded.length === 0) return;
-  
-  remoteLogger.info('upload', 'Photos added', { count: succeeded.length });
-  const wasLayoutEmpty = state.layout === null;
+// In findValidRegionAssignment, replace lines 113-115:
 
-  // MOBILE: Skip auto smart crop - user triggers manually
-  // DESKTOP: Run auto smart crop on all photos
-  if (!isMobileDevice()) {
-    try {
-      await processSmartCrops(succeeded);
-    } catch (error) {
-      console.error('Smart crop processing failed:', error);
-    }
-  } else {
-    // Mobile: Just load dimensions + create previews (no AI)
-    for (const photo of succeeded) {
-      await loadDimensionsOnly(photo);
-    }
-  }
-  
-  regenerateCollage({ randomize: !wasLayoutEmpty });
-}, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
-```
+// BEFORE:
+const besidePhotos = orderedPhotos.slice(0, besideCount);
+const belowPhotos = orderedPhotos.slice(besideCount);
 
-Add a new helper that loads dimensions without calling the vision worker:
-
-```typescript
-// Load dimensions + previews WITHOUT smart crop (for mobile upload)
-const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
-  try {
-    const dimensions = await getImageDimensions(photo.objectUrl);
-    const [preview, thumbnail] = await Promise.all([
-      createDisplayPreview(photo.blob, 1200),
-      createDisplayPreview(photo.blob, 480),
-    ]);
-    
-    updatePhoto(photo.id, {
-      originalWidth: dimensions.width,
-      originalHeight: dimensions.height,
-      previewUrl: preview.url,
-      previewBlob: preview.blob,
-      thumbnailUrl: thumbnail.url,
-      thumbnailBlob: thumbnail.blob,
-      isProcessing: false,  // Done immediately
-    });
-  } catch (error) {
-    updatePhoto(photo.id, {
-      isProcessing: false,
-      error: error instanceof Error ? error.message : 'Failed to load',
-    });
-  }
-}, [updatePhoto]);
-```
-
----
-
-### 3. Add "Smart Crop" Button to PhotoCarousel
-
-**File: `src/components/PhotoCarousel.tsx`**
-
-Add a new callback prop and button:
-
-```typescript
-import { Wand2 } from 'lucide-react';  // Add to imports
-
-interface PhotoCarouselProps {
-  // ... existing props
-  onSmartCrop?: (photoId: string) => void;  // New
-  isSmartCropping?: boolean;                 // New - shows loading on button
-}
-
-// In the action buttons section, add this button:
-<Button
-  variant="outline"
-  size="sm"
-  onClick={(e) => {
-    e.stopPropagation();
-    onSmartCrop?.(photo.id);
-  }}
-  disabled={isSmartCropping || photo.smartCrop !== null}
-  className="gap-1.5"
-  title={photo.smartCrop ? "Already smart cropped" : "Auto-detect subjects"}
->
-  <Wand2 className={cn("h-4 w-4", isSmartCropping && "animate-pulse")} />
-  {photo.smartCrop ? "Cropped" : "Smart Crop"}
-</Button>
-```
-
-Button behavior:
-- Shows "Cropped" (disabled) if smart crop already applied
-- Shows spinner while processing
-- On click → triggers single-photo smart crop
-
----
-
-### 4. Handle Single Photo Smart Crop in Index
-
-**File: `src/pages/Index.tsx`**
-
-Add state and handler for single-photo cropping:
-
-```typescript
-const [smartCroppingPhotoId, setSmartCroppingPhotoId] = useState<string | null>(null);
-
-// Process smart crop for a single photo (mobile manual trigger)
-const handleSingleSmartCrop = useCallback(async (photoId: string) => {
-  const photo = state.photos.find(p => p.id === photoId);
-  if (!photo || photo.smartCrop) return;  // Already has crop
-  
-  setSmartCroppingPhotoId(photoId);
-  
-  try {
-    const result = await getSmartCrop(
-      photo.objectUrl,
-      photo.blob,
-      photo.originalWidth,
-      photo.originalHeight,
-      (status) => setProcessingStatus(status)
-    );
-    
-    const smartCropToApply = result.skipCrop ? null : result.crop;
-    
-    updatePhoto(photoId, { smartCrop: smartCropToApply });
-    
-    // Regenerate layout with new crop
-    if (state.layout) {
-      regenerateCollage();
-    }
-  } catch (error) {
-    console.error('Smart crop failed:', error);
-    // Silent fail - photo still works
-  } finally {
-    setSmartCroppingPhotoId(null);
-  }
-}, [state.photos, state.layout, updatePhoto, regenerateCollage]);
-```
-
-Pass to PhotoCarousel:
-
-```tsx
-<PhotoCarousel
-  photos={state.photos}
-  // ... existing props
-  onSmartCrop={handleSingleSmartCrop}
-  isSmartCropping={smartCroppingPhotoId !== null}
-/>
+// AFTER:
+const [besidePhotos, belowPhotos] = stratifiedARDistribution(
+  orderedPhotos,
+  besideCount,
+  randomize
+);
 ```
 
 ---
@@ -209,33 +178,20 @@ Pass to PhotoCarousel:
 
 | File | Change |
 |------|--------|
-| `src/lib/platform.ts` | **New** - `isMobileDevice()` utility |
-| `src/pages/Index.tsx` | Skip auto smart crop on mobile, add `handleSingleSmartCrop`, add `loadDimensionsOnly` |
-| `src/components/PhotoCarousel.tsx` | Add "Smart Crop" button with `onSmartCrop` prop |
+| `src/pages/Index.tsx` | Fix log rehydration to preserve `level` and `rejectedLayout` |
+| `src/lib/v3/utils.ts` | Add `stratifiedARDistribution()` utility |
+| `src/lib/v3/region-search.ts` | Replace sequential slicing with stratified distribution |
 
 ---
 
-## User Experience Flow
+## Expected Results
 
-### Mobile Upload (4 photos)
-1. Tap "Add Photos" → Select 4 images
-2. Photos appear instantly (no waiting, no spinners)
-3. Collage generates immediately with full-image crops
-4. Swipe to photo 2 → Tap "Smart Crop" → AI finds the subject → Crop applied
-5. Collage regenerates with better framing
+### Rejection Preview Fix
+- App UI debug logs will show underlined rejection entries
+- Hovering will display the CSS box preview with AR labels
 
-### Desktop Upload (unchanged)
-1. Drag photos → Progress spinner shows
-2. All photos processed automatically
-3. Collage appears with smart crops applied
+### AR-Stratified Sampling
+- Both BESIDE and BELOW regions receive proportional mix of portrait/square/landscape photos
+- Reduces "all portraits beside" clustering that causes prominence failures
+- Layout success rate should improve for portrait-heavy photo sets
 
----
-
-## Why This Solves the Problem
-
-| Issue | Solution |
-|-------|----------|
-| iOS crashes on batch AI inference | No batch inference on mobile—one photo at a time, user-triggered |
-| Memory accumulation | Single inference → GC → next inference (if user wants) |
-| Long wait times | Photos available immediately; smart crop is optional |
-| Feature preserved | Users who want smart crop can still use it (just manually) |

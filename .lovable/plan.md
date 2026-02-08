@@ -1,100 +1,119 @@
 
-
-# Simplify Crop Button and Improve Touch Targets
+# Fix Crop Handle Positioning at Image Edges
 
 ## Problem Summary
 
-Two issues with the current action buttons:
-1. **Icon/text mismatch**: Using Wand2 ("magic wand") icon with "Auto-crop" text is redundant and causes text to overlap on narrow portrait thumbnails
-2. **Poor touch targets**: Current buttons are only 24px tall (`h-6`), well below the 44-48px minimum recommended for mobile
+The crop editor handles appear offset from the actual corners when the crop region touches the image edge. This happens because `getHandlePosition` intentionally pushes handles inward by `handleRadius` to keep them inside the SVG viewBox. However, this makes the UI look buggy - handles appear to "jump" to the correct corner once dragging starts.
+
+Looking at the screenshots:
+- In image 1 (mobile): handles are visibly inside the corners at the edges
+- In images 2-3 (desktop): when crop is full-frame, all corners are offset inward
 
 ---
 
 ## Design Intent
 
 **What behavior do we want?**
-- Use the Crop icon (same as the overlay indicator) for the auto-crop action
-- Icon-only buttons to avoid text overlap issues
-- Touch-friendly button sizes (at least 44px tap target)
+- Corner handles always render exactly at the crop corners
+- Handles can extend beyond the image boundary if needed (using SVG overflow)
+- No visual "jumping" when starting to drag
 
 **What will users experience?**
-- Clean, compact icon buttons that don't crowd narrow thumbnails
-- Reliable tapping on mobile devices
-- Consistent visual language (Crop icon = cropping)
+- Handles are precisely at corners, even when crop equals full image
+- Consistent, non-buggy appearance
+- Handles remain fully visible (just extend past image edge into the dialog padding)
+
+---
+
+## Technical Approach
+
+The SVG element has padding around it (`p-4` on the container), so handles extending beyond the viewBox will still be visible in that padding area. We just need to:
+
+1. **Remove the inward offset logic** in `getHandlePosition`
+2. **Add `overflow="visible"`** to the SVG element so elements can render outside the viewBox
 
 ---
 
 ## Implementation Details
 
-### File: `src/components/ThumbnailNavigator.tsx`
+### File: `src/components/CropEditor.tsx`
 
-**Change 1: Remove Wand2 import, keep Crop**
+**Change 1: Simplify `getHandlePosition` (lines 197-210)**
 
-```tsx
-// Line 8 - Before
-import { X, Star, Crop, Wand2, Undo2, Loader2 } from 'lucide-react';
+Remove the offset logic entirely - handles always at true corner:
 
-// After
-import { X, Star, Crop, Undo2, Loader2 } from 'lucide-react';
+```typescript
+// Before (lines 197-210)
+const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
+  const handleRadius = handleSize / 2;
+  let cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+  let cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+  
+  // Offset inward if at image edge
+  if (corner.includes('w') && crop.x <= 0) cx += handleRadius;
+  if (corner.includes('e') && crop.x + crop.width >= photo.originalWidth) cx -= handleRadius;
+  if (corner.includes('n') && crop.y <= 0) cy += handleRadius;
+  if (corner.includes('s') && crop.y + crop.height >= photo.originalHeight) cy -= handleRadius;
+  
+  return { cx, cy };
+};
+
+// After - simple, no offset
+const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
+  const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
+  const cy = corner.includes('s') ? crop.y + crop.height : crop.y;
+  return { cx, cy };
+};
 ```
 
-**Change 2: Update button to icon-only with proper touch target**
+**Change 2: Add `overflow="visible"` to SVG (line 223-228)**
 
 ```tsx
-// Lines 191-223 - Replace with icon-only button
-{isLoaded && onSmartCrop && onUndoSmartCrop && (
-  <Button
-    variant="ghost"
-    size="icon"
-    className="h-8 w-8 min-h-[44px] min-w-[44px]"  // Visual 32px, touch 44px
-    disabled={isProcessing}
-    onClick={(e) => {
-      e.stopPropagation();
-      if (hasSmartCrop) {
-        onUndoSmartCrop(photo.id);
-      } else {
-        onSmartCrop(photo.id);
-      }
-    }}
-  >
-    {isProcessing ? (
-      <Loader2 className="h-4 w-4 animate-spin" />
-    ) : hasSmartCrop ? (
-      <Undo2 className="h-4 w-4" />
-    ) : (
-      <Crop className="h-4 w-4" />
-    )}
-  </Button>
-)}
+// Before
+<svg
+  ref={svgRef}
+  viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
+  preserveAspectRatio="xMidYMid meet"
+  className="max-w-full block touch-none select-none"
+  style={{ maxHeight: 'calc(90vh - 120px)' }}
+  ...
+
+// After - add overflow="visible"
+<svg
+  ref={svgRef}
+  viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
+  preserveAspectRatio="xMidYMid meet"
+  overflow="visible"
+  className="max-w-full block touch-none select-none"
+  style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible' }}
+  ...
 ```
 
-### Touch Target Strategy
-
-Using a technique where the **visual size** is smaller than the **touch target**:
-- `h-8 w-8` = 32px visual button (compact appearance)
-- `min-h-[44px] min-w-[44px]` = 44px minimum touch area (invisible padding)
-
-This ensures tappability without making the UI look bulky.
+Note: We need both the SVG attribute AND the CSS style because some browsers respect one over the other.
 
 ---
 
 ## Visual Comparison
 
-**Before (text labels, small touch target):**
+**Before (handles offset inward at edges):**
 ```
-┌──┐  ┌──┐
-│  │  │  │
-└──┘  └──┘
-[🪄 Auto-crop][↩ Undo]  ← text overlaps, 24px buttons
+    ○─────────────────────○
+    │                     │
+    │      [image]        │   ← handles NOT at corners
+    │                     │
+    ○─────────────────────○
 ```
 
-**After (icon-only, proper touch targets):**
+**After (handles at true corners):**
 ```
-┌──┐  ┌──┐
-│  │  │  │
-└──┘  └──┘
- [⊡]   [↩]   ← clean icons, 44px touch target
+  ○───────────────────────○
+  │                       │
+  │       [image]         │   ← handles AT corners
+  │                       │
+  ○───────────────────────○
 ```
+
+When handles extend beyond the image, they render into the dialog's `p-4` padding area - still fully visible.
 
 ---
 
@@ -102,6 +121,5 @@ This ensures tappability without making the UI look bulky.
 
 | Location | Change |
 |----------|--------|
-| Line 8 | Remove `Wand2` from imports |
-| Lines 191-223 | Change to icon-only button with `Crop` icon for uncropped, `Undo2` for cropped; use `size="icon"` with 44px min touch target |
-
+| Lines 197-210 | Simplify `getHandlePosition` - remove all offset logic |
+| Line 223-228 | Add `overflow="visible"` attribute and CSS to SVG |

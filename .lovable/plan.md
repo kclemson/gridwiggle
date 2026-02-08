@@ -1,78 +1,123 @@
 
-# Fix Navigation: Return to View All After Crop Editor Cancel
+# Remove Selection Outline from View All Grid
 
 ## Problem Summary
 
-Current flow:
-1. User clicks "View All" → `navigatorOpen = true`
-2. User clicks a photo → `editingPhotoId = photoId` AND `navigatorOpen = false`
-3. User clicks "Cancel" in CropEditor → `editingPhotoId = null`
-4. Result: Back to main page (navigator is closed)
-
-Expected flow:
-- Cancel should return to the View All gallery, not the main page
+The "View All" grid shows a white+purple ring on photo #1 (from `currentIndex: 0`). This visual was designed for a carousel navigation context, but the grid is now just a gallery for browsing/editing — there's no "currently selected photo" concept anymore.
 
 ---
 
-## Design Intent
+## Confirmation: Using 480px Thumbnails
 
-**What behavior do we want?**
-- When opening a photo from View All, keep the navigator "open" in the background
-- CropEditor appears on top of the navigator
-- Canceling the CropEditor reveals the navigator again
+Yes, we ARE using the smaller thumbnails:
 
-**What will users experience?**
-- Natural back-navigation: Cancel returns to where they came from (View All)
-- No jarring jump back to the main collage view
+1. **CroppedImage** (line 35): `thumbnailSrc ?? previewSrc ?? src` — prioritizes smallest
+2. **ThumbnailNavigator** passes `thumbnailSrc={photo.thumbnailUrl}` (line 151)
+3. **Fallback img** (line 159): `photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl`
+
+The 480px thumbnails are correctly used. The 1200px previewUrl is only used if thumbnailUrl is unavailable.
 
 ---
 
 ## Implementation Details
 
-### File: `src/pages/Index.tsx`
+### File: `src/components/ThumbnailNavigator.tsx`
 
-**Change: Keep navigator open when selecting a photo (lines 819-822)**
+**Change 1: Remove unused `currentIndex` prop (line 13 and 27)**
+
+The prop is no longer needed since there's no "selected" concept.
 
 ```tsx
-// Before (lines 819-822)
-onSelect={(photoId) => {
-  // Open crop editor directly - View All is for managing crops
-  setEditingPhotoId(photoId);
-  setNavigatorOpen(false);
-}}
+// Before (line 13)
+interface ThumbnailNavigatorProps {
+  photos: PhotoItem[];
+  currentIndex: number;  // Remove this line
+  onSelect: ...
 
-// After - don't close navigator when selecting
-onSelect={(photoId) => {
-  // Open crop editor on top of navigator
-  setEditingPhotoId(photoId);
-  // Keep navigatorOpen=true so Cancel returns here
-}}
+// After
+interface ThumbnailNavigatorProps {
+  photos: PhotoItem[];
+  onSelect: ...
 ```
 
-With this change:
-- `navigatorOpen` stays `true` when opening a photo
-- CropEditor renders on top (it uses a Dialog with higher z-index)
-- When CropEditor closes (Cancel or Save), navigator is still visible
+**Change 2: Remove `currentIndex` from destructuring (line 27)**
+
+```tsx
+// Before
+export function ThumbnailNavigator({
+  photos,
+  currentIndex,
+  onSelect,
+  ...
+
+// After
+export function ThumbnailNavigator({
+  photos,
+  onSelect,
+  ...
+```
+
+**Change 3: Remove `isSelected` variable and selection styling (lines 110, 137)**
+
+```tsx
+// Before (line 110)
+const isSelected = index === currentIndex;
+
+// Line 137
+isSelected && isLoaded && "ring-2 ring-primary ring-offset-2"
+
+// After - remove isSelected line entirely, and remove the selection styling
+className={cn(
+  "relative transition-all overflow-hidden rounded",
+  "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+  // No selection ring - keep focus ring for accessibility
+)}
+```
+
+### File: `src/pages/Index.tsx`
+
+**Change: Remove `currentIndex` prop from ThumbnailNavigator call (line 818)**
+
+```tsx
+// Before
+<ThumbnailNavigator
+  photos={state.photos}
+  currentIndex={0}  // Remove this line
+  onSelect={...}
+
+// After
+<ThumbnailNavigator
+  photos={state.photos}
+  onSelect={...}
+```
 
 ---
 
-## Visual Flow After Fix
+## Visual Comparison
 
+**Before:**
 ```
-View All (z-50)     →    CropEditor (Dialog z-50+)    →    View All (z-50)
-   open                      on top of navigator              still open
-                                   
-                            [Cancel] or [Save]
-                                    ↓
-                           CropEditor closes
-                                    ↓
-                           Navigator revealed
+[Photo 1]  ← purple ring (selected)
+[Photo 2]
+[Photo 3]
+```
+
+**After:**
+```
+[Photo 1]  ← no ring
+[Photo 2]
+[Photo 3]
+(focus ring still appears on keyboard navigation)
 ```
 
 ---
 
 ## File Changes Summary
 
-| Location | Change |
-|----------|--------|
-| Lines 819-823 | Remove `setNavigatorOpen(false)` from onSelect handler |
+| File | Location | Change |
+|------|----------|--------|
+| ThumbnailNavigator.tsx | Line 13 | Remove `currentIndex` from interface |
+| ThumbnailNavigator.tsx | Line 27 | Remove from destructuring |
+| ThumbnailNavigator.tsx | Line 110 | Remove `isSelected` variable |
+| ThumbnailNavigator.tsx | Line 137 | Remove selection ring styling |
+| Index.tsx | Line 818 | Remove `currentIndex={0}` prop |

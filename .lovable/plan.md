@@ -1,84 +1,152 @@
 
-# iOS Safari Memory Crash Fix: Garbage Collection Delay Between Photos
+# Fix: Mobile Touch Scroll vs Drag-and-Drop Detection
 
-## The Problem
+## What Users Experience Now
 
-You're seeing:
-1. **Long processing time** between photo 1 and 2 (single-threaded mode is working but slower)
-2. **Crash on photo 2** (memory isn't being released between photos)
+When you touch the collage canvas on mobile:
+- Your finger immediately triggers drag-and-drop mode
+- You can't scroll the page by swiping over the collage
+- Even a tap-and-hold (common scroll gesture) activates the drag preview
 
-The current flow in `processSmartCrops` runs a tight sequential loop:
+## What Users Should Experience
 
-```text
-for (const photo of photos) {
-  await getSmartCrop(...);  // Photo 1 - memory allocated
-  // No break - immediately starts photo 2
-  await getSmartCrop(...);  // Photo 2 - MORE memory allocated, CRASH
-}
-```
-
-iOS Safari's JavaScript engine doesn't get a chance to garbage collect between photos. The single-threading fix reduced peak memory per photo, but without GC pauses, memory accumulates across photos.
+| Gesture | Expected Behavior |
+|---------|-------------------|
+| Quick swipe | Page scrolls normally |
+| Tap and hold (~300ms) then move | Drag-and-drop activates |
+| Tap on star button | Toggle hero (already working) |
 
 ## The Solution
 
-Add a deliberate pause between photos to allow garbage collection. This is a documented pattern for memory-intensive browser operations.
+Implement a **hold-to-drag** pattern with a time threshold:
+
+1. On `touchstart`: Record the touch position and start a timer
+2. On `touchmove` (before threshold): Cancel the timer if finger moves too far (user is scrolling)
+3. On timer complete (300ms): Activate drag mode
+4. Allow normal scrolling unless drag mode is active
 
 ---
 
-## Implementation
+## Technical Changes
 
-### File: `src/pages/Index.tsx`
+### File: `src/components/CollagePreview.tsx`
 
-Add a GC delay function and call it between photos:
-
+**Add state for pending drag detection:**
 ```typescript
-// Helper to give browser time to garbage collect between heavy operations
-const gcDelay = () => new Promise(resolve => setTimeout(resolve, 100));
+const [pendingDragId, setPendingDragId] = useState<string | null>(null);
+const [touchStartPos, setTouchStartPos] = useState({ x: 0, y: 0 });
+const holdTimerRef = useRef<number | null>(null);
 
-// Inside processSmartCrops, after each photo completes:
-for (const photo of photos) {
-  // ... existing processing code ...
-  
-  completed++;
-  setSmartCropProgress((completed / total) * 100);
-  
-  // Give browser time to GC between photos (critical for iOS Safari)
-  if (completed < total) {
-    await gcDelay();
-  }
-}
+const HOLD_THRESHOLD_MS = 300;  // Time to hold before drag activates
+const MOVE_THRESHOLD_PX = 10;   // Movement tolerance during hold
 ```
 
-### Why 100ms?
+**Update `handleTouchStart`:**
+```typescript
+const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
+  // Don't start drag if touching an interactive element
+  const target = e.target as HTMLElement;
+  if (target.closest('button')) return;
+  
+  const touch = e.touches[0];
+  const startPos = { x: touch.clientX, y: touch.clientY };
+  
+  // Set up pending drag - don't activate immediately
+  setPendingDragId(photoId);
+  setTouchStartPos(startPos);
+  
+  // Start hold timer - only activate drag after threshold
+  holdTimerRef.current = window.setTimeout(() => {
+    setTouchDragId(photoId);
+    setTouchPosition(startPos);
+    // Haptic feedback if available
+    if (navigator.vibrate) navigator.vibrate(50);
+  }, HOLD_THRESHOLD_MS);
+}, []);
+```
 
-- Short enough that users won't notice (100ms × 4 photos = 400ms extra)
-- Long enough for a GC cycle to run (Safari typically needs 50-100ms)
-- Matches the pattern used in the existing ThumbnailNavigator batch loading
+**Update `handleTouchMove`:**
+```typescript
+const handleTouchMove = useCallback((e: React.TouchEvent) => {
+  const touch = e.touches[0];
+  const currentPos = { x: touch.clientX, y: touch.clientY };
+  
+  // If still pending (not yet activated), check if user moved too much
+  if (pendingDragId && !touchDragId) {
+    const dx = Math.abs(currentPos.x - touchStartPos.x);
+    const dy = Math.abs(currentPos.y - touchStartPos.y);
+    
+    if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) {
+      // User is scrolling - cancel pending drag
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      setPendingDragId(null);
+      return; // Allow normal scroll
+    }
+  }
+  
+  // If drag is active, update position
+  if (touchDragId) {
+    setTouchPosition(currentPos);
+  }
+}, [pendingDragId, touchDragId, touchStartPos]);
+```
+
+**Update `handleTouchEnd`:**
+```typescript
+const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+  // Clean up pending state
+  if (holdTimerRef.current) {
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+  }
+  setPendingDragId(null);
+  
+  // If no active drag, nothing to do
+  if (!touchDragId) return;
+  
+  // ... existing swap logic ...
+  setTouchDragId(null);
+}, [touchDragId, onSwapPhotos]);
+```
+
+**Add cleanup on unmount:**
+```typescript
+useEffect(() => {
+  return () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+    }
+  };
+}, []);
+```
 
 ---
 
-## Changes Summary
+## User-Facing Behavior After Fix
+
+| Action | Result |
+|--------|--------|
+| Swipe across collage | Page scrolls normally |
+| Hold finger on photo for 300ms | Drag mode activates (with haptic feedback) |
+| Hold briefly then scroll | Scroll works (drag cancelled) |
+| Tap star button | Hero toggle (unchanged) |
+
+---
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add `gcDelay()` call between photo processing iterations |
+| `src/components/CollagePreview.tsx` | Add hold-to-drag detection with timer and movement threshold |
 
 ---
 
-## Technical Context
+## Why This Pattern
 
-This follows the architecture pattern documented in your memory: "memory-safe-processing" - processing in small batches with GC delays. The current code processes photos sequentially but without the delay component.
-
-The delay works because:
-1. `setTimeout` yields to the event loop
-2. This allows Safari's GC to run
-3. Memory from photo 1 is released before photo 2 starts
-
----
-
-## Expected Outcome
-
-After implementation:
-- Photo 1 completes → 100ms pause → Photo 2 starts (with freed memory)
-- All 4 photos complete without crashing
-- Total extra time: ~300ms (imperceptible to users)
+This matches iOS/Android native drag behavior:
+- iOS Springboard (home screen) requires hold-to-rearrange
+- Android home screens work the same way
+- It's the expected mobile UX for distinguishing scroll from drag

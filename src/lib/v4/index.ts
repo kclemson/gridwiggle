@@ -1,60 +1,22 @@
 /**
- * Layout Worker
+ * V4 Layout Orchestrator
  * 
- * Runs V4 layout generation off the main thread so the UI stays responsive
- * and spinners can animate during computation.
- * 
- * V4 is a simplified orchestrator that calls proven V3 math functions.
+ * Simplified orchestrator that calls proven math functions.
+ * No arbitrary caps, simple constraints, maximum variety.
  */
 
-import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING, NormalizedCell } from '@/lib/v3/types';
-import { CollageLayout, CollageCell } from '@/types/collage';
+import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/collage';
+import { getDisplayCrop } from '@/lib/cropUtils';
+import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
-import { shuffleArray } from '@/lib/v3/utils';
-import { devLogger, LogEntry } from '@/lib/devLogger';
+import { distributeByARBudget, shuffleArray } from '@/lib/v3/utils';
+import { devLogger } from '@/lib/devLogger';
 
-// Virtual canvas base unit - normalized dimensions are scaled to this
+// Virtual canvas base unit for final pixel values
 const VIRTUAL_CANVAS_BASE = 1000;
 
 // ============================================================================
-// Worker-local log collection (redirects devLogger to worker-local array)
-// ============================================================================
-
-const isDev = import.meta.env.DEV;
-let workerLogs: LogEntry[] = [];
-
-// Redirect all devLogger calls to worker-local array
-devLogger.setCollector((entry) => {
-  workerLogs.push(entry);
-});
-
-// ============================================================================
-// Message Types
-// ============================================================================
-
-export interface LayoutRequest {
-  type: 'generate';
-  requestId: string;
-  dimensions: PhotoDimension[];
-  normalizedGap: number;
-  tuning: Partial<V3Tuning>;
-  randomize: boolean;
-}
-
-export interface LayoutResponse {
-  type: 'result';
-  requestId: string;
-  layout: CollageLayout;
-  durationMs: number;
-  logs?: LogEntry[];
-  softRejection?: {
-    reason: string;
-    details: Record<string, unknown>;
-  };
-}
-
-// ============================================================================
-// V4 Layout Candidate
+// Candidate Interface
 // ============================================================================
 
 interface LayoutCandidate {
@@ -72,12 +34,32 @@ interface LayoutCandidate {
 }
 
 // ============================================================================
+// Photo Extraction
+// ============================================================================
+
+function extractPhotoDimensions(
+  photos: PhotoItem[],
+  weights: Record<string, number> = {}
+): PhotoDimension[] {
+  return photos.map(photo => {
+    const crop = getDisplayCrop(photo);
+    const width = crop ? crop.width : photo.originalWidth;
+    const height = crop ? crop.height : photo.originalHeight;
+    return {
+      id: photo.id,
+      aspectRatio: width / height,
+      weight: weights[photo.id] ?? 1,
+    };
+  });
+}
+
+// ============================================================================
 // Tier Coherence Scoring (F-ratio)
 // ============================================================================
 
 function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
   if (areas.length < tierCount * 2) {
-    return 0.5;
+    return 0.5; // Neutral score for small sets
   }
   
   const sorted = [...areas].sort((a, b) => b - a);
@@ -142,7 +124,7 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 }
 
 // ============================================================================
-// V4 Candidate Generation
+// Candidate Generation
 // ============================================================================
 
 function generateCandidates(
@@ -155,34 +137,41 @@ function generateCandidates(
   const heroAR = heroPhoto.aspectRatio;
   const candidates: LayoutCandidate[] = [];
   
+  // Order content: shuffle for variety OR sort for determinism
   const ordered = randomize 
     ? shuffleArray(contentPhotos)
     : [...contentPhotos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
+  // Corners for variety
   const corners: Array<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'> = 
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
-  // NO CAP on besideCount - explore full range
+  // Key change: NO CAP on besideCount
   for (let besideCount = 0; besideCount <= ordered.length; besideCount++) {
     const beside = ordered.slice(0, besideCount);
     const below = ordered.slice(besideCount);
     
+    // Simple row count range for beside: 1 to ceil(besideCount/2)
     const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
     const minBesideRows = besideCount > 0 ? 1 : 0;
     
     for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
+      // Pack beside (if any)
       const besideResult = besideCount > 0 
         ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
         : { cells: [], width: 0, height: 1.0, rowCount: 0 };
       
       if (besideCount > 0 && besideResult.cells.length === 0) continue;
       
+      // Hero row width
       const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
       
+      // Simple row count range for below
       const maxBelowRows = below.length > 0 
         ? Math.max(1, Math.ceil(below.length / 2))
         : 0;
       
+      // Iterate over below row counts for variety
       const belowRowCounts = below.length > 0
         ? (randomize 
             ? [1 + Math.floor(Math.random() * maxBelowRows)]
@@ -190,12 +179,14 @@ function generateCandidates(
         : [0];
       
       for (const belowRowCount of belowRowCounts) {
+        // Pack below
         const belowResult = below.length > 0 && belowRowCount > 0
           ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
           : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
         
         if (below.length > 0 && belowResult.cells.length === 0) continue;
         
+        // Canvas dimensions (with border gap)
         const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
         const canvasWidth = heroRowWidth + 2 * normalizedGap;
         const canvasHeight = totalHeight + 2 * normalizedGap;
@@ -206,7 +197,7 @@ function generateCandidates(
           continue;
         }
         
-        // Prominence check
+        // Prominence check (hero vs largest beside)
         const besideAreas = besideResult.cells.map(c => c.width * c.height);
         const heroArea = heroAR * 1.0;
         const maxBesideArea = Math.max(...besideAreas, 0);
@@ -216,19 +207,21 @@ function generateCandidates(
           continue;
         }
         
-        // Score
+        // Score using F-ratio + presence bonus
         const allAreas = [...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
         const coherenceScore = tierCoherenceScore(allAreas);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
         const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
         
+        // Pick corner (random for variety, top-left for determinism)
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
           : 'top-left';
         
+        // Create hero cell in normalized space (positioned at corner)
         const heroCell: NormalizedCell = {
           photoId: heroPhoto.id,
-          x: normalizedGap,
+          x: normalizedGap,  // Will be transformed based on corner
           y: normalizedGap,
           width: heroAR,
           height: 1.0,
@@ -251,17 +244,41 @@ function generateCandidates(
     }
   }
   
+  devLogger.log('layout', `V4 generated ${candidates.length} candidates`, {
+    photoCount: contentPhotos.length + 1,
+    heroAR: heroAR.toFixed(2),
+    arRange: candidates.length > 0 
+      ? `${Math.min(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)} - ${Math.max(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)}`
+      : 'none',
+  });
+  
   return candidates;
 }
 
 // ============================================================================
-// Convert Candidate to Layout
+// Candidate Selection
+// ============================================================================
+
+function selectCandidate(
+  candidates: LayoutCandidate[],
+  randomize: boolean
+): LayoutCandidate | null {
+  if (candidates.length === 0) return null;
+  
+  return randomize 
+    ? weightedRandomSelect(candidates)
+    : candidates.reduce((best, c) => c.score > best.score ? c : best);
+}
+
+// ============================================================================
+// Convert to Layout
 // ============================================================================
 
 function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): CollageLayout {
   const cells: CollageCell[] = [];
   const { corner, canvasWidth, canvasHeight, heroCell, besideCells, belowCells } = candidate;
   
+  // Helper to transform coordinates based on corner
   const transform = (x: number, y: number, w: number, h: number): { x: number; y: number } => {
     switch (corner) {
       case 'top-left':
@@ -275,6 +292,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     }
   };
   
+  // Add hero cell
   const heroPos = transform(heroCell.x, heroCell.y, heroCell.width, heroCell.height);
   cells.push({
     photoId: heroCell.photoId,
@@ -284,6 +302,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     height: Math.round(heroCell.height * VIRTUAL_CANVAS_BASE),
   });
   
+  // Add beside cells (offset from hero)
   const besideOffsetX = normalizedGap + candidate.heroCell.width + normalizedGap;
   for (const cell of besideCells) {
     const pos = transform(besideOffsetX + cell.x, normalizedGap + cell.y, cell.width, cell.height);
@@ -296,6 +315,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     });
   }
   
+  // Add below cells (offset from hero row)
   const belowOffsetY = normalizedGap + 1.0 + normalizedGap;
   for (const cell of belowCells) {
     const pos = transform(normalizedGap + cell.x, belowOffsetY + cell.y, cell.width, cell.height);
@@ -316,37 +336,46 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
 }
 
 // ============================================================================
-// Layout Generation Result
+// Main API
 // ============================================================================
 
-interface GenerationResult {
-  layout: CollageLayout | null;
-  softRejection?: { reason: string; details: Record<string, unknown> };
+export interface GenerateLayoutV4Options {
+  photoWeights?: Record<string, number>;
+  tuning?: Partial<V3Tuning>;
+  randomize?: boolean;
 }
 
-// ============================================================================
-// V4 Layout Generation
-// ============================================================================
-
-function generateLayout(
-  dimensions: PhotoDimension[],
-  normalizedGap: number,
-  tuningOverrides: Partial<V3Tuning>,
-  randomize: boolean
-): GenerationResult {
-  workerLogs = [];
+/**
+ * Generate a collage layout using the V4 algorithm.
+ * 
+ * V4 is a simplified orchestrator that:
+ * - Explores ALL besideCount values (no cap)
+ * - Uses simple row count ranges
+ * - Enforces only canvas AR + prominence
+ * - Scores with F-ratio
+ * 
+ * @returns CollageLayout or null if generation fails
+ */
+export function generateCollageLayoutV4(
+  photos: PhotoItem[],
+  settings: CollageSettings,
+  options: GenerateLayoutV4Options = {}
+): CollageLayout | null {
+  if (photos.length < 2) return null;
   
-  if (dimensions.length < 2) {
-    return { 
-      layout: { width: 1000, height: 1000, cells: [] }, 
-      softRejection: { reason: 'insufficient_photos', details: { photoCount: dimensions.length } },
-    };
-  }
+  const { 
+    photoWeights = {}, 
+    tuning: tuningOverrides,
+    randomize = false,
+  } = options;
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
   
-  devLogger.log('v4', 'Starting V4 layout generation (worker)', {
-    photoCount: dimensions.length,
+  // Map slider (0-100) to normalized gap (0 to 0.04)
+  const normalizedGap = (settings.gapSize / 100) * 0.04;
+  
+  devLogger.log('layout', 'Starting V4 layout generation', {
+    photoCount: photos.length,
     randomize,
     tuning: {
       canvas_minAR: tuning.canvas_minAR,
@@ -355,51 +384,36 @@ function generateLayout(
     },
   });
   
+  // Extract dimensions with weights
+  const dimensions = extractPhotoDimensions(photos, photoWeights);
+  
   // Find hero (highest weight)
   const heroPhoto = dimensions.reduce((h, d) => d.weight > h.weight ? d : h);
   const contentPhotos = dimensions.filter(d => d.id !== heroPhoto.id);
   
-  devLogger.log('v4', 'Photo analysis', {
+  devLogger.log('layout', 'Photo analysis', {
     heroId: heroPhoto.id,
     heroAR: heroPhoto.aspectRatio.toFixed(2),
     contentCount: contentPhotos.length,
+    avgContentAR: (contentPhotos.reduce((s, d) => s + d.aspectRatio, 0) / contentPhotos.length).toFixed(2),
   });
   
   // Generate all valid candidates
   const candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
   
-  devLogger.log('v4', `Generated ${candidates.length} candidates`, {
-    arRange: candidates.length > 0 
-      ? `${Math.min(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)} - ${Math.max(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)}`
-      : 'none',
-  });
-  
   if (candidates.length === 0) {
-    devLogger.warn('v4', 'No valid candidates found, using fallback');
-    // Fallback: simple 2-row layout
-    const fallbackLayout: CollageLayout = {
-      width: 1000,
-      height: 1000,
-      cells: dimensions.map((d, i) => ({
-        photoId: d.id,
-        x: 0,
-        y: i * (1000 / dimensions.length),
-        width: 1000,
-        height: 1000 / dimensions.length,
-      })),
-    };
-    return { 
-      layout: fallbackLayout, 
-      softRejection: { reason: 'no_valid_candidates', details: { photoCount: dimensions.length } },
-    };
+    devLogger.warn('layout', 'V4: No valid candidates found');
+    return null;
   }
   
   // Select best/random candidate
-  const selected = randomize 
-    ? weightedRandomSelect(candidates)
-    : candidates.reduce((best, c) => c.score > best.score ? c : best);
+  const selected = selectCandidate(candidates, randomize);
   
-  devLogger.log('v4', 'Selected candidate', {
+  if (!selected) {
+    return null;
+  }
+  
+  devLogger.log('layout', 'V4 selected candidate', {
     besideCount: selected.besideCount,
     belowCount: selected.belowCells.length,
     corner: selected.corner,
@@ -407,59 +421,5 @@ function generateLayout(
     score: selected.score.toFixed(3),
   });
   
-  return {
-    layout: convertToLayout(selected, normalizedGap),
-  };
+  return convertToLayout(selected, normalizedGap);
 }
-
-// ============================================================================
-// Message Handler
-// ============================================================================
-
-self.onmessage = (e: MessageEvent<LayoutRequest>) => {
-  const { type, requestId, dimensions, normalizedGap, tuning, randomize } = e.data;
-  
-  if (type !== 'generate') {
-    return;
-  }
-  
-  const startTime = performance.now();
-  
-  try {
-    // generateLayout clears workerLogs at start
-    const result = generateLayout(dimensions, normalizedGap, tuning, randomize);
-    const durationMs = performance.now() - startTime;
-    
-    // Layout is now always non-null (soft rejections instead of hard)
-    const response: LayoutResponse = {
-      type: 'result',
-      requestId,
-      layout: result.layout!,
-      durationMs,
-      logs: isDev ? workerLogs : undefined,
-      softRejection: result.softRejection,
-    };
-    
-    self.postMessage(response);
-  } catch (error) {
-    // For true errors (crashes), create a minimal empty layout
-    // This should be extremely rare - log for debugging
-    console.error('Layout worker error:', error);
-    const durationMs = performance.now() - startTime;
-    const response: LayoutResponse = {
-      type: 'result',
-      requestId,
-      layout: { width: 1000, height: 1000, cells: [] },  // Empty fallback layout
-      durationMs,
-      logs: isDev ? workerLogs : undefined,
-      softRejection: {
-        reason: 'worker_error',
-        details: { 
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-        },
-      },
-    };
-    self.postMessage(response);
-  }
-};

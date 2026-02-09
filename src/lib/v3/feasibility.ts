@@ -120,7 +120,7 @@ export function canBesideCountMeetCanvasAR(
   
   // Calculate hero row width (minimum besideWidth at max row count)
   const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
-  const maxRows = Math.min(besidePhotos.length, 4);
+  const maxRows = Math.min(besidePhotos.length, 6);
   const minBesideWidth = sumBesideAR / maxRows;
   const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
   const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
@@ -131,27 +131,10 @@ export function canBesideCountMeetCanvasAR(
   const requiredTotalHeight = canvasWidth / tuning.canvas_maxAR;
   const requiredBelowHeight = Math.max(0, requiredTotalHeight - heroRowHeightWithGaps);
   
-  // Estimate achievable BELOW height from remaining photos
-  const belowCount = totalContentCount - besidePhotos.length;
-  if (belowCount > 0 && requiredBelowHeight > 0) {
-    // Geometric estimate: height ≈ √(n × avgAR / width)
-    // This is conservative (underestimates) as it assumes optimal packing
-    const estimatedBelowHeight = Math.sqrt(belowCount * avgContentAR / minHeroRowWidth);
-    
-    // Feasible if we can achieve ≥80% of required height (conservative margin)
-    const feasible = estimatedBelowHeight >= requiredBelowHeight * 0.8;
-    
-    if (!feasible) {
-      devLogger.log('feasibility', 'Canvas AR infeasible (BELOW too short)', {
-        besideCount: besidePhotos.length,
-        belowCount,
-        requiredBelowHeight: requiredBelowHeight.toFixed(2),
-        estimatedBelowHeight: estimatedBelowHeight.toFixed(2),
-      });
-    }
-    
-    return { feasible, minHeroRowWidth };
-  }
+  // NOTE: Removed the "BELOW too short" check that was here.
+  // That check was inverted - it rejected wide canvases for not having enough
+  // height from BELOW, but we *want* wide canvases. The actual AR validation
+  // in region-search.ts handles this correctly with soft rejections.
   
   // No BELOW photos or no height needed → use original check
   // Use effective canvas AR bounds (relaxed for low photo counts)

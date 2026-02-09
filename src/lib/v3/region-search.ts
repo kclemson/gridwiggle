@@ -339,14 +339,8 @@ export function findValidRegionAssignment(
       // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
-      // Canvas AR validation (post-pack check, no logging — outer loop already filtered)
-      const minCanvasHeight = 1.0 + 2 * normalizedGap;
-      const canvasWidth = heroRowWidth + 2 * normalizedGap;
-      const bestCaseAR = canvasWidth / minCanvasHeight;
-      
-      if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
-        continue; // Skip — canvas too wide
-      }
+      // Note: "too wide" pre-check removed — it was too conservative (ignored BELOW height)
+      // Actual canvas AR is validated after packing (lines 372-422) with full height
       
       // Calculate optimal row count for BELOW (respecting both min and max AR)
       const belowRowResult = calculateBelowRowCount(

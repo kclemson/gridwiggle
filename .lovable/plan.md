@@ -1,103 +1,107 @@
 
 
-# Surgical Fix: Remove the "Too Wide" Hard Rejection
+# Surgical Fix: Remove the Cell Size Pre-Filter
+
+## The Problem
+
+For 46 photos with landscape hero (AR 1.755), the `calculateBelowRowCount` function produces:
+- `minRows = 8` (dominated by `minRowsByCellSize`)
+- `maxRows = 8` (capped by minRows!)
+
+This forces exactly 8 rows in BELOW, which at `targetWidth = 1.755` creates an extremely tall canvas (AR ~0.6-0.7).
 
 ## Root Cause
 
-The layout engine systematically selects 0-beside layouts because:
+The `minRowsByCellSize` constraint (lines 345-352 in `normalized-pack.ts`) is:
+1. **Redundant**: The `hero_maxToSmallest` constraint is already validated post-pack in `intersection.ts`
+2. **Overly conservative**: The formula uses `n²` which explodes for large photo counts
+3. **Ignores BESIDE width**: When calculating for `besideCount=0`, it doesn't account for the fact that other configurations HAVE beside photos (and thus wider targetWidth)
 
-1. **Lines 343-349 in `region-search.ts`**: A "too wide" check hard-rejects high-beside configurations using `minCanvasHeight = 1.0` (hero row only), completely ignoring the height that BELOW photos will add.
-
-2. For example, with `heroRowWidth = 6.0`:
-   - `minCanvasHeight = 1.0 + 0.006 ≈ 1.0`
-   - `bestCaseAR = 6.0 / 1.0 = 6.0`
-   - `6.0 > 2.25 × 1.1 = 2.48` → **HARD REJECTION**
-   
-   But the actual canvas has BELOW photos adding ~3-4 height, making the real AR ~1.5 (valid!)
-
-## Evidence from Captures
-
-- Canvas AR range: **0.37 – 0.90** (all portraits)
-- `canvas_ar_below_minimum_-_soft_rejection_(no_beside)`: Dominant rejection reason
-- 0-beside layouts being selected despite 30% scoring penalty
-
-## The Fix: Remove the Hard Rejection Check
-
-### File: `src/lib/v3/region-search.ts`
-### Lines: 342-349
+### The Formula
 
 ```typescript
-// BEFORE:
-// Canvas AR validation (post-pack check, no logging — outer loop already filtered)
-const minCanvasHeight = 1.0 + 2 * normalizedGap;
-const canvasWidth = heroRowWidth + 2 * normalizedGap;
-const bestCaseAR = canvasWidth / minCanvasHeight;
-
-if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
-  continue; // Skip — canvas too wide
-}
-
-// AFTER:
-// Removed: "too wide" pre-check was too conservative (ignored BELOW height)
-// Actual canvas AR is validated after packing (lines 372-422) with full height
+minRowsByCellSize = Math.ceil(
+  Math.sqrt(heroAR * n * n * meanAR * meanAR / 
+    (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))
+);
 ```
 
-This check is redundant because:
-- Lines 372-422 already validate canvas AR **after** packing, with correct BELOW height
-- The soft rejection system handles edge cases
-- We're asymmetrically blocking "too wide" but not "too tall"
+For 45 photos at width 1.755:
+- This produces `minRowsByCellSize ≈ 7-8`
+- This completely constrains the row count, eliminating layout variety
 
-## Secondary Fix: Force minBeside for Landscape Heroes
+## The Fix: Remove `minRowsByCellSize` Entirely
 
-### File: `src/lib/v3/feasibility.ts`
-### Lines: 172-191
+Since `hero_maxToSmallest` is validated post-pack with actual cell sizes (not estimates), this pre-filter is doing nothing but eliminating valid configurations.
 
-The condition `if (heroAR < 1.0 && totalContentCount > 10)` only calculates `minBeside` for portrait heroes. Landscape heroes get `minBeside = 0` even when they need beside photos to avoid extreme portrait canvases.
+### File: `src/lib/v3/normalized-pack.ts`
 
 ```typescript
-// BEFORE:
-if (heroAR < 1.0 && totalContentCount > 10) {
-  // ... minBeside calculation
+// BEFORE (lines 343-356):
+// === Constraint 3: Prevent tiny cells (hero_maxToSmallest) ===
+let minRowsByCellSize = 1;
+if (heroAR > 0) {
+  const effectiveMinAR = minAR;
+  minRowsByCellSize = Math.ceil(
+    Math.sqrt(heroAR * n * n * meanAR * meanAR / 
+      (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))
+  );
 }
 
+// === Combine constraints ===
+const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
+const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
+```
+
+```typescript
 // AFTER:
-if (totalContentCount > 10) {
-  // Calculate minBeside for ALL heroes with many photos
-  // Landscape heroes also benefit from beside width
-  // ...rest of calculation...
+// Note: hero_maxToSmallest is validated post-pack in intersection.ts
+// Removing pre-filter as it's redundant and overly conservative for large photo counts
+
+// === Combine constraints ===
+const minRows = Math.max(1, minRowsByMaxAR);  // Removed minRowsByCellSize
+const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
+```
+
+Also update the return type to remove the now-unused constraint:
+
+```typescript
+constraints: {
+  maxRowsByMinAR,
+  minRowsByMaxAR,
+  // minRowsByCellSize removed - validated post-pack instead
+  targetWidth,
 }
 ```
 
-## Technical Details
+## Why This Is Safe
 
-### Why the Bug Matters
-
-The "too wide" check at lines 343-349 fires **before** BELOW is packed. It uses `minCanvasHeight = 1.0` as if there were zero BELOW photos. For configurations with 10+ beside photos:
-
-| Metric | Check's Assumption | Reality |
-|--------|-------------------|---------|
-| BELOW height | 0 | 3-5 (35+ photos) |
-| Canvas height | 1.0 | 4-6 |
-| Canvas AR | 6.0 (rejected) | 1.0-1.5 (valid) |
-
-### Why Removing It Is Safe
-
-1. **Actual validation exists**: Lines 372-422 check canvas AR after packing with accurate height
-2. **Soft rejections work**: Configs outside ideal bounds get flagged but not skipped
-3. **Fixes asymmetry**: Currently blocks "too wide" but not "too tall", biasing toward portraits
+1. **Actual validation exists**: `intersection.ts` checks `hero_maxToSmallest` against real packed cell sizes
+2. **Pre-filters are estimates**: They can't account for actual packing results
+3. **Soft rejections work**: Even if a layout violates constraints, it's returned with a penalty
 
 ## Expected Impact
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Valid beside configurations | ~3-5 | ~20-30 |
-| Canvas AR range | 0.37–0.90 | 0.50–1.50+ |
-| Landscape layouts (AR > 1.0) | 0% | 15-30% |
+| Row count range (45 photos) | 8–8 (no choice) | 5–12+ (variety) |
+| Canvas AR range | 0.48–0.99 | 0.50–1.50+ |
+| Landscape layouts | 1/10 (10%) | 3-4/10 (30-40%) |
 
 ## Files to Change
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/region-search.ts` | Remove lines 342-349 (the "too wide" hard rejection) |
-| `src/lib/v3/feasibility.ts` | Remove `heroAR < 1.0` condition on line 172 |
+| `src/lib/v3/normalized-pack.ts` | Remove `minRowsByCellSize` from calculation (lines 343-353) and from return constraints |
+
+## Technical Detail
+
+The `minRowsByCellSize` formula has `n²` in the numerator:
+```
+heroAR × n² × meanAR² / (minAR × targetWidth² × hero_maxToSmallest)
+```
+
+For 45 photos: `n² = 2025`
+
+This `n²` term causes the constraint to explode for large photo sets, completely dominating over geometric constraints (`minRowsByMaxAR` which is only `O(n)`). Removing it lets the actual AR-based constraints drive row selection.
 

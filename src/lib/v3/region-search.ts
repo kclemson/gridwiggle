@@ -439,26 +439,14 @@ export function findValidRegionAssignment(
         threshold: effectiveMinProminence,
       });
       
+      // Soft rejection: track low prominence but don't skip - let scoring handle it
       if (prominenceRatio < effectiveMinProminence) {
-        // Capture rejected pack for visualization
-        lastRejectedPack = {
-          cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
-          canvasWidth: normalizedWidthWithBorder,
-          canvasHeight: normalizedHeightWithBorder,
-          reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: effectiveMinProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
-        };
-        devLogger.warn('region-reject', 'Prominence too low (per-row)', {
+        devLogger.log('region', 'Low prominence (soft rejection)', {
           besideCount,
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),
           required: effectiveMinProminence,
-        }, {
-          cells: lastRejectedPack.cells,
-          canvasWidth: lastRejectedPack.canvasWidth,
-          canvasHeight: lastRejectedPack.canvasHeight,
         });
-        continue;
       }
       
       // Score this assignment

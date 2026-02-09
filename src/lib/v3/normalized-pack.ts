@@ -344,8 +344,8 @@ export function calculateBelowRowCount(
   // Only applies when there's a hero
   let minRowsByCellSize = 1;
   if (heroAR > 0) {
-    // Conservative estimate: use 0.6x minAR to account for distribution variance
-    const effectiveMinAR = minAR * 0.6;
+    // Use actual minAR - the hero_maxToSmallest constraint is validated post-pack anyway
+    const effectiveMinAR = minAR;
     minRowsByCellSize = Math.ceil(
       Math.sqrt(heroAR * n * n * meanAR * meanAR / 
         (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))

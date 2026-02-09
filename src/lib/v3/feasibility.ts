@@ -62,7 +62,7 @@ export function canMeetProminenceConstraints(
   );
   
   // Physical limits
-  const maxPhysicalRows = Math.min(besideCount, 6); // Reasonable cap
+  const maxPhysicalRows = Math.min(besideCount, 10); // Allow more rows for large sets
   
   // Intersect ranges: [minRowsForProminence, maxRowsForSmallest] ∩ [1, maxPhysicalRows]
   const minRows = Math.max(1, minRowsForProminence);
@@ -120,7 +120,7 @@ export function canBesideCountMeetCanvasAR(
   
   // Calculate hero row width (minimum besideWidth at max row count)
   const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
-  const maxRows = Math.min(besidePhotos.length, 6);
+  const maxRows = Math.min(besidePhotos.length, 10);
   const minBesideWidth = sumBesideAR / maxRows;
   const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
   const canvasWidth = minHeroRowWidth + 2 * normalizedGap;

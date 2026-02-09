@@ -1,114 +1,85 @@
 
+# Relaxing maxBeside Search Limit for Better Canvas Variety
 
-# Fixing Landscape Variety: Randomize Search Order + Row Count
+## Problem Diagnosis
 
-## The Problem
+The capture data shows a critical discrepancy:
 
-Your capture data reveals two issues limiting canvas AR variety:
+| Source | Photo Count | heroAR | Canvas AR Range |
+|--------|-------------|--------|-----------------|
+| V3-test | 5-35 (varies) | varies | 0.45 - 1.45 (good variety) |
+| App UI | 46 (same) | 1.755 | 0.27 - 0.60 (all portrait) |
 
-| File | Photo Count | Hero AR | Canvas AR Range | Issue |
-|------|-------------|---------|-----------------|-------|
-| First | 46 | 0.80 (portrait) | 0.50 - 0.72 | ALL portrait |
-| Second | 5-35 | varied | 0.48 - 1.45 | Better, but still portrait-heavy |
+The V3-test works well because it generates **different photo sets** each shuffle. The app UI uses the **same 46 photos** repeatedly, exposing a constraint bug.
 
-The 46-photo set with portrait hero produces **zero** landscape canvases despite `canvas_maxAR = 2.25` allowing them.
+For this 46-photo set with landscape hero (AR 1.755):
+- The `calculateBesideCountRange` function returns `maxBeside = 4`
+- This forces 41 photos into BELOW → extremely tall canvas
+- All shuffles produce similarly tall layouts because the range is too narrow
 
-## Root Cause: Ordered Search + Early Exit
+## Root Cause
 
-The search in `region-search.ts` loops through `besideCount` values **in ascending order**:
-
-```text
-for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++)
-```
-
-Combined with the early exit at 8 candidates:
-
-```text
-if (randomize && validRegionAssignments.length >= 8) break;
-```
-
-**Result:** The first 8 valid candidates all come from low `besideCount` values → tall canvases → portrait bias.
-
-## The Fix: Randomize Search Order
-
-Instead of searching 0→1→2→3... randomize the order we visit `besideCount` values:
-
-```text
-// Before: [0, 1, 2, 3, 4, 5, 6, 7, 8]
-// After:  [5, 2, 8, 0, 3, 7, 1, 6, 4]  (shuffled)
-```
-
-This ensures the 8 collected candidates represent diverse configurations, not just the first 8 in sequence.
-
-## Implementation Details
-
-### File: `src/lib/v3/region-search.ts`
-
-**Change 1: Randomize besideCount search order (around line 161)**
+In `src/lib/v3/feasibility.ts`, line 233:
 
 ```typescript
-// Current:
-for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
-
-// New:
-// Build array of besideCount values to try
-const besideCountsToTry = [];
-for (let bc = minBeside; bc <= maxBeside; bc++) {
-  besideCountsToTry.push(bc);
-}
-
-// Shuffle if randomizing for variety
-const orderedBesideCounts = randomize 
-  ? shuffleArray(besideCountsToTry) 
-  : besideCountsToTry;
-
-for (const besideCount of orderedBesideCounts) {
+const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
 ```
 
-**Change 2: Randomize besideRowCount order (around line 311)**
+This **artificially caps the search at 15** BESIDE photos, preventing exploration of higher besideCount values that could produce wider canvases.
+
+For 45 content photos:
+- Search only tests 0-15 BESIDE configurations
+- Higher values (20, 25, 30...) are never evaluated
+- Those higher values would move photos from BELOW to BESIDE, shortening the canvas
+
+## The Fix
+
+Remove the arbitrary `15` cap and let geometry fully determine the valid range:
 
 ```typescript
-// Current:
-for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
+// Before
+const maxTestBeside = Math.min(totalContentCount, 15);
 
-// New:
-const besideRowCountsToTry = [];
-for (let rc = minRows; rc <= maxRows; rc++) {
-  besideRowCountsToTry.push(rc);
-}
-const orderedBesideRowCounts = randomize 
-  ? shuffleArray(besideRowCountsToTry) 
-  : besideRowCountsToTry;
-
-for (const besideRowCount of orderedBesideRowCounts) {
+// After  
+const maxTestBeside = totalContentCount;
 ```
 
-### Why This Works
+This allows the search to find that putting 20+ photos BESIDE is geometrically valid for certain photo sets, producing wider canvas options.
 
-- **Same constraint system** — no new parameters or relaxed thresholds
-- **Same candidate pool** — just visited in random order
-- **Early exit still works** — but now collects diverse candidates
-- **No directional bias** — portrait and landscape configs have equal chance of being in first 8
+## Why This Is Safe
+
+The loop already has a **natural stopping condition** — it stops when `requiredHeroRowWidth > maxHeroRowWidth`. The width limit from `canvas_maxAR` naturally constrains how many photos can go BESIDE without making the canvas too wide.
+
+The `15` limit was a premature optimization that:
+1. Made search faster (O(15) vs O(n))
+2. Accidentally restricted variety for large photo sets
+
+For n=45 photos, this changes search from O(15) to O(45) — still fast enough (< 1ms).
+
+## Implementation
+
+**File: `src/lib/v3/feasibility.ts`**
+
+Line 233, change:
+```typescript
+const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
+```
+
+To:
+```typescript
+const maxTestBeside = totalContentCount; // Let geometry determine the limit
+```
 
 ## Expected Impact
 
-| Before | After |
-|--------|-------|
-| First 8 candidates: besideCount 0-4 | First 8 candidates: random mix of all valid besideCount |
-| Canvas AR clustered around minAR | Canvas AR spread across valid range |
-| Portrait hero → portrait canvas | Portrait hero → variety of canvas shapes |
+For 46 photos with landscape hero (AR 1.755):
 
-## Test Matrix
-
-For 46 photos with portrait hero (AR 0.8):
-
-| Metric | Before | Expected After |
-|--------|--------|----------------|
-| Canvas AR range | 0.50 - 0.72 | 0.50 - 1.50+ |
-| Layouts with canvasAR > 1.0 | 0% | ~30-40% |
-| Unique configurations | ~3-4 | ~8+ |
+| Metric | Before | After |
+|--------|--------|-------|
+| maxBeside | 4 | 15-25 (geometry-limited) |
+| Canvas AR range | 0.27 - 0.60 | 0.50 - 1.20+ |
+| Layouts with AR > 1.0 | 0% | ~20-40% |
 
 ## Summary
 
-This is a pure algorithmic fix — no new tuning parameters, no relaxed constraints. We're just ensuring that when `randomize=true`, we actually explore the search space randomly rather than sequentially.
-
+This is a single-line change that removes an artificial search limit. The geometric constraints (`canvas_maxAR`, prominence, etc.) already ensure valid configurations — we just weren't searching far enough to find them.

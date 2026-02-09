@@ -1,152 +1,153 @@
 
+# Radical Simplification: "Does It Spark Joy?"
 
-# Radical Simplification: Strip the Overconfident Constraints
+## Summary
 
-## The Pattern We've Seen
-
-Throughout V3 development, we repeatedly:
-1. Built something with tight constraints we thought defined "good"
-2. Found layouts looking too similar
-3. Relaxed those constraints and things looked better
-
-This suggests the core issue isn't missing features—it's **too many constraints baked in from assumptions we now know were wrong**.
+After analyzing the full V3 codebase, there are significant pieces that were added for "safety" or "future features" that are now either dead code, redundant, or actively working against variety. This plan proposes removing them entirely.
 
 ---
 
-## What We KNOW Is Important (Keep)
+## Code That Doesn't Spark Joy
 
-| Constraint | Purpose | Evidence |
-|------------|---------|----------|
-| Canvas AR bounds (0.5-2.25) | Prevent absurdly tall/wide canvases | Users complained about extremes |
-| Prominence check | Hero must feel like a hero | Visual hierarchy is the point |
-| Cell packing | Photos must fill their rows | Core geometry requirement |
+### 1. **feasibility.ts: `canMeetProminenceConstraints`** (50+ lines)
+- **What it does**: Algebraic prediction of whether row counts can satisfy prominence
+- **Why remove**: We removed the call in region-search.ts, but the function still exists. It's dead code.
+- **Status**: DEAD CODE
 
----
+### 2. **"Effective Threshold" Functions** (50+ lines in utils.ts)
+- **What they do**: `getEffectiveMinProminence`, `getEffectiveMaxToSmallest`, `getEffectiveCanvasMinAR`, `getEffectiveCanvasMaxAR` — adjust limits for "low photo counts"
+- **Why remove**: Extra complexity for edge cases. With soft rejections, low counts just produce soft-rejected layouts that still render. Let users see them.
+- **Status**: OVER-ENGINEERING for edge cases
 
-## What We Thought Was Important But Probably Isn't (Remove/Loosen)
+### 3. **hero_maxToSmallest Validation** (20+ lines in intersection.ts, hero.ts)
+- **What it does**: Prevents "tiny cells" by limiting hero-to-smallest ratio
+- **Why remove**: Set to 200 (effectively disabled), but code still runs, logs, and creates soft rejections. If it's disabled, remove it.
+- **Status**: DEAD CODE (tuning disabled)
 
-### 1. **hero_maxToSmallest (lines 343-352 in normalized-pack.ts, lines 48-62 in feasibility.ts)**
+### 4. **row_maxHeightRatio / validateAndRedistribute** (15+ lines in utils.ts)
+- **What it does**: Was meant to merge rows with "too different" heights
+- **Why remove**: Already a no-op (just returns rows). The parameter and function signature are noise.
+- **Status**: DEAD CODE (function is no-op)
 
-**Original assumption**: "Tiny content cells look bad, so hero can't be more than 45× the smallest cell"
+### 5. **Edge/Floating Decomposition Modes** (40+ lines in hero.ts, intersection.ts)
+- **What they do**: Propose edge/floating hero positions
+- **Why remove**: intersection.ts just logs "not implemented" and uses corner fallback. Never worked.
+- **Status**: DEAD CODE (never implemented)
 
-**What we know now**: With F-ratio scoring rewarding tier coherence, we *want* size variety. This constraint actively fights against the goal.
+### 6. **Duplicate Canvas AR Validation** (30+ lines)
+- **What it does**: region-search.ts validates canvas AR and sets softRejection. Then intersection.ts validates it AGAIN.
+- **Why remove**: One check is enough. Keep it in region-search (closer to the source).
+- **Status**: DUPLICATION
 
-**Proposed change**: Remove entirely or set to a very high value (e.g., 200)
-
----
-
-### 2. **row_maxHeightRatio (lines 285-347 in utils.ts)**
-
-**Original assumption**: "Rows that are too different in height look unbalanced"
-
-**What we know now**: Row height variation IS the variety we want. The F-ratio scores it. The `validateAndRedistribute` function actively MERGES rows that are "too different" - fighting against variety.
-
-**Proposed change**: Remove the merge logic entirely or set `row_maxHeightRatio` to a very high value (e.g., 10.0)
-
----
-
-### 3. **Stratified AR Distribution (lines 379-442 in utils.ts)**
-
-**Original assumption**: "Each region should have proportional representation of portrait/square/landscape"
-
-**What we know now**: This enforces sameness. If the hero is portrait, maybe ALL the landscape photos should go BESIDE it. The randomization should decide, not a stratification algorithm.
-
-**Proposed change**: Replace with simple slice: `beside = photos.slice(0, besideCount); below = photos.slice(besideCount);`
+### 7. **coefficientOfVariation for Uniformity Score** (used in intersection.ts:567)
+- **What it does**: Part of `scoreConfiguration` — rewards area uniformity
+- **Why remove**: We now have F-ratio scoring in region-search that REWARDS hierarchy. The intersection scoring still penalizes hierarchy via uniformity. These conflict!
+- **Status**: CONFLICTING GOALS
 
 ---
 
-### 4. **Early Exit in Region Search (lines 471-484 in region-search.ts)**
+## What We Keep (Sparks Joy)
 
-**Original assumption**: "8 candidates is enough for variety"
-
-**What we know now**: We're not exploring the full space. More candidates = more variety.
-
-**Proposed change**: Remove early exit entirely, or increase to 20+
-
----
-
-### 5. **Feasibility Pre-Checks (feasibility.ts)**
-
-**Original assumption**: "We can algebraically prune impossible configurations before packing"
-
-**What we know now**: These add complexity and may be over-pruning. With soft rejections, we can just TRY configurations and score them.
-
-**Proposed change**: Remove `canMeetProminenceConstraints` check in region-search.ts (lines 182-197). Let the scoring handle it.
+| Component | Purpose | Evidence |
+|-----------|---------|----------|
+| Canvas AR bounds (0.5-2.25) | Prevent absurd proportions | Users complained |
+| F-ratio tier coherence | Reward visual hierarchy | Recent addition, aligns with goals |
+| Per-row prominence check | Hero must be prominent in its row | Core visual requirement |
+| AR-budget row distribution | Creates organic row variety | Working well with 0.6 jitter |
+| Weighted random selection | Variety between shuffles | Core UX goal |
+| Soft rejections | Always generate something | Core UX goal |
 
 ---
 
-## The Simplification
+## Implementation Plan
 
-### Before (Current Flow)
-```text
-1. Calculate besideCount range (feasibility)  
-2. For each besideCount:
-   a. Stratified distribution to regions
-   b. Early prominence feasibility check ← REMOVES OPTIONS
-   c. Early canvas AR feasibility check ← REMOVES OPTIONS
-   d. Pack with row height redistribution ← HOMOGENIZES ROWS
-   e. Validate prominence / maxToSmallest ← REMOVES OPTIONS
-   f. Score with F-ratio
-3. Early exit after 8 candidates ← STOPS EXPLORING
-4. Weighted random select
-```
+### File: `src/lib/v3/utils.ts`
 
-### After (Simplified Flow)
-```text
-1. Calculate besideCount range (keep - geometry-based)
-2. For each besideCount:
-   a. Simple slice to regions (random order already shuffled)
-   b. Pack WITHOUT row merging
-   c. Score with F-ratio + soft rejections for AR bounds
-3. Collect ALL candidates (no early exit)
-4. Weighted random select
-```
+**Remove**:
+- `getEffectiveMinProminence` function (lines 18-26)
+- `getEffectiveMaxToSmallest` function (lines 28-41)
+- `getEffectiveCanvasMinAR` function (lines 43-55)
+- `getEffectiveCanvasMaxAR` function (lines 57-69)
+- `validateAndRedistribute` function (lines 286-293) — or just inline the no-op
+
+**Update** callers to use raw tuning values instead of "effective" wrappers.
+
+### File: `src/lib/v3/feasibility.ts`
+
+**Remove entire file** — it's all dead code after removing effective functions and the prominence pre-check.
+
+**Or if too aggressive**: Remove just `canMeetProminenceConstraints` (lines 27-94).
+
+### File: `src/lib/v3/types.ts`
+
+**Remove from V3Tuning**:
+- `hero_maxToSmallest` — disabled, remove entirely
+- `row_maxHeightRatio` — disabled, remove entirely
+- `hero_lowCountThreshold` — no longer needed without effective functions
+- `hero_lowCountMultiplier` — no longer needed without effective functions
+
+### File: `src/lib/v3/entities/hero.ts`
+
+**Remove**:
+- `validateSmallestCellRatio` function (lines 134-157) — disabled functionality
+- Edge/floating mode proposals (lines 58-79) — never implemented
+
+### File: `src/lib/v3/intersection.ts`
+
+**Remove**:
+- Second canvas AR validation (lines 286-314) — already done in region-search
+- `validateSmallestCellRatio` call and soft rejection (lines 358-396)
+- Edge/floating mode fallback log (lines 169-172)
+- Import of `getEffective*` functions
+
+**Simplify** `scoreConfiguration`:
+- Remove uniformity scoring (conflicts with F-ratio)
+- Just return `prominenceScore + randomTiebreaker`
+
+### File: `src/lib/v3/region-search.ts`
+
+**Remove**:
+- Imports of `getEffective*` functions
+- Replace calls with raw `tuning.*` values
+
+**Keep**:
+- Canvas AR validation (the ONE place we do it)
+- F-ratio scoring (the good stuff)
+- Weighted random selection
 
 ---
 
-## Test Matrix: Expected Behavior
+## Test Matrix
 
-| Hero AR | Photos | Before (Constrained) | After (Simple) |
-|---------|--------|---------------------|----------------|
-| 1.7 (landscape) | 46 | Row heights ±20%, sameness in BELOW | Row heights can vary 4:1, clear tiers |
-| 0.6 (portrait) | 46 | Stratified distribution splits shapes | Could get all landscape beside hero |
-| 1.0 (square) | 20 | maxToSmallest rejects high-variety configs | High variety configs pass, scored by F-ratio |
-| 1.7 | 8 (low count) | Low count multipliers engaged | Same (keep this accommodation) |
-| 0.8 | 30 | ~8 candidates explored | All candidates explored, more variety |
-
----
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `types.ts` | Set `hero_maxToSmallest: 200` (effectively disabled) |
-| `types.ts` | Set `row_maxHeightRatio: 10.0` (effectively disabled) |
-| `utils.ts` | Replace `stratifiedARDistribution` with simple slice |
-| `utils.ts` | Remove `validateAndRedistribute` logic (or make it no-op) |
-| `region-search.ts` | Remove early prominence feasibility check (lines 182-197) |
-| `region-search.ts` | Remove early exit after 8 candidates (lines 471-484) |
+| Scenario | Before | After |
+|----------|--------|-------|
+| 46 photos, landscape hero | Complex effective thresholds, duplicate validations | Simple thresholds, single validation |
+| 8 photos, portrait hero | lowCountMultiplier relaxes constraints | Same constraints as everyone (may see more soft rejections) |
+| 5 photos | Heavily relaxed thresholds | Normal thresholds (layout still generated via soft rejection) |
+| All landscape content | Stratified sampling tried to balance | Simple slice (already fixed) |
+| Edge mode proposal | Proposed but used corner fallback | Not proposed at all |
 
 ---
 
 ## Risk Assessment
 
-**Medium risk but controlled**: 
-- We're removing guardrails, but F-ratio scoring + canvas AR bounds remain as the "safety net"
-- Soft rejections mean we never fail completely
-- If layouts look chaotic, we can add specific constraints back one at a time
-
-**Key insight**: It's easier to add constraints to reign in chaos than to loosen constraints to create variety. We should start simple.
+**Medium risk, high reward**:
+- Removing ~200 lines of code
+- Simplifying mental model significantly
+- Some edge cases (low photo counts) may show more soft rejections in dev mode — but layouts still generate
+- If something breaks, we know exactly what we removed and can add it back
 
 ---
 
-## Implementation Order
+## Files Changed Summary
 
-1. Disable `hero_maxToSmallest` and `row_maxHeightRatio` (tuning only)
-2. Remove stratified distribution (use simple slice)
-3. Remove early feasibility pruning
-4. Remove early exit
-5. Test and observe
+| File | Lines Removed | Change Type |
+|------|---------------|-------------|
+| `utils.ts` | ~60 | Remove effective threshold functions |
+| `feasibility.ts` | ~70 OR entire file | Remove dead prominence pre-check |
+| `types.ts` | ~8 | Remove disabled tuning params |
+| `hero.ts` | ~40 | Remove edge/floating proposals, smallest ratio check |
+| `intersection.ts` | ~60 | Remove duplicate validation, simplify scoring |
+| `region-search.ts` | ~10 | Simplify threshold calls |
 
-Each step is reversible and can be tested independently.
-
+**Total**: ~250 lines removed, significant complexity reduction

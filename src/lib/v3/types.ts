@@ -44,6 +44,10 @@ export interface V3Tuning {
   // === Prominence Calculation ===
   /** Top fraction of content photos used for prominence comparison (0.25 = top 25%) */
   hero_prominenceTopFraction: number;
+  
+  // === Spread Constraint ===
+  /** Base spread limit (largest/smallest area) at 10 photos, scales with √(n/10) */
+  tier_baseSpreadLimit: number;
 }
 
 export const DEFAULT_V3_TUNING: V3Tuning = {
@@ -56,6 +60,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   canvas_maxAR: 2.25,
   row_arBudgetJitter: 0.6,
   hero_prominenceTopFraction: 0.25,
+  tier_baseSpreadLimit: 15,
 };
 
 // ============================================================================

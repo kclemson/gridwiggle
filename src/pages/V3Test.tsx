@@ -230,15 +230,17 @@ export default function V3Test() {
         throw new Error('Invalid format: expected { ar: number, isHero: boolean }[]');
       }
       
-      // Prompt for name
-      const name = window.prompt('Name this photo set:', `${parsed.length} photos`);
-      if (!name) return;
-      
-      const id = savePhotoSet(name, parsed);
-      setSavedSets(getSavedPhotoSets());
-      setPhotoSetMode(id);
-      
-      toast.success(`Imported "${name}" (${parsed.length} photos)`);
+    // Auto-generate name based on count and heroes
+    const heroCount = parsed.filter(p => p.isHero).length;
+    const name = heroCount > 0 
+      ? `${parsed.length} (${heroCount}H)` 
+      : `${parsed.length}`;
+    
+    const id = savePhotoSet(name, parsed);
+    setSavedSets(getSavedPhotoSets());
+    setPhotoSetMode(id);
+    
+    toast.success(`Imported "${name}"`);
     } catch (e) {
       toast.error('Failed to parse clipboard. Copy the JSON from the Export ARs button.');
       console.error('Import error:', e);

@@ -169,7 +169,7 @@ export function calculateBesideCountRange(
   const effectiveMinAR = getEffectiveCanvasMinAR(totalContentCount, tuning);
   const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
   
-  if (heroAR < 1.0 && totalContentCount > 10) {
+  if (totalContentCount > 10) {
     // Estimate: with 0 beside, how tall would canvas be?
     // belowHeight ≈ sqrt(totalContentCount × avgContentAR / heroAR)
     const estimatedBelowHeight = Math.sqrt(totalContentCount * avgContentAR / heroAR);

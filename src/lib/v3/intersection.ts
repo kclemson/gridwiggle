@@ -179,11 +179,6 @@ function evaluateNormalizedProposal(
   
   const regionAssignment = regionResult.assignment!;
   
-  // Carry forward soft rejection from region search (if any)
-  if (regionAssignment.softRejection) {
-    softRejection = regionAssignment.softRejection;
-  }
-  
   // Handle "no BESIDE" vs "with BESIDE" cases
   let besideResult: { cells: { photoId: string; x: number; y: number; width: number; height: number }[]; width: number; height: number };
   let heroRowWidth: number;

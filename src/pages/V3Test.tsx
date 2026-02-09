@@ -11,7 +11,15 @@ import { Button } from '@/components/ui/button';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
 import { CaptureControls, RejectionBadge } from '@/components/debug';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
-import { generatePhotoSet, TEST_PHOTO_COUNTS } from '@/test/layout/photoGenerator';
+import { 
+  generatePhotoSet, 
+  TEST_PHOTO_COUNTS,
+  getSavedPhotoSets,
+  savePhotoSet,
+  deletePhotoSet,
+  loadPhotoSetAsPhotos,
+  SavedPhotoSet,
+} from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV3 } from '@/lib/v3/index';
 import { getLastRejectedLayout, clearRejectedLayout } from '@/lib/v3/intersection';
 import { devLogger, LogEntry } from '@/lib/devLogger';
@@ -28,8 +36,17 @@ import {
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import type { RejectedLayout } from '@/lib/v3/types';
-import { Shuffle, Star, Image, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Shuffle, Star, Image, Eye, EyeOff, Loader2, ClipboardPaste, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 // Static settings matching production defaults
 const GAP_SIZE = 8;
@@ -194,17 +211,79 @@ export default function V3Test() {
   // Capture stats (refreshed on shuffle/export/reset)
   const [captureStats, setCaptureStats] = useState(() => getCaptureStats());
   
-  // Shuffle: generate new set, run layout, capture to storage
+  // Photo set mode: 'random' or a saved set ID
+  const [photoSetMode, setPhotoSetMode] = useState<'random' | string>('random');
+  const [savedSets, setSavedSets] = useState<SavedPhotoSet[]>(() => getSavedPhotoSets());
+  
+  // Import handler (parse from clipboard)
+  const handleImportPhotoSet = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text) as Array<{ ar: number; isHero: boolean }>;
+      
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('Invalid format');
+      }
+      
+      // Validate structure
+      if (!parsed.every(p => typeof p.ar === 'number' && typeof p.isHero === 'boolean')) {
+        throw new Error('Invalid format: expected { ar: number, isHero: boolean }[]');
+      }
+      
+      // Prompt for name
+      const name = window.prompt('Name this photo set:', `${parsed.length} photos`);
+      if (!name) return;
+      
+      const id = savePhotoSet(name, parsed);
+      setSavedSets(getSavedPhotoSets());
+      setPhotoSetMode(id);
+      
+      toast.success(`Imported "${name}" (${parsed.length} photos)`);
+    } catch (e) {
+      toast.error('Failed to parse clipboard. Copy the JSON from the Export ARs button.');
+      console.error('Import error:', e);
+    }
+  }, []);
+
+  // Delete handler
+  const handleDeleteSet = useCallback((id: string) => {
+    deletePhotoSet(id);
+    setSavedSets(getSavedPhotoSets());
+    if (photoSetMode === id) {
+      setPhotoSetMode('random');
+    }
+    toast.success('Photo set deleted');
+  }, [photoSetMode]);
+
+  // Shuffle: generate new set or use fixed set, run layout, capture to storage
   const handleShuffle = useCallback(() => {
-    const photoSet = generateRandomSet();
-    const result = generateLayoutResult(photoSet.photos);
+    let photos: SyntheticPhoto[];
+    let orientationBias = 0;
+    let seed = Date.now();
+    
+    if (photoSetMode === 'random') {
+      const result = generateRandomSet();
+      photos = result.photos;
+      orientationBias = result.orientationBias;
+      seed = result.seed;
+    } else {
+      const set = savedSets.find(s => s.id === photoSetMode);
+      if (!set) return;
+      photos = loadPhotoSetAsPhotos(set);  // Shuffled order, same ARs
+      // Calculate orientation bias from actual data
+      const landscapes = photos.filter(p => p.aspectRatio > 1).length;
+      orientationBias = (landscapes / photos.length) * 2 - 1;
+    }
+    
+    const photoSet = { photos, seed, orientationBias };
+    const result = generateLayoutResult(photos);
     
     setState({ photoSet, ...result });
     
     // Capture to localStorage
     saveCapture(buildCapture(photoSet, result));
     setCaptureStats(getCaptureStats());
-  }, []);
+  }, [photoSetMode, savedSets]);
   
   // Batch shuffle: run 25 iterations, capture all to storage
   const handleShuffle25 = useCallback(async () => {
@@ -214,8 +293,25 @@ export default function V3Test() {
     let lastState: TestState | null = null;
     
     for (let i = 0; i < BATCH_SIZE; i++) {
-      const photoSet = generateRandomSet();
-      const result = generateLayoutResult(photoSet.photos);
+      let photos: SyntheticPhoto[];
+      let orientationBias = 0;
+      let seed = Date.now();
+      
+      if (photoSetMode === 'random') {
+        const result = generateRandomSet();
+        photos = result.photos;
+        orientationBias = result.orientationBias;
+        seed = result.seed;
+      } else {
+        const set = savedSets.find(s => s.id === photoSetMode);
+        if (!set) break;
+        photos = loadPhotoSetAsPhotos(set);
+        const landscapes = photos.filter(p => p.aspectRatio > 1).length;
+        orientationBias = (landscapes / photos.length) * 2 - 1;
+      }
+      
+      const photoSet = { photos, seed, orientationBias };
+      const result = generateLayoutResult(photos);
       
       // Capture to localStorage
       saveCapture(buildCapture(photoSet, result));
@@ -237,7 +333,7 @@ export default function V3Test() {
     
     setBatchProgress(null);
     setCaptureStats(getCaptureStats());
-  }, []);
+  }, [photoSetMode, savedSets]);
   
   // Export pending captures
   const handleExport = useCallback(() => {
@@ -283,7 +379,46 @@ export default function V3Test() {
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h1 className="text-2xl font-bold">V3 Layout Test</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Photo Set Selector */}
+            <div className="flex items-center gap-1">
+              <Select value={photoSetMode} onValueChange={setPhotoSetMode}>
+                <SelectTrigger className="w-[160px] h-9">
+                  <SelectValue placeholder="Random Photos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="random">Random Photos</SelectItem>
+                  {savedSets.length > 0 && <SelectSeparator />}
+                  {savedSets.map(set => (
+                    <SelectItem key={set.id} value={set.id}>
+                      {set.name} ({set.photos.length})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Button 
+                onClick={handleImportPhotoSet} 
+                variant="outline" 
+                size="sm"
+                title="Import photo set from clipboard (paste JSON)"
+              >
+                <ClipboardPaste className="h-4 w-4" />
+              </Button>
+              
+              {photoSetMode !== 'random' && (
+                <Button 
+                  onClick={() => handleDeleteSet(photoSetMode)} 
+                  variant="ghost" 
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  title="Delete this photo set"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            
             <Button 
               onClick={() => setShowRejected(s => !s)}
               variant={showRejected && !layout && rejectedLayout ? "destructive" : showRejected ? "default" : "outline"}

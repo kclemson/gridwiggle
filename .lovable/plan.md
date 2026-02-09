@@ -1,90 +1,76 @@
 
 
-# Fix: V3Test Not Using Randomization
+# Auto-Name Photo Sets on Import
 
-## Problem Identified
+## Design Intent
 
-Two issues are causing the deterministic layouts:
+Remove the manual naming step when importing photo sets. Instead of prompting with `window.prompt()`, automatically generate a descriptive name based on the photo count and hero count.
 
-1. **V3Test calls `generateCollageLayoutV3`** (line 122) instead of the new V4 orchestrator
-2. **`randomize: true` is never passed** - the options object only includes `photoWeights`
+## User Outcomes
 
-Without `randomize: true`, the V4 algorithm is intentionally deterministic:
-- Content photos are sorted by AR (not shuffled)
-- Below row count uses full iteration (not random pick)
-- Corner is always `'top-left'` (not random)
-- Selection picks highest score (not weighted random)
+- **Faster workflow**: One less click/keystroke when importing
+- **Consistent naming**: All sets follow the same pattern
+- **Informative at a glance**: "46 (1H)" immediately tells you what's in the set
 
-This explains why the same heroAR always produces the same canvasAR - with fixed inputs and no randomization, the output is mathematically determined.
+## Naming Scheme
 
----
-
-## Solution
-
-Update `V3Test.tsx` to:
-1. Call V4 directly (via the exported function from `src/lib/v4/index.ts`)
-2. Pass `randomize: true` to enable variety
+| Photos | Heroes | Name |
+|--------|--------|------|
+| 46 | 1 | `46 (1H)` |
+| 54 | 2 | `54 (2H)` |
+| 20 | 0 | `20` |
 
 ---
 
-## Code Changes
+## Technical Changes
 
-### File: `src/pages/V3Test.tsx`
+**File: `src/pages/V3Test.tsx`**
 
-**Change 1: Import V4 instead of V3** (around line 23)
+Update the import handler to auto-generate the name:
 
 ```typescript
-// FROM:
-import { generateCollageLayoutV3 } from '@/lib/v3/index';
-
-// TO:
-import { generateCollageLayoutV4 } from '@/lib/v4/index';
-```
-
-**Change 2: Call V4 with randomize** (around line 122)
-
-```typescript
-// FROM:
-const layout = generateCollageLayoutV3(photoItems, settings, { photoWeights });
-
-// TO:
-const layout = generateCollageLayoutV4(photoItems, settings, { 
-  photoWeights, 
-  randomize: true,  // Enable variety on every shuffle
-});
+// Import handler (parse from clipboard)
+const handleImportPhotoSet = useCallback(async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    const parsed = JSON.parse(text) as Array<{ ar: number; isHero: boolean }>;
+    
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error('Invalid format');
+    }
+    
+    // Validate structure
+    if (!parsed.every(p => typeof p.ar === 'number' && typeof p.isHero === 'boolean')) {
+      throw new Error('Invalid format: expected { ar: number, isHero: boolean }[]');
+    }
+    
+    // Auto-generate name based on count and heroes
+    const heroCount = parsed.filter(p => p.isHero).length;
+    const name = heroCount > 0 
+      ? `${parsed.length} (${heroCount}H)` 
+      : `${parsed.length}`;
+    
+    const id = savePhotoSet(name, parsed);
+    setSavedSets(getSavedPhotoSets());
+    setPhotoSetMode(id);
+    
+    toast.success(`Imported "${name}"`);
+  } catch (e) {
+    toast.error('Failed to parse clipboard. Copy the JSON from the Export ARs button.');
+    console.error('Import error:', e);
+  }
+}, []);
 ```
 
 ---
 
-## Expected Behavior After Fix
+## Summary
 
 | Before | After |
 |--------|-------|
-| Same canvasAR for same heroAR | Different layouts each shuffle |
-| Only 2-3 canvas shapes | Full AR range (0.5 - 2.0) |
-| Always `top-left` corner | Random corner positions |
-| Deterministic selection | Weighted random selection |
+| `window.prompt('Name this photo set:', ...)` | Auto-generate `"46 (1H)"` |
+| User types name manually | One-click import |
+| Inconsistent naming | Standard format |
 
----
-
-## Test Matrix
-
-Running "Shuffle 25" on a fixed 46-photo set should now produce:
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Unique canvasAR values | ~2-3 | ~15-20 |
-| Corner variety | top-left only | All 4 corners |
-| besideCount variety | Fixed for each heroAR | Variable |
-| belowRowCount variety | Fixed | Variable |
-
----
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `src/pages/V3Test.tsx` | Import V4, pass `randomize: true` |
-
-**Total: ~3 lines changed**
+**Changes**: ~5 lines modified in `src/pages/V3Test.tsx`
 

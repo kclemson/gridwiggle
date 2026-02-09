@@ -292,7 +292,7 @@ export interface BelowRowCountResult {
   constraints: {
     maxRowsByMinAR: number;    // Prevents canvas too tall
     minRowsByMaxAR: number;    // Prevents canvas too wide  
-    // Note: minRowsByCellSize removed - hero_maxToSmallest validated post-pack in intersection.ts
+    minRowsByCellSize: number; // Prevents tiny cells
     targetWidth: number;       // The width being packed into
   };
 }
@@ -323,6 +323,7 @@ export function calculateBelowRowCount(
     constraints: {
       maxRowsByMinAR: 1,
       minRowsByMaxAR: 1,
+      minRowsByCellSize: 1,
       targetWidth,
     }
   };
@@ -339,12 +340,20 @@ export function calculateBelowRowCount(
   // === Constraint 2: Prevent too-wide (maxAR) ===
   const minRowsByMaxAR = Math.ceil(Math.sqrt(n * meanAR / tuning.canvas_maxAR));
   
-  // Note: minRowsByCellSize constraint removed - hero_maxToSmallest is validated
-  // post-pack in intersection.ts with actual cell sizes, not estimates.
-  // The pre-filter was too conservative (O(n²)) and dominated row selection for large sets.
+  // === Constraint 3: Prevent tiny cells (hero_maxToSmallest) ===
+  // Only applies when there's a hero
+  let minRowsByCellSize = 1;
+  if (heroAR > 0) {
+    // Conservative estimate: use 0.6x minAR to account for distribution variance
+    const effectiveMinAR = minAR * 0.6;
+    minRowsByCellSize = Math.ceil(
+      Math.sqrt(heroAR * n * n * meanAR * meanAR / 
+        (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))
+    );
+  }
   
   // === Combine constraints ===
-  const minRows = Math.max(1, minRowsByMaxAR);
+  const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
   const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
   
   // When randomizing, pick uniformly from valid range for variety
@@ -363,6 +372,7 @@ export function calculateBelowRowCount(
     constraints: {
       maxRowsByMinAR,
       minRowsByMaxAR,
+      minRowsByCellSize,
       targetWidth,
     }
   };

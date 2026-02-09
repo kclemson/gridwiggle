@@ -8,7 +8,7 @@
 import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution, tierCoherenceScore } from './utils';
+import { shuffleArray, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
 import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
@@ -158,18 +158,7 @@ export function findValidRegionAssignment(
     randomize,
   });
   
-  // Build array of besideCount values to try
-  const besideCountsToTry: number[] = [];
-  for (let bc = minBeside; bc <= maxBeside; bc++) {
-    besideCountsToTry.push(bc);
-  }
-  
-  // Shuffle if randomizing for variety - ensures diverse canvas AR in first 8 candidates
-  const orderedBesideCounts = randomize 
-    ? shuffleArray(besideCountsToTry) 
-    : besideCountsToTry;
-
-  for (const besideCount of orderedBesideCounts) {
+  for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
     // Distribute using AR-stratified sampling (proportional from each AR bucket)
     const [besidePhotos, belowPhotos] = stratifiedARDistribution(
       orderedPhotos,
@@ -319,18 +308,7 @@ export function findValidRegionAssignment(
     // Try different row counts for BESIDE
     const [minRows, maxRows] = calculateRowCountRange(besidePhotos, 1.0, normalizedGap);
     
-    // Build array of row counts to try
-    const besideRowCountsToTry: number[] = [];
-    for (let rc = minRows; rc <= maxRows; rc++) {
-      besideRowCountsToTry.push(rc);
-    }
-    
-    // Shuffle if randomizing for variety
-    const orderedBesideRowCounts = randomize 
-      ? shuffleArray(besideRowCountsToTry) 
-      : besideRowCountsToTry;
-
-    for (const besideRowCount of orderedBesideRowCounts) {
+    for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
       // Pack BESIDE at height = 1
       const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount, tuning, randomize);
       
@@ -339,8 +317,14 @@ export function findValidRegionAssignment(
       // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
-      // Note: "too wide" pre-check removed — it was too conservative (ignored BELOW height)
-      // Actual canvas AR is validated after packing (lines 372-422) with full height
+      // Canvas AR validation (post-pack check, no logging — outer loop already filtered)
+      const minCanvasHeight = 1.0 + 2 * normalizedGap;
+      const canvasWidth = heroRowWidth + 2 * normalizedGap;
+      const bestCaseAR = canvasWidth / minCanvasHeight;
+      
+      if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
+        continue; // Skip — canvas too wide
+      }
       
       // Calculate optimal row count for BELOW (respecting both min and max AR)
       const belowRowResult = calculateBelowRowCount(
@@ -433,14 +417,26 @@ export function findValidRegionAssignment(
         threshold: effectiveMinProminence,
       });
       
-      // Soft rejection: track low prominence but don't skip - let scoring handle it
       if (prominenceRatio < effectiveMinProminence) {
-        devLogger.log('region', 'Low prominence (soft rejection)', {
+        // Capture rejected pack for visualization
+        lastRejectedPack = {
+          cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
+          canvasWidth: normalizedWidthWithBorder,
+          canvasHeight: normalizedHeightWithBorder,
+          reason: 'prominence_too_low',
+          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: effectiveMinProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
+        };
+        devLogger.warn('region-reject', 'Prominence too low (per-row)', {
           besideCount,
           besideRowCount,
           prominenceRatio: prominenceRatio.toFixed(2),
           required: effectiveMinProminence,
+        }, {
+          cells: lastRejectedPack.cells,
+          canvasWidth: lastRejectedPack.canvasWidth,
+          canvasHeight: lastRejectedPack.canvasHeight,
         });
+        continue;
       }
       
       // Score this assignment
@@ -600,7 +596,63 @@ function buildRejectedCells(
   return cells;
 }
 
-// tierCoherenceScore moved to utils.ts for shared use
+// ============================================================================
+// Tier Coherence Scoring (F-ratio)
+// ============================================================================
+
+/**
+ * Calculate tier coherence (F-ratio) for cell areas.
+ * Measures how well areas cluster into distinct size tiers.
+ * 
+ * High F = clear hierarchy (good for hero layouts)
+ * Low F = too uniform OR too chaotic
+ * 
+ * This replaces uniformity + parity scoring with a single metric that
+ * REWARDS hierarchy rather than penalizing it.
+ */
+function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
+  if (areas.length < tierCount * 2) {
+    // Not enough cells for meaningful tiers - neutral score
+    return 0.5;
+  }
+  
+  const sorted = [...areas].sort((a, b) => b - a);
+  const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  
+  // Split into equal-sized tiers
+  const tierSize = Math.ceil(sorted.length / tierCount);
+  const tiers: number[][] = [];
+  for (let i = 0; i < tierCount; i++) {
+    tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+  }
+  
+  // Calculate tier means
+  const tierMeans = tiers.map(tier => 
+    tier.reduce((a, b) => a + b, 0) / tier.length
+  );
+  
+  // Between-tier variance: how spread apart are the tier means?
+  const betweenVar = tierMeans.reduce((sum, mean) => 
+    sum + Math.pow(mean - grandMean, 2), 0
+  ) / tierCount;
+  
+  // Within-tier variance: how scattered within each tier?
+  let withinVarSum = 0;
+  for (let i = 0; i < tierCount; i++) {
+    const tierMean = tierMeans[i];
+    const tierVar = tiers[i].reduce((sum, area) => 
+      sum + Math.pow(area - tierMean, 2), 0
+    ) / tiers[i].length;
+    withinVarSum += tierVar;
+  }
+  const withinVar = withinVarSum / tierCount;
+  
+  // F-ratio (protect against division by zero)
+  const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
+  
+  // Normalize: F of 5+ → score 1.0
+  return Math.min(1.0, fRatio / 5);
+}
 
 // ============================================================================
 // Region Assignment Scoring

@@ -18,16 +18,15 @@ describe('calculateBesideCountRange', () => {
       const result = calculateBesideCountRange(0.6, 45, 1.0, normalizedGap, tuning);
       // Portrait heroes with many photos may require minBeside to meet canvas_minAR
       expect(result.maxBeside).toBeGreaterThanOrEqual(10);
-      // No longer capped at 15 - geometry determines limit
-      expect(result.maxBeside).toBeLessThanOrEqual(45);
+      expect(result.maxBeside).toBeLessThanOrEqual(15);
       // minBeside can be >0 for portrait heroes to prevent too-narrow canvas
       expect(result.minBeside).toBeGreaterThanOrEqual(0);
     });
 
-    it('heroAR=0.6, 25 photos, balanced content: geometry-limited', () => {
+    it('heroAR=0.6, 25 photos, balanced content: allows up to loop limit', () => {
       const result = calculateBesideCountRange(0.6, 24, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(8);
-      expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15); // Can hit loop limit
     });
 
     it('heroAR=0.6, 10 photos, balanced content: maxBeside 5-6', () => {
@@ -38,31 +37,31 @@ describe('calculateBesideCountRange', () => {
   });
 
   describe('Square heroes (AR ~1.0) - should allow more beside than before', () => {
-    it('heroAR=1.0, 46 photos: geometry-limited maxBeside', () => {
+    it('heroAR=1.0, 46 photos: maxBeside 10-14', () => {
       const result = calculateBesideCountRange(1.0, 45, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(8);
-      expect(result.maxBeside).toBeLessThanOrEqual(45); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15);
     });
 
-    it('heroAR=1.0, 25 photos: geometry-limited', () => {
+    it('heroAR=1.0, 25 photos: allows up to loop limit', () => {
       const result = calculateBesideCountRange(1.0, 24, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(6);
-      expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15); // Can hit loop limit
     });
   });
 
   describe('Landscape heroes (AR 1.5) - key fix target', () => {
-    it('heroAR=1.5, 46 photos: geometry-limited maxBeside (was capped at 15)', () => {
+    it('heroAR=1.5, 46 photos: maxBeside 12-15 (was 4-5)', () => {
       const result = calculateBesideCountRange(1.5, 45, 1.0, normalizedGap, tuning);
       // The fix should allow significantly more beside photos
       expect(result.maxBeside).toBeGreaterThanOrEqual(10);
-      expect(result.maxBeside).toBeLessThanOrEqual(45); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15);
     });
 
-    it('heroAR=1.5, 25 photos: geometry-limited (was 3-4)', () => {
+    it('heroAR=1.5, 25 photos: maxBeside 8-12 (was 3-4)', () => {
       const result = calculateBesideCountRange(1.5, 24, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(8);
-      expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15);
     });
 
     it('heroAR=1.5, 10 photos: maxBeside 5-7 (was 2-3)', () => {
@@ -73,16 +72,16 @@ describe('calculateBesideCountRange', () => {
   });
 
   describe('Wide heroes (AR 2.5) - biggest improvement expected', () => {
-    it('heroAR=2.5, 46 photos: geometry-limited (was capped at 15)', () => {
+    it('heroAR=2.5, 46 photos: maxBeside 15+ (was 2-4)', () => {
       const result = calculateBesideCountRange(2.5, 45, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(12);
-      expect(result.maxBeside).toBeLessThanOrEqual(45); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15); // Capped at loop limit
     });
 
-    it('heroAR=2.5, 25 photos: geometry-limited (was 1-3)', () => {
+    it('heroAR=2.5, 25 photos: maxBeside 10-15 (was 1-3)', () => {
       const result = calculateBesideCountRange(2.5, 24, 1.0, normalizedGap, tuning);
       expect(result.maxBeside).toBeGreaterThanOrEqual(8);
-      expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15);
     });
 
     it('heroAR=2.5, 10 photos: maxBeside 4+ (was 1-2)', () => {
@@ -95,30 +94,30 @@ describe('calculateBesideCountRange', () => {
 
   describe('Content AR sensitivity', () => {
     describe('Portrait-heavy content (avg AR ~0.7)', () => {
-      it('heroAR=1.5, 46 photos, portrait content: geometry-limited', () => {
+      it('heroAR=1.5, 46 photos, portrait content: maxBeside 8-10', () => {
         const result = calculateBesideCountRange(1.5, 45, 0.7, normalizedGap, tuning);
         expect(result.maxBeside).toBeGreaterThanOrEqual(8);
-        expect(result.maxBeside).toBeLessThanOrEqual(45); // Geometry determines limit
+        expect(result.maxBeside).toBeLessThanOrEqual(15);
       });
 
-      it('heroAR=2.5, 25 photos, portrait content: geometry-limited', () => {
+      it('heroAR=2.5, 25 photos, portrait content: maxBeside 4-6', () => {
         const result = calculateBesideCountRange(2.5, 24, 0.7, normalizedGap, tuning);
         expect(result.maxBeside).toBeGreaterThanOrEqual(4);
-        expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+        expect(result.maxBeside).toBeLessThanOrEqual(15);
       });
     });
 
     describe('Landscape-heavy content (avg AR ~1.4)', () => {
-      it('heroAR=0.6, 25 photos, landscape content: geometry-limited', () => {
+      it('heroAR=0.6, 25 photos, landscape content: maxBeside 6-8 (no change)', () => {
         const result = calculateBesideCountRange(0.6, 24, 1.4, normalizedGap, tuning);
         expect(result.maxBeside).toBeGreaterThanOrEqual(6);
-        expect(result.maxBeside).toBeLessThanOrEqual(24); // Geometry determines limit
+        expect(result.maxBeside).toBeLessThanOrEqual(15);
       });
 
-      it('heroAR=1.5, 46 photos, landscape content: geometry-limited', () => {
+      it('heroAR=1.5, 46 photos, landscape content: maxBeside 12-15', () => {
         const result = calculateBesideCountRange(1.5, 45, 1.4, normalizedGap, tuning);
         expect(result.maxBeside).toBeGreaterThanOrEqual(10);
-        expect(result.maxBeside).toBeLessThanOrEqual(45); // Geometry determines limit
+        expect(result.maxBeside).toBeLessThanOrEqual(15);
       });
     });
   });
@@ -148,9 +147,9 @@ describe('calculateBesideCountRange', () => {
       expect(result.maxBeside).toBeGreaterThanOrEqual(10);
     });
 
-    it('Extreme landscape (AR=3.5), many photos: geometry-limited', () => {
+    it('Extreme landscape (AR=3.5), many photos: respects loop limit', () => {
       const result = calculateBesideCountRange(3.5, 50, 1.0, normalizedGap, tuning);
-      expect(result.maxBeside).toBeLessThanOrEqual(50); // Geometry determines limit
+      expect(result.maxBeside).toBeLessThanOrEqual(15); // Loop limit
       expect(result.maxBeside).toBeGreaterThanOrEqual(10);
     });
   });

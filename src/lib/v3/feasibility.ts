@@ -62,7 +62,7 @@ export function canMeetProminenceConstraints(
   );
   
   // Physical limits
-  const maxPhysicalRows = Math.min(besideCount, 10); // Allow more rows for large sets
+  const maxPhysicalRows = Math.min(besideCount, 6); // Reasonable cap
   
   // Intersect ranges: [minRowsForProminence, maxRowsForSmallest] ∩ [1, maxPhysicalRows]
   const minRows = Math.max(1, minRowsForProminence);
@@ -120,7 +120,7 @@ export function canBesideCountMeetCanvasAR(
   
   // Calculate hero row width (minimum besideWidth at max row count)
   const sumBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0);
-  const maxRows = Math.min(besidePhotos.length, 10);
+  const maxRows = Math.min(besidePhotos.length, 4);
   const minBesideWidth = sumBesideAR / maxRows;
   const minHeroRowWidth = heroAR + normalizedGap + minBesideWidth;
   const canvasWidth = minHeroRowWidth + 2 * normalizedGap;
@@ -131,11 +131,44 @@ export function canBesideCountMeetCanvasAR(
   const requiredTotalHeight = canvasWidth / tuning.canvas_maxAR;
   const requiredBelowHeight = Math.max(0, requiredTotalHeight - heroRowHeightWithGaps);
   
-  // Always return feasible - let region-search.ts validate canvas AR
-  // with full knowledge of BELOW height (accurate vs. this estimate).
-  // The previous check here ignored BELOW height entirely, causing it to
-  // reject valid landscape configurations for large photo sets.
-  return { feasible: true, minHeroRowWidth };
+  // Estimate achievable BELOW height from remaining photos
+  const belowCount = totalContentCount - besidePhotos.length;
+  if (belowCount > 0 && requiredBelowHeight > 0) {
+    // Geometric estimate: height ≈ √(n × avgAR / width)
+    // This is conservative (underestimates) as it assumes optimal packing
+    const estimatedBelowHeight = Math.sqrt(belowCount * avgContentAR / minHeroRowWidth);
+    
+    // Feasible if we can achieve ≥80% of required height (conservative margin)
+    const feasible = estimatedBelowHeight >= requiredBelowHeight * 0.8;
+    
+    if (!feasible) {
+      devLogger.log('feasibility', 'Canvas AR infeasible (BELOW too short)', {
+        besideCount: besidePhotos.length,
+        belowCount,
+        requiredBelowHeight: requiredBelowHeight.toFixed(2),
+        estimatedBelowHeight: estimatedBelowHeight.toFixed(2),
+      });
+    }
+    
+    return { feasible, minHeroRowWidth };
+  }
+  
+  // No BELOW photos or no height needed → use original check
+  // Use effective canvas AR bounds (relaxed for low photo counts)
+  const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
+  const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
+  const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
+  
+  if (!feasible) {
+    devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
+      besideCount: besidePhotos.length,
+      minHeroRowWidth: minHeroRowWidth.toFixed(2),
+      bestCaseAR: bestCaseAR.toFixed(2),
+      maxAR: effectiveMaxAR,
+    });
+  }
+  
+  return { feasible, minHeroRowWidth };
 }
 
 /**
@@ -169,7 +202,7 @@ export function calculateBesideCountRange(
   const effectiveMinAR = getEffectiveCanvasMinAR(totalContentCount, tuning);
   const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
   
-  if (totalContentCount > 10) {
+  if (heroAR < 1.0 && totalContentCount > 10) {
     // Estimate: with 0 beside, how tall would canvas be?
     // belowHeight ≈ sqrt(totalContentCount × avgContentAR / heroAR)
     const estimatedBelowHeight = Math.sqrt(totalContentCount * avgContentAR / heroAR);
@@ -197,7 +230,7 @@ export function calculateBesideCountRange(
   // Iterate to find where width limit kicks in
   
   let maxBesideByWidth = 0;
-  const maxTestBeside = totalContentCount; // Let geometry determine the limit
+  const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
   
   for (let testBeside = 0; testBeside <= maxTestBeside; testBeside++) {
     const testBelowCount = totalContentCount - testBeside;

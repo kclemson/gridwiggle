@@ -279,7 +279,8 @@ export function calculateRowCountRange(
  * Enforces:
  * - canvas_minAR (prevents too-tall canvas)
  * - canvas_maxAR (prevents too-wide canvas)  
- * - hero_maxToSmallest (prevents tiny content cells)
+ * 
+ * SIMPLIFIED: Removed hero_maxToSmallest constraint (let F-ratio scoring handle variety)
  */
 /**
  * Result of calculateBelowRowCount containing value and valid range.
@@ -292,7 +293,6 @@ export interface BelowRowCountResult {
   constraints: {
     maxRowsByMinAR: number;    // Prevents canvas too tall
     minRowsByMaxAR: number;    // Prevents canvas too wide  
-    minRowsByCellSize: number; // Prevents tiny cells
     targetWidth: number;       // The width being packed into
   };
 }
@@ -302,7 +302,6 @@ export interface BelowRowCountResult {
  * Enforces:
  * - canvas_minAR (prevents too-tall canvas)
  * - canvas_maxAR (prevents too-wide canvas)  
- * - hero_maxToSmallest (prevents tiny content cells)
  * 
  * @param randomize - When true, picks randomly within valid range for variety
  * @returns Object with selected value and valid range (minRows, maxRows)
@@ -323,7 +322,6 @@ export function calculateBelowRowCount(
     constraints: {
       maxRowsByMinAR: 1,
       minRowsByMaxAR: 1,
-      minRowsByCellSize: 1,
       targetWidth,
     }
   };
@@ -340,20 +338,9 @@ export function calculateBelowRowCount(
   // === Constraint 2: Prevent too-wide (maxAR) ===
   const minRowsByMaxAR = Math.ceil(Math.sqrt(n * meanAR / tuning.canvas_maxAR));
   
-  // === Constraint 3: Prevent tiny cells (hero_maxToSmallest) ===
-  // Only applies when there's a hero
-  let minRowsByCellSize = 1;
-  if (heroAR > 0) {
-    // Conservative estimate: use 0.6x minAR to account for distribution variance
-    const effectiveMinAR = minAR * 0.6;
-    minRowsByCellSize = Math.ceil(
-      Math.sqrt(heroAR * n * n * meanAR * meanAR / 
-        (effectiveMinAR * targetWidth * targetWidth * tuning.hero_maxToSmallest))
-    );
-  }
-  
   // === Combine constraints ===
-  const minRows = Math.max(1, minRowsByMaxAR, minRowsByCellSize);
+  // SIMPLIFIED: Removed hero_maxToSmallest constraint (let F-ratio scoring handle variety)
+  const minRows = Math.max(1, minRowsByMaxAR);
   const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
   
   // When randomizing, pick uniformly from valid range for variety
@@ -372,7 +359,6 @@ export function calculateBelowRowCount(
     constraints: {
       maxRowsByMinAR,
       minRowsByMaxAR,
-      minRowsByCellSize,
       targetWidth,
     }
   };

@@ -11,12 +11,12 @@
 
 /**
  * Minimal tuning parameters for V3 layout.
- * 6 parameters that each serve a clear purpose.
+ * Simplified: removed disabled/dead parameters.
  * All constraints are scale-invariant (ratios, not pixels).
  */
 export interface V3Tuning {
   // === Hero Prominence ===
-  /** Floor: reject layouts where hero/runnerUp ratio is below this (1.3) */
+  /** Floor: reject layouts where hero/runnerUp ratio is below this (0.70) */
   hero_minProminence: number;
   /** Target for hero sizing math - hero area = contentArea * this (1.5) */
   hero_targetProminence: number;
@@ -34,24 +34,12 @@ export interface V3Tuning {
   // === Canvas Proportion Limits ===
   /** Minimum canvas aspect ratio (most portrait allowed), e.g. 0.5 = 1:2 */
   canvas_minAR: number;
-  /** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.0 = 2:1 */
+  /** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.25 = 9:4 */
   canvas_maxAR: number;
   
   // === Row Distribution ===
-  /** AR budget jitter for organic variation (0.2 = +/- 20%) */
+  /** AR budget jitter for organic variation (0.6 = +/- 60%) */
   row_arBudgetJitter: number;
-  /** Max row height relative to average (1.8 = 180% of avg height) */
-  row_maxHeightRatio: number;
-  
-  // === Hero-to-Smallest Constraint ===
-  /** Max hero area relative to avg of smallest content photos (45 = hero ≤ 45× smallest) */
-  hero_maxToSmallest: number;
-  
-  // === Low Photo Count Accommodation ===
-  /** Content photo threshold for reduced prominence (6 = apply to ≤5 content photos) */
-  hero_lowCountThreshold: number;
-  /** Multiplier applied to hero_minProminence for low counts (0.85 = 1.3 → 1.1) */
-  hero_lowCountMultiplier: number;
   
   // === Prominence Calculation ===
   /** Top fraction of content photos used for prominence comparison (0.25 = top 25%) */
@@ -67,10 +55,6 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   canvas_minAR: 0.5,
   canvas_maxAR: 2.25,
   row_arBudgetJitter: 0.6,
-  row_maxHeightRatio: 10.0,  // Effectively disabled - let F-ratio scoring handle variety
-  hero_maxToSmallest: 200,   // Effectively disabled - let F-ratio scoring handle variety
-  hero_lowCountThreshold: 8,
-  hero_lowCountMultiplier: 0.85,
   hero_prominenceTopFraction: 0.25,
 };
 
@@ -112,6 +96,7 @@ export interface LayoutCell extends RegionSpec {
 
 /**
  * Decomposition mode - how the hero carves the canvas.
+ * Note: Only 'corner' is currently implemented.
  */
 export type DecompositionMode = 'corner' | 'edge' | 'floating';
 
@@ -216,7 +201,6 @@ export interface NormalizedHeroProposal {
 /**
  * Result of region assignment search.
  * Currently supports 2 regions (beside/below) for corner mode.
- * Will extend to 3 regions (above/beside/below) for edge mode.
  */
 export interface RegionAssignment {
   besidePhotos: PhotoDimension[];

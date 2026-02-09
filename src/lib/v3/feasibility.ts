@@ -230,7 +230,7 @@ export function calculateBesideCountRange(
   // Iterate to find where width limit kicks in
   
   let maxBesideByWidth = 0;
-  const maxTestBeside = Math.min(totalContentCount, 15); // Reasonable search limit
+  const maxTestBeside = totalContentCount; // Let geometry determine the limit
   
   for (let testBeside = 0; testBeside <= maxTestBeside; testBeside++) {
     const testBelowCount = totalContentCount - testBeside;

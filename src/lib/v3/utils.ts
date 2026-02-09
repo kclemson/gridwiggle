@@ -2,71 +2,10 @@
  * V3 Layout Utilities
  * 
  * Shared math functions for the V3 layout engine.
- * Reuses proven logic from v2 where applicable.
+ * SIMPLIFIED: Removed effective threshold functions and row merging.
  */
 
 import { PhotoDimension, ContentStats, V3Tuning } from './types';
-
-// ============================================================================
-// Prominence Helper
-// ============================================================================
-
-/**
- * Calculate effective minimum prominence based on content count.
- * Returns reduced threshold for low photo counts to improve success rate.
- */
-export function getEffectiveMinProminence(
-  contentCount: number,
-  tuning: V3Tuning
-): number {
-  if (contentCount < tuning.hero_lowCountThreshold) {
-    return tuning.hero_minProminence * tuning.hero_lowCountMultiplier;
-  }
-  return tuning.hero_minProminence;
-}
-
-/**
- * Calculate effective hero_maxToSmallest based on content count.
- * Returns HIGHER threshold (more permissive) for low photo counts.
- */
-export function getEffectiveMaxToSmallest(
-  contentCount: number,
-  tuning: V3Tuning
-): number {
-  if (contentCount < tuning.hero_lowCountThreshold) {
-    // Divide by multiplier to RAISE the limit (more permissive)
-    return tuning.hero_maxToSmallest / tuning.hero_lowCountMultiplier;
-  }
-  return tuning.hero_maxToSmallest;
-}
-
-/**
- * Calculate effective canvas_minAR based on content count.
- * Returns LOWER threshold (more permissive) for low photo counts.
- */
-export function getEffectiveCanvasMinAR(
-  contentCount: number,
-  tuning: V3Tuning
-): number {
-  if (contentCount < tuning.hero_lowCountThreshold) {
-    return tuning.canvas_minAR * tuning.hero_lowCountMultiplier;
-  }
-  return tuning.canvas_minAR;
-}
-
-/**
- * Calculate effective canvas_maxAR based on content count.
- * Returns HIGHER threshold (more permissive) for low photo counts.
- */
-export function getEffectiveCanvasMaxAR(
-  contentCount: number,
-  tuning: V3Tuning
-): number {
-  if (contentCount < tuning.hero_lowCountThreshold) {
-    return tuning.canvas_maxAR / tuning.hero_lowCountMultiplier;
-  }
-  return tuning.canvas_maxAR;
-}
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================
@@ -206,12 +145,12 @@ export function shuffleArray<T>(array: T[]): T[] {
  * The algorithm:
  * 1. Calculate totalAR and baseRowAR = totalAR / targetRowCount
  * 2. Greedy pack: walk photos, accumulate AR, start new row when jittered budget reached
- * 3. Validate: check each row's AR isn't too low (would create tall row)
- * 4. Redistribute if needed: merge tiny rows or steal from large adjacent rows
+ * 3. Return rows as-is (no merging - let F-ratio scoring handle variety)
  * 
  * @param photos - Photos to distribute (should be pre-shuffled)
  * @param targetRowCount - Target number of rows
- * @param tuning - V3Tuning for jitter and height ratio params
+ * @param tuning - V3Tuning for jitter param
+ * @param randomize - Whether to apply jitter
  * @returns Array of rows (each row is array of photos)
  */
 export function distributeByARBudget(
@@ -227,13 +166,11 @@ export function distributeByARBudget(
   if (n === 1) return [[photos[0]]];
   if (targetRowCount <= 1) return [photos];
   
-  const { row_arBudgetJitter: jitter, row_maxHeightRatio: maxHeightRatio } = tuning;
+  const { row_arBudgetJitter: jitter } = tuning;
   
   // Step 1: Calculate AR budget per row
   const totalAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0);
   const baseRowAR = totalAR / targetRowCount;
-  
-  // Log removed: Starting AR-budget distribution - input params visible in region-level logs
   
   // Step 2: Greedy pack with jitter
   const rows: PhotoDimension[][] = [];
@@ -266,28 +203,7 @@ export function distributeByARBudget(
     rows.push(currentRow);
   }
   
-  // Log removed: After greedy packing - intermediate state, covered by final
-  
-  // Step 3: Validate row heights and redistribute if needed
-  const validatedRows = validateAndRedistribute(rows, maxHeightRatio);
-  
-  // Log removed: Final distribution - not needed for failure debugging
-  
-  return validatedRows;
-}
-
-/**
- * Validate row heights - SIMPLIFIED.
- * 
- * Previously merged rows that were "too different" in height.
- * Now just returns rows as-is - let F-ratio scoring handle variety.
- * Keeping function signature for backwards compatibility.
- */
-function validateAndRedistribute(
-  rows: PhotoDimension[][],
-  _maxHeightRatio: number
-): PhotoDimension[][] {
-  // Simplified: just return rows as-is, no merging
+  // SIMPLIFIED: No row validation/merging
   // F-ratio scoring will reward good tier separation
   return rows;
 }

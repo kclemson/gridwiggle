@@ -78,47 +78,13 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
             />
             <TuningInput
               label="Min Prominence"
-              tooltip="Floor for layout rejection - reject if hero isn't this prominent (1.3 = 30% larger)"
+              tooltip="Floor for layout rejection - reject if hero isn't this prominent (0.7 = hero 70% of top content)"
               value={tuning.hero_minProminence}
               onChange={(v) => onTuningChange('hero_minProminence', v)}
-              step={0.1}
-              min={1.0}
+              step={0.05}
+              min={0.3}
               max={2.0}
               defaultValue={DEFAULT_V3_TUNING.hero_minProminence}
-            />
-            <TuningInput
-              label="Max Hero/Smallest"
-              tooltip="Hero can't be more than Nx the size of the smallest photos (15 = hero ≤ 15× smallest)"
-              value={tuning.hero_maxToSmallest}
-              onChange={(v) => onTuningChange('hero_maxToSmallest', v)}
-              step={1}
-              min={8}
-              max={30}
-              defaultValue={DEFAULT_V3_TUNING.hero_maxToSmallest}
-            />
-          </div>
-          
-          {/* Row: Low count accommodation */}
-          <div className="grid grid-cols-2 gap-2">
-            <TuningInput
-              label="Low Count Threshold"
-              tooltip="Use reduced prominence for content counts below this (6 = ≤5 photos)"
-              value={tuning.hero_lowCountThreshold}
-              onChange={(v) => onTuningChange('hero_lowCountThreshold', v)}
-              step={1}
-              min={3}
-              max={10}
-              defaultValue={DEFAULT_V3_TUNING.hero_lowCountThreshold}
-            />
-            <TuningInput
-              label="Low Count Multiplier"
-              tooltip="Multiplier for minProminence at low counts (0.85 = 1.3 → 1.1)"
-              value={tuning.hero_lowCountMultiplier}
-              onChange={(v) => onTuningChange('hero_lowCountMultiplier', v)}
-              step={0.05}
-              min={0.5}
-              max={1.0}
-              defaultValue={DEFAULT_V3_TUNING.hero_lowCountMultiplier}
             />
           </div>
           
@@ -126,7 +92,7 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
           <div className="grid grid-cols-2 gap-2">
             <TuningInput
               label="Min Canvas AR"
-              tooltip="Most portrait canvas allowed (0.67 = 2:3 portrait)"
+              tooltip="Most portrait canvas allowed (0.5 = 1:2 portrait)"
               value={tuning.canvas_minAR}
               onChange={(v) => onTuningChange('canvas_minAR', v)}
               step={0.05}
@@ -136,7 +102,7 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
             />
             <TuningInput
               label="Max Canvas AR"
-              tooltip="Most landscape canvas allowed (2.0 = 2:1 landscape)"
+              tooltip="Most landscape canvas allowed (2.25 = 9:4 landscape)"
               value={tuning.canvas_maxAR}
               onChange={(v) => onTuningChange('canvas_maxAR', v)}
               step={0.1}
@@ -150,23 +116,23 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
           <div className="grid grid-cols-2 gap-2">
             <TuningInput
               label="Row Jitter"
-              tooltip="AR budget jitter for organic variation (0.2 = ±20%)"
+              tooltip="AR budget jitter for organic variation (0.6 = ±60%)"
               value={tuning.row_arBudgetJitter}
               onChange={(v) => onTuningChange('row_arBudgetJitter', v)}
-              step={0.05}
+              step={0.1}
               min={0}
-              max={0.5}
+              max={1.0}
               defaultValue={DEFAULT_V3_TUNING.row_arBudgetJitter}
             />
             <TuningInput
-              label="Max Height Ratio"
-              tooltip="Max row height relative to average (1.8 = 180% of avg height)"
-              value={tuning.row_maxHeightRatio}
-              onChange={(v) => onTuningChange('row_maxHeightRatio', v)}
-              step={0.1}
-              min={1.2}
-              max={3.0}
-              defaultValue={DEFAULT_V3_TUNING.row_maxHeightRatio}
+              label="Prominence Top %"
+              tooltip="Fraction of top content photos used for prominence comparison (0.25 = top 25%)"
+              value={tuning.hero_prominenceTopFraction}
+              onChange={(v) => onTuningChange('hero_prominenceTopFraction', v)}
+              step={0.05}
+              min={0.1}
+              max={0.5}
+              defaultValue={DEFAULT_V3_TUNING.hero_prominenceTopFraction}
             />
           </div>
           

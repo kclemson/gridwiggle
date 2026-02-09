@@ -5,15 +5,16 @@
  * Hero sizing is derived from its AR - NO pixel width constraints.
  * 
  * In normalized space: hero height = 1, hero width = heroAR
+ * 
+ * SIMPLIFIED: Removed edge/floating proposals (never implemented),
+ * removed validateSmallestCellRatio (disabled via tuning).
  */
 
 import { 
   PhotoDimension,
   ContentStats, 
   NormalizedHeroProposal, 
-  NormalizedRegion,
-  V3Tuning,
-  DecompositionMode
+  V3Tuning
 } from '../types';
 
 // ============================================================================
@@ -28,15 +29,13 @@ import {
  * - Hero width = heroAR
  * - All other dimensions are relative to hero height
  * 
- * Position proposals are based on decomposition mode thresholds:
- * - Corner: Always available (2 regions)
- * - Edge: Requires decomp_edgeMinPhotos (3 regions)
- * - Floating: Requires decomp_floatingMinPhotos (4 regions)
+ * Currently only corner mode is implemented.
+ * Edge/floating modes are preserved in tuning for future use.
  */
 export function proposePositions(
   heroPhoto: PhotoDimension,
-  contentStats: ContentStats,
-  tuning: V3Tuning
+  _contentStats: ContentStats,
+  _tuning: V3Tuning
 ): NormalizedHeroProposal[] {
   const heroWidth = heroPhoto.aspectRatio;  // Width when height = 1
   const heroHeight = 1.0;
@@ -44,39 +43,18 @@ export function proposePositions(
   const proposals: NormalizedHeroProposal[] = [];
   
   // Corner placement: Always available
-  // All 4 corner positions (top-left, top-right, bottom-left, bottom-right) are symmetric -
-  // they produce identical region assignments, packing, and scores. Only the final 
-  // coordinate mapping differs. We evaluate ONE canonical corner, then apply random
-  // position selection after validation for variety.
+  // All 4 corner positions are symmetric - they produce identical region 
+  // assignments, packing, and scores. Only the final coordinate mapping differs.
+  // We evaluate ONE canonical corner, then apply random position selection 
+  // after validation for variety.
   proposals.push({
     rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
     mode: 'corner',
     position: 'top-left', // Canonical - actual position applied after evaluation
   });
   
-  // Edge placement: Requires enough content photos
-  if (contentStats.count >= tuning.decomp_edgeMinPhotos) {
-    proposals.push({
-      rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-      mode: 'edge',
-      position: 'left',
-    });
-    
-    proposals.push({
-      rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-      mode: 'edge',
-      position: 'right',
-    });
-  }
-  
-  // Floating placement: Requires many content photos
-  if (contentStats.count >= tuning.decomp_floatingMinPhotos) {
-    proposals.push({
-      rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
-      mode: 'floating',
-      position: 'center',
-    });
-  }
+  // Note: Edge and floating modes are not implemented.
+  // The tuning thresholds are preserved for future development.
   
   return proposals;
 }
@@ -116,42 +94,6 @@ export function validateProminence(
   
   return {
     valid: ratio >= tuning.hero_minProminence,
-    ratio,
-  };
-}
-
-/**
- * Validate that hero isn't too large compared to smallest content cells.
- * Uses average of bottom 10% of content areas (minimum 1 photo).
- * 
- * This prevents layouts where the hero dominates so much that the smallest
- * content photos become unreadably small thumbnails.
- * 
- * @param heroArea - Hero area in normalized space
- * @param contentAreas - Content cell areas in normalized space
- * @param maxRatio - Maximum allowed hero-to-smallest ratio (use getEffectiveMaxToSmallest for low counts)
- */
-export function validateSmallestCellRatio(
-  heroArea: number,
-  contentAreas: number[],
-  maxRatio: number
-): { valid: boolean; ratio: number } {
-  if (contentAreas.length === 0) {
-    return { valid: true, ratio: 0 };
-  }
-  
-  // Sort ascending, take bottom 10% (min 1)
-  const sorted = [...contentAreas].sort((a, b) => a - b);
-  const bottomCount = Math.max(1, Math.ceil(sorted.length * 0.1));
-  const smallest = sorted.slice(0, bottomCount);
-  
-  // Average of smallest photos
-  const avgSmallest = smallest.reduce((s, v) => s + v, 0) / smallest.length;
-  
-  const ratio = heroArea / avgSmallest;
-  
-  return {
-    valid: ratio <= maxRatio,
     ratio,
   };
 }

@@ -3,13 +3,15 @@
  *
  * Finds valid distributions of photos across content regions.
  * Uses normalized space packing to evaluate candidate assignments.
+ * 
+ * SIMPLIFIED: Removed feasibility pre-checks (over-pruning), 
+ * use raw tuning values instead of "effective" wrappers.
  */
 
 import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types';
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
-import { shuffleArray, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
-import { canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
+import { shuffleArray, stratifiedARDistribution } from './utils';
 
 // ============================================================================
 // Rejected Pack Type (for capturing last rejected layout)
@@ -54,12 +56,12 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
   const scores = candidates.map(c => c.score);
   const minScore = Math.min(...scores);
   const maxScore = Math.max(...scores);
-  const range = maxScore - minScore || 1; // Avoid division by zero
+  const range = maxScore - minScore || 1;
   
   // Compute weights: squared normalized score + floor constant
   const weights = scores.map(s => {
     const normalized = (s - minScore) / range;
-    return Math.pow(normalized, 2) + 0.1; // 0.1 floor ensures non-zero probability
+    return Math.pow(normalized, 2) + 0.1;
   });
   
   // Build cumulative distribution
@@ -77,24 +79,40 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 }
 
 // ============================================================================
+// Simple BesideCount Range (replaced complex feasibility)
+// ============================================================================
+
+/**
+ * Calculate simple besideCount range based on photo count.
+ * SIMPLIFIED: No complex geometric feasibility checks.
+ * Let packing and scoring determine what works.
+ */
+function calculateSimpleBesideRange(photoCount: number): { minBeside: number; maxBeside: number } {
+  if (photoCount === 0) return { minBeside: 0, maxBeside: 0 };
+  
+  // Simple: 0 to min(photoCount, 12)
+  // All configurations are explored, scoring handles quality
+  return { 
+    minBeside: 0, 
+    maxBeside: Math.min(photoCount, 12) 
+  };
+}
+
+// ============================================================================
 // Region Search Algorithm
 // ============================================================================
 
 /**
  * Find a valid region assignment for photos.
  * 
- * Strategy:
- * 1. Sort photos by AR (narrower photos pack taller → better for BESIDE)
+ * SIMPLIFIED Strategy:
+ * 1. Order photos (shuffle or sort by AR)
  * 2. Try different beside counts (0 to min(12, n))
  * 3. For each assignment, try different row counts for BESIDE
- * 4. Score by layout balance and uniformity
- * 5. Return a valid assignment (random or best)
+ * 4. Score by F-ratio tier coherence
+ * 5. Return using weighted random selection
  * 
- * @param photos - Content photos (excluding hero)
- * @param heroAR - Hero aspect ratio (hero width in normalized space)
- * @param normalizedGap - Gap as fraction of hero height
- * @param tuning - Tuning parameters
- * @returns Valid region assignment, or null if none found
+ * No early feasibility pruning - let packing + scoring determine quality.
  */
 export function findValidRegionAssignment(
   photos: PhotoDimension[],
@@ -105,7 +123,6 @@ export function findValidRegionAssignment(
   randomize: boolean = false
 ): RegionSearchResult {
   if (photos.length === 0) {
-    // Edge case: no content photos - return empty assignment
     return { 
       assignment: {
         besidePhotos: [],
@@ -117,7 +134,7 @@ export function findValidRegionAssignment(
     };
   }
   
-  // Edge case: only 1 photo - must go to BELOW (BESIDE would leave BELOW empty)
+  // Edge case: only 1 photo - must go to BELOW
   if (photos.length === 1) {
     return {
       assignment: {
@@ -125,7 +142,7 @@ export function findValidRegionAssignment(
         belowPhotos: photos,
         besideRowCount: 0,
         belowRowCount: 1,
-        score: 0.5, // Basic score
+        score: 0.5,
       }
     };
   }
@@ -135,56 +152,34 @@ export function findValidRegionAssignment(
     ? shuffleArray(photos)
     : [...photos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
-  // Calculate avgContentAR once before the loop
-  const avgContentAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
+  // Simple besideCount range
+  const { minBeside, maxBeside } = calculateSimpleBesideRange(photos.length);
   
-  // Calculate geometrically valid besideCount range based on hero shape and photo count
-  // This replaces the hardcoded 0–12 limit
-  const { minBeside, maxBeside } = calculateBesideCountRange(
-    heroAR, photos.length, avgContentAR, normalizedGap, tuning
-  );
-  
-  // Collect all valid assignments instead of tracking best
+  // Collect all valid assignments
   const validRegionAssignments: RegionAssignment[] = [];
   
-  // Track last rejected pack for debugging when all packs fail
+  // Track last rejected pack for debugging
   let lastRejectedPack: RejectedPack | undefined;
   
   devLogger.log('region', 'Starting region assignment search', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
-    avgContentAR: avgContentAR.toFixed(2),
     searchRange: `${minBeside} to ${maxBeside} beside photos`,
     randomize,
   });
   
   for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
-    // Distribute using AR-stratified sampling (proportional from each AR bucket)
+    // Simple slice distribution
     const [besidePhotos, belowPhotos] = stratifiedARDistribution(
       orderedPhotos,
       besideCount,
       randomize
     );
     
-    // Early feasibility checks for beside configurations
-    if (besideCount > 0) {
-      // Canvas AR feasibility check at besideCount level (now accounts for BELOW height)
-      const canvasARFeasibility = canBesideCountMeetCanvasAR(
-        heroAR, besidePhotos, photos.length, avgContentAR, normalizedGap, tuning
-      );
-      if (!canvasARFeasibility.feasible) {
-        continue; // Skip entire besideCount — no row config can work
-      }
-      
-      // SIMPLIFIED: Removed early prominence feasibility check
-      // Let packing happen and scoring handle it - reduces over-pruning
-    }
-    
     // Handle "no BESIDE" case (hero at top, all content below)
     if (besideCount === 0) {
-      const heroRowWidth = heroAR; // Just the hero, no beside region
+      const heroRowWidth = heroAR;
       
-      // Calculate BELOW row count
       const belowRowResult = calculateBelowRowCount(
         belowPhotos, 
         heroRowWidth, 
@@ -194,88 +189,35 @@ export function findValidRegionAssignment(
         randomize
       );
       const belowRowCount = belowRowResult.value;
-      const belowRowRange = `${belowRowResult.minRows}-${belowRowResult.maxRows}`;
       
-      // Pack BELOW
       const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
       
       if (belowResult.cells.length === 0) continue;
       
-      // Validate canvas AR (include border to match final validation)
+      // Validate canvas AR
       const totalHeight = 1.0 + normalizedGap + belowResult.height;
       const normalizedWidthWithBorder = heroRowWidth + 2 * normalizedGap;
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      // Get effective canvas AR bounds (relaxed for low photo counts)
-      const effectiveMinARNoBeside = getEffectiveCanvasMinAR(photos.length, tuning);
-      const effectiveMaxARNoBeside = getEffectiveCanvasMaxAR(photos.length, tuning);
-      
-      // Canvas AR check - soft rejection (layout is valid, just outside aesthetic bounds)
-      let softRejectionNoBeside: { reason: string; details: Record<string, unknown> } | undefined;
+      // Soft rejection for AR bounds
+      let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
       const AR_EPSILON = 0.01;
       
-      if (canvasAR < effectiveMinARNoBeside - AR_EPSILON) {
-        softRejectionNoBeside = {
+      if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
+        softRejection = {
           reason: 'canvas_too_tall',
-          details: { 
-            canvasAR: +canvasAR.toFixed(2), 
-            allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
-            besideCount: 0,
-            besideRowCount: 0,
-            belowRowCount,
-            belowConstraints: belowRowResult.constraints,
-            heroAR: +heroAR.toFixed(2),
-          },
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${tuning.canvas_minAR}-${tuning.canvas_maxAR}` },
         };
-        devLogger.warn('region', 'Canvas AR below minimum - soft rejection (no BESIDE)', {
-          besideCount: 0,
-          canvasAR: canvasAR.toFixed(2),
-          allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
-        });
-        // Continue processing - don't skip
-      } else if (canvasAR > effectiveMaxARNoBeside + AR_EPSILON) {
-        softRejectionNoBeside = {
+      } else if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+        softRejection = {
           reason: 'canvas_too_wide',
-          details: { 
-            canvasAR: +canvasAR.toFixed(2), 
-            allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
-            besideCount: 0,
-            besideRowCount: 0,
-            belowRowCount,
-            belowConstraints: belowRowResult.constraints,
-            heroAR: +heroAR.toFixed(2),
-          },
+          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${tuning.canvas_minAR}-${tuning.canvas_maxAR}` },
         };
-        devLogger.warn('region', 'Canvas AR above maximum - soft rejection (no BESIDE)', {
-          besideCount: 0,
-          canvasAR: canvasAR.toFixed(2),
-          allowed: `${effectiveMinARNoBeside.toFixed(2)} - ${effectiveMaxARNoBeside.toFixed(2)}`,
-        });
-        // Continue processing - don't skip
       }
       
-      // Per-row prominence: with 0 beside, hero has no row competition
-      // Prominence auto-passes (no photos in hero row to compete with)
-      // This aligns with the per-row model used in intersection.ts
-      devLogger.log('region', 'Per-row prominence auto-pass (no BESIDE)', {
-        besideCount: 0,
-        belowCount: belowPhotos.length,
-      });
-      
-      // Score this assignment (empty BESIDE result)
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
-      const score = scoreRegionAssignment(heroAR, emptyBesideResult, belowResult, normalizedGap, tuning);
-      
-      devLogger.log('region', 'Valid assignment candidate (no BESIDE)', {
-        besideCount: 0,
-        belowCount: belowPhotos.length,
-        belowRowCount,
-        belowHeight: belowResult.height.toFixed(2),
-        canvasAR: canvasAR.toFixed(2),
-        score: score.toFixed(3),
-        softRejection: softRejectionNoBeside?.reason,
-      });
+      const score = scoreRegionAssignment(heroAR, emptyBesideResult, belowResult, tuning);
       
       validRegionAssignments.push({
         besidePhotos: [],
@@ -283,7 +225,7 @@ export function findValidRegionAssignment(
         besideRowCount: 0,
         belowRowCount,
         score,
-        softRejection: softRejectionNoBeside,
+        softRejection,
       });
       continue;
     }
@@ -292,24 +234,19 @@ export function findValidRegionAssignment(
     const [minRows, maxRows] = calculateRowCountRange(besidePhotos, 1.0, normalizedGap);
     
     for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
-      // Pack BESIDE at height = 1
       const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount, tuning, randomize);
       
       if (besideResult.cells.length === 0) continue;
       
-      // Calculate hero row width
       const heroRowWidth = heroAR + normalizedGap + besideResult.width;
       
-      // Canvas AR validation (post-pack check, no logging — outer loop already filtered)
+      // Quick canvas width check
       const minCanvasHeight = 1.0 + 2 * normalizedGap;
       const canvasWidth = heroRowWidth + 2 * normalizedGap;
       const bestCaseAR = canvasWidth / minCanvasHeight;
       
-      if (bestCaseAR > tuning.canvas_maxAR * 1.1) {
-        continue; // Skip — canvas too wide
-      }
+      if (bestCaseAR > tuning.canvas_maxAR * 1.1) continue;
       
-      // Calculate optimal row count for BELOW (respecting both min and max AR)
       const belowRowResult = calculateBelowRowCount(
         belowPhotos, 
         heroRowWidth, 
@@ -319,125 +256,56 @@ export function findValidRegionAssignment(
         randomize
       );
       const belowRowCount = belowRowResult.value;
-      const belowRowRange = `${belowRowResult.minRows}-${belowRowResult.maxRows}`;
       
-      // Pack BELOW at derived width
       const belowResult = packToFillWidth(belowPhotos, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize);
       
       if (belowPhotos.length > 0 && belowResult.cells.length === 0) continue;
       
-      // Validate canvas AR (include border to match final validation)
+      // Validate canvas AR
       const totalHeight = 1.0 + normalizedGap + belowResult.height;
       const normalizedWidthWithBorder = heroRowWidth + 2 * normalizedGap;
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      // Get effective canvas AR bounds (relaxed for low photo counts)
-      const effectiveMinAR = getEffectiveCanvasMinAR(photos.length, tuning);
-      const effectiveMaxAR = getEffectiveCanvasMaxAR(photos.length, tuning);
-      
-      // Canvas AR check - soft rejection (layout is valid, just outside aesthetic bounds)
+      // Soft rejection for AR bounds
       let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
       const AR_EPSILON = 0.01;
       
-      if (canvasAR < effectiveMinAR - AR_EPSILON) {
+      if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
         softRejection = {
           reason: 'canvas_too_tall',
-          details: { 
-            canvasAR: +canvasAR.toFixed(2), 
-            allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
-            besideCount,
-            besideRowCount,
-            belowRowCount,
-            belowConstraints: belowRowResult.constraints,
-            heroAR: +heroAR.toFixed(2),
-          },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount, besideRowCount, belowRowCount },
         };
-        devLogger.warn('region', 'Canvas AR below minimum - soft rejection', {
-          besideCount,
-          besideRowCount,
-          canvasAR: canvasAR.toFixed(2),
-          allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
-        });
-        // Continue processing - don't skip
-      } else if (canvasAR > effectiveMaxAR + AR_EPSILON) {
+      } else if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
         softRejection = {
           reason: 'canvas_too_wide',
-          details: { 
-            canvasAR: +canvasAR.toFixed(2), 
-            allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
-            besideCount,
-            besideRowCount,
-            belowRowCount,
-            belowConstraints: belowRowResult.constraints,
-            heroAR: +heroAR.toFixed(2),
-          },
+          details: { canvasAR: +canvasAR.toFixed(2), besideCount, besideRowCount, belowRowCount },
         };
-        devLogger.warn('region', 'Canvas AR above maximum - soft rejection', {
-          besideCount,
-          besideRowCount,
-          canvasAR: canvasAR.toFixed(2),
-          allowed: `${effectiveMinAR.toFixed(2)} - ${effectiveMaxAR.toFixed(2)}`,
-        });
-        // Continue processing - don't skip
       }
       
-      // Per-row prominence: hero competes only with beside region (its row)
-      // This aligns with the per-row model used in intersection.ts
+      // Per-row prominence check (hero vs beside region only)
       const besideAreas = besideResult.cells.map(c => c.width * c.height);
       const heroArea = heroAR * 1.0;
       const maxBesideArea = Math.max(...besideAreas, 0);
       const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
       
-      // Get effective prominence threshold (lower for small photo counts)
-      const effectiveMinProminence = getEffectiveMinProminence(besidePhotos.length, tuning);
-      
-      devLogger.log('region', 'Per-row prominence check (with BESIDE)', {
-        heroArea: +heroArea.toFixed(3),
-        besideCount: besidePhotos.length,
-        maxBesideArea: +maxBesideArea.toFixed(3),
-        prominenceRatio: +prominenceRatio.toFixed(2),
-        threshold: effectiveMinProminence,
-      });
-      
-      if (prominenceRatio < effectiveMinProminence) {
-        // Capture rejected pack for visualization
+      if (prominenceRatio < tuning.hero_minProminence) {
         lastRejectedPack = {
           cells: buildRejectedCells(heroAR, heroPhotoId, besideResult, belowResult, normalizedGap),
           canvasWidth: normalizedWidthWithBorder,
           canvasHeight: normalizedHeightWithBorder,
           reason: 'prominence_too_low',
-          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: effectiveMinProminence, besideCount: `${besideCount} (${minBeside}-${maxBeside})`, besideRowCount: `${besideResult.rowCount} (${minRows}-${maxRows})`, belowRowCount: `${belowRowCount} (${belowRowRange})`, belowConstraints: belowRowResult.constraints, heroAR: +heroAR.toFixed(2), canvasAR: +canvasAR.toFixed(2) },
+          details: { prominenceRatio: +prominenceRatio.toFixed(2), required: tuning.hero_minProminence },
         };
-        devLogger.warn('region-reject', 'Prominence too low (per-row)', {
-          besideCount,
-          besideRowCount,
-          prominenceRatio: prominenceRatio.toFixed(2),
-          required: effectiveMinProminence,
-        }, {
-          cells: lastRejectedPack.cells,
-          canvasWidth: lastRejectedPack.canvasWidth,
-          canvasHeight: lastRejectedPack.canvasHeight,
-        });
         continue;
       }
       
-      // Score this assignment
-      const score = scoreRegionAssignment(
-        heroAR,
-        besideResult,
-        belowResult,
-        normalizedGap,
-        tuning
-      );
+      const score = scoreRegionAssignment(heroAR, besideResult, belowResult, tuning);
       
       devLogger.log('region', 'Valid assignment candidate', {
         besideCount,
         besideRowCount,
-        besideWidth: besideResult.width.toFixed(2),
-        belowHeight: belowResult.height.toFixed(2),
         canvasAR: canvasAR.toFixed(2),
-        prominenceRatio: prominenceRatio.toFixed(2),
         score: score.toFixed(3),
         softRejection: softRejection?.reason,
       });
@@ -450,13 +318,10 @@ export function findValidRegionAssignment(
         score,
         softRejection,
       });
-      
-      // SIMPLIFIED: No early exit - explore all candidates for maximum variety
     }
   }
   
   if (validRegionAssignments.length > 0) {
-    // Pick using weighted random for variety OR pick best score for determinism
     const selected = randomize
       ? weightedRandomSelect(validRegionAssignments)
       : validRegionAssignments.reduce((best, current) => current.score > best.score ? current : best);
@@ -465,32 +330,24 @@ export function findValidRegionAssignment(
       totalCandidates: validRegionAssignments.length,
       besideCount: selected.besidePhotos.length,
       belowCount: selected.belowPhotos.length,
-      besideRowCount: selected.besideRowCount,
       score: selected.score.toFixed(3),
     });
     return { assignment: selected };
   }
   
-  // Fallback: if no valid assignments, create one with all photos in BELOW
-  // This ensures we always return a layout
-  devLogger.warn('region-reject', 'No valid assignment found, using fallback (all BELOW)', {
+  // Fallback: all photos in BELOW
+  devLogger.warn('region-reject', 'No valid assignment found, using fallback', {
     photoCount: photos.length,
     heroAR: heroAR.toFixed(2),
-    hasLastRejected: lastRejectedPack !== undefined,
-  }, lastRejectedPack ? {
-    cells: lastRejectedPack.cells,
-    canvasWidth: lastRejectedPack.canvasWidth,
-    canvasHeight: lastRejectedPack.canvasHeight,
-  } : undefined);
+  });
   
-  // Pack all photos below hero
   const fallbackRowResult = calculateBelowRowCount(
     orderedPhotos, 
-    heroAR, // Hero row width = just hero
+    heroAR,
     normalizedGap,
     heroAR,
     tuning,
-    false // Deterministic for fallback
+    false
   );
   
   return { 
@@ -499,13 +356,10 @@ export function findValidRegionAssignment(
       belowPhotos: orderedPhotos,
       besideRowCount: 0,
       belowRowCount: fallbackRowResult.value,
-      score: 0.1, // Low score so valid assignments are preferred
+      score: 0.1,
       softRejection: { 
         reason: 'fallback_all_below', 
-        details: { 
-          photoCount: photos.length,
-          heroAR: +heroAR.toFixed(2),
-        } 
+        details: { photoCount: photos.length, heroAR: +heroAR.toFixed(2) } 
       },
     },
     lastRejectedPack,
@@ -516,10 +370,6 @@ export function findValidRegionAssignment(
 // Helper: Build Rejected Cells
 // ============================================================================
 
-/**
- * Build cell array for rejected pack visualization.
- * Uses top-left hero position (simplest case for debugging).
- */
 function buildRejectedCells(
   heroAR: number,
   heroPhotoId: string,
@@ -530,7 +380,6 @@ function buildRejectedCells(
   const cells: LayoutCell[] = [];
   const borderOffset = normalizedGap;
   
-  // Hero cell (top-left position)
   cells.push({
     photoId: heroPhotoId,
     x: borderOffset,
@@ -539,7 +388,6 @@ function buildRejectedCells(
     height: 1.0,
   });
   
-  // BESIDE cells (right of hero)
   if (besideResult) {
     const besideOffsetX = borderOffset + heroAR + normalizedGap;
     for (const cell of besideResult.cells) {
@@ -553,7 +401,6 @@ function buildRejectedCells(
     }
   }
   
-  // BELOW cells
   const belowOffsetY = borderOffset + 1.0 + normalizedGap;
   for (const cell of belowResult.cells) {
     cells.push({
@@ -578,37 +425,29 @@ function buildRejectedCells(
  * 
  * High F = clear hierarchy (good for hero layouts)
  * Low F = too uniform OR too chaotic
- * 
- * This replaces uniformity + parity scoring with a single metric that
- * REWARDS hierarchy rather than penalizing it.
  */
 function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
   if (areas.length < tierCount * 2) {
-    // Not enough cells for meaningful tiers - neutral score
-    return 0.5;
+    return 0.5; // Neutral score for small sets
   }
   
   const sorted = [...areas].sort((a, b) => b - a);
   const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
   
-  // Split into equal-sized tiers
   const tierSize = Math.ceil(sorted.length / tierCount);
   const tiers: number[][] = [];
   for (let i = 0; i < tierCount; i++) {
     tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
   }
   
-  // Calculate tier means
   const tierMeans = tiers.map(tier => 
     tier.reduce((a, b) => a + b, 0) / tier.length
   );
   
-  // Between-tier variance: how spread apart are the tier means?
   const betweenVar = tierMeans.reduce((sum, mean) => 
     sum + Math.pow(mean - grandMean, 2), 0
   ) / tierCount;
   
-  // Within-tier variance: how scattered within each tier?
   let withinVarSum = 0;
   for (let i = 0; i < tierCount; i++) {
     const tierMean = tierMeans[i];
@@ -619,10 +458,8 @@ function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
   }
   const withinVar = withinVarSum / tierCount;
   
-  // F-ratio (protect against division by zero)
   const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
   
-  // Normalize: F of 5+ → score 1.0
   return Math.min(1.0, fRatio / 5);
 }
 
@@ -632,35 +469,24 @@ function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
 
 /**
  * Score a region assignment configuration.
- * Higher is better.
  * 
  * Criteria:
  * 1. Tier coherence (F-ratio): reward distinct size hierarchy
- * 2. Beside presence: reward having photos beside hero (structural interest)
- * 
- * Note: Prominence is NOT scored here - it's already validated during search.
+ * 2. Beside presence: reward having photos beside hero
  */
 function scoreRegionAssignment(
   _heroAR: number,
   besideResult: { cells: { width: number; height: number }[]; width: number; height: number },
   belowResult: { cells: { width: number; height: number }[]; width: number; height: number },
-  _normalizedGap: number,
   _tuning: V3Tuning
 ): number {
-  // Collect all cell areas
   const allAreas = [
     ...besideResult.cells.map(c => c.width * c.height),
     ...belowResult.cells.map(c => c.width * c.height),
   ];
   
-  // Tier coherence: reward distinct size hierarchy
   const coherenceScore = tierCoherenceScore(allAreas);
-  
-  // Beside presence: reward having photos beside hero
-  // 0-beside layouts get reduced score to avoid dominating
   const presenceScore = besideResult.cells.length > 0 ? 1.0 : 0.3;
   
-  // Combined: coherence (70%) + presence (30%)
   return (coherenceScore * 0.70) + (presenceScore * 0.30);
 }
-

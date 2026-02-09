@@ -1,111 +1,110 @@
 
+# Fix: Remove Overly Conservative Canvas AR Feasibility Check
 
-# Root Cause: Inverted Feasibility Check Rejecting All Landscape Configurations
+## The Problem
 
-## Problem Summary
+The layout engine is rejecting **nearly all beside configurations** for large photo sets (46 photos) because of a flawed feasibility check in `canBesideCountMeetCanvasAR`.
 
-Your capture data shows that for the 46-photo set:
-- Canvas AR range: **0.32–0.63** (all extreme portraits)
-- `canvas_ar_infeasible_(below_too_short)` rejections: **32–39 per layout** (out of ~42 checks)
+### Evidence from Captures (46 photos, heroAR 1.755)
 
-The engine is systematically rejecting every configuration that could produce a wider canvas.
+| Metric | Value |
+|--------|-------|
+| `canvas_ar_infeasible_for_besidecount` rejections | 114-116 per layout |
+| Valid candidates | Only `besideCount=0` passes |
+| Final Canvas AR | 0.31-0.37 (extreme portraits) |
 
-## Root Cause: The Feasibility Check Logic is Inverted
-
-In `src/lib/v3/feasibility.ts`, the function `canBesideCountMeetCanvasAR` (lines 109–172) has a flawed premise:
+### Root Cause: The Check Ignores BELOW Height
 
 ```text
+File: src/lib/v3/feasibility.ts, lines 139-152
+
 Current logic:
-1. For high besideCount → wider heroRowWidth
-2. Calculate requiredBelowHeight to meet canvas_maxAR
-3. Estimate achievableBelowHeight from remaining photos
-4. If achievable < required × 0.8 → reject as "BELOW too short"
+  canvasWidth = heroAR + gap + besideWidth + 2*gap
+  bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap)  ← ONLY hero row height
+  if bestCaseAR > maxAR * 1.1 → reject
 ```
 
-**The bug:** This check is designed to prevent "too-wide" canvases by requiring BELOW to add height. But for high-beside configurations:
-- Fewer photos go to BELOW → less achievable height
-- The check fails → configuration rejected
-- **Result:** All landscape-capable configurations are pruned before they're ever tried
+**The bug**: The denominator `(1.0 + 2 * normalizedGap)` is the height of just the hero row, ignoring BELOW region entirely.
 
-## Walkthrough with Actual Numbers
+### Walkthrough with Numbers
 
-**Input:** 46 photos, heroAR=1.755, avgAR=1.14, normalizedGap=0.003
+For `besideCount = 10` with 46 photos (36 go BELOW):
 
-For `besideCount = 30` (trying to make a wide canvas):
+| Step | Calculation | Value |
+|------|-------------|-------|
+| sumBesideAR | 10 × 1.14 | 11.4 |
+| maxRows | min(10, 6) | 6 |
+| minBesideWidth | 11.4 / 6 | 1.9 |
+| minHeroRowWidth | 1.755 + 0.008 + 1.9 | 3.66 |
+| canvasWidth | 3.66 + 0.016 | 3.68 |
+| **bestCaseAR** | 3.68 / 1.016 | **3.62** |
+| threshold | 2.25 × 1.1 | 2.475 |
+| Result | 3.62 > 2.475 | **REJECTED** |
 
-| Step | Value |
-|------|-------|
-| belowCount | 15 |
-| sumBesideAR | 30 × 1.14 = 34.2 |
-| maxRows | 4 (**hardcoded**) |
-| minBesideWidth | 34.2 / 4 = 8.55 |
-| minHeroRowWidth | 1.755 + 0.003 + 8.55 ≈ **10.3** |
-| requiredTotalHeight | 10.3 / 2.25 = 4.58 |
-| requiredBelowHeight | 4.58 - 1.01 = **3.57** |
-| estimatedBelowHeight | √(15 × 1.14 / 10.3) = **1.29** |
-| Check | 1.29 >= 3.57 × 0.8 = 2.86? **FAILS** |
-
-The check rejects `besideCount=30` because BELOW can't produce enough height to "prevent" a wide canvas. But we **want** a wide canvas!
-
-## Additional Hardcoded Issue: `maxRows = 4`
-
-Line 123: `const maxRows = Math.min(besidePhotos.length, 4);`
-
-This limits the BESIDE region to at most 4 rows when estimating width. For 30 photos beside, this produces an unrealistically wide width estimate (8.55 instead of a more realistic 4-5 with 6-7 rows), making the rejection even more aggressive.
-
-## Why Recent Changes Made It Worse
-
-The recent changes (randomized search order, removed 15-cap on besideCount) allowed the engine to *try* higher besideCount values. But this feasibility check rejects them all before packing is attempted. So we expanded the search space, but the feasibility filter just rejects more candidates.
+But with 36 BELOW photos, actual height would be ~4-5, giving actual AR ~0.8-1.0 → **should be valid!**
 
 ## The Fix
 
-### Option A: Remove the Check Entirely (Simplest)
+Remove this check entirely. It duplicates the canvas AR validation that already exists in `region-search.ts` (lines 370-422), which correctly includes BELOW height.
 
-The check is over-conservative. The actual packing + canvas AR validation in `region-search.ts` already handles this correctly. This feasibility check is a premature optimization that's blocking valid configurations.
+### Implementation
 
-**File:** `src/lib/v3/feasibility.ts`
+**File: `src/lib/v3/feasibility.ts`**
+
+Replace lines 139-154:
 
 ```typescript
-// Before (lines 136-154):
-if (belowCount > 0 && requiredBelowHeight > 0) {
-  const estimatedBelowHeight = Math.sqrt(belowCount * avgContentAR / minHeroRowWidth);
-  const feasible = estimatedBelowHeight >= requiredBelowHeight * 0.8;
-  if (!feasible) { /* log and reject */ }
-  return { feasible, minHeroRowWidth };
+// Before:
+// No BELOW photos or no height needed → use original check
+// Use effective canvas AR bounds (relaxed for low photo counts)
+const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
+const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
+const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
+
+if (!feasible) {
+  devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
+    besideCount: besidePhotos.length,
+    minHeroRowWidth: minHeroRowWidth.toFixed(2),
+    bestCaseAR: bestCaseAR.toFixed(2),
+    maxAR: effectiveMaxAR,
+  });
 }
 
-// After: Remove this entire block, always return feasible
+return { feasible, minHeroRowWidth };
 ```
 
-### Option B: Invert the Check Purpose (More Surgical)
+```typescript
+// After:
+// Always return feasible - let region-search.ts validate canvas AR
+// with full knowledge of BELOW height (accurate vs. this estimate)
+return { feasible: true, minHeroRowWidth };
+```
 
-If we want to keep some pre-filtering, change the check to reject configurations that would be "too tall" (portrait) rather than "too wide" (landscape).
+## Why This is Safe
 
-### Option C: Remove the 80% Margin
-
-At minimum, remove the `* 0.8` multiplier which makes the check overly conservative.
+1. **Canvas AR is already validated in region-search.ts** (lines 370-422) after actual packing, with correct BELOW height
+2. **Soft rejections handle edge cases** - layouts outside ideal AR bounds are penalized in scoring but still returned
+3. **No new code paths** - just removing a redundant, overly-conservative filter
 
 ## Expected Impact
 
-For the 46-photo set with landscape hero (AR 1.755):
-
 | Metric | Before | After |
 |--------|--------|-------|
-| Feasibility rejections | 32-39 | ~5-10 |
-| Valid configurations | ~4 | ~30+ |
-| Canvas AR range | 0.32–0.63 | **0.50–1.50+** |
-| Layouts with AR > 1.0 | 0% | ~20-40% |
+| Feasibility rejections (46 photos) | 114-116 | ~0-5 |
+| Valid candidates | ~1 (besideCount=0) | ~30-44 |
+| Canvas AR range | 0.31-0.37 | **0.50-1.50** |
+| Landscape layouts (AR > 1.0) | 0% | ~15-30% |
 
-## Files to Change
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/feasibility.ts` | Remove/fix `canBesideCountMeetCanvasAR` logic (lines 136-154) |
-| `src/lib/v3/feasibility.ts` | Optionally: change `maxRows = 4` to `maxRows = 6` (line 123) |
+| `src/lib/v3/feasibility.ts` | Remove the overly-conservative `bestCaseAR` check (lines 139-152) |
 
-## Why This Fix Doesn't Require Architectural Decisions
+## Test Verification
 
-This is not about choosing a new canvas AR policy. The existing soft-rejection system already handles canvas AR limits correctly in `region-search.ts`. The problem is that a redundant feasibility check is prematurely blocking valid candidates before they can be evaluated.
-
-Removing this check restores the intended behavior: let the engine explore the full search space, then score/select the best valid configuration.
-
+After this fix:
+1. Run 10 shuffles on the 46-photo set in V3Test
+2. Verify `canvas_ar_infeasible_for_besidecount` rejections drop to near-zero
+3. Verify Canvas AR distribution widens (some layouts with AR > 0.8, some > 1.0)
+4. Export new captures to confirm improvement in UI

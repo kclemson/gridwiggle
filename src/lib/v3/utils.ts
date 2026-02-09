@@ -277,166 +277,49 @@ export function distributeByARBudget(
 }
 
 /**
- * Validate row heights and redistribute if any row would be too tall.
+ * Validate row heights - SIMPLIFIED.
  * 
- * A row is "too tall" if its AR sum is below avgRowAR / maxHeightRatio.
- * This prevents singleton portrait rows that would tower over others.
+ * Previously merged rows that were "too different" in height.
+ * Now just returns rows as-is - let F-ratio scoring handle variety.
+ * Keeping function signature for backwards compatibility.
  */
 function validateAndRedistribute(
   rows: PhotoDimension[][],
-  maxHeightRatio: number
+  _maxHeightRatio: number
 ): PhotoDimension[][] {
-  if (rows.length <= 1) return rows;
-  
-  const result = rows.map(r => [...r]); // Deep copy
-  
-  // Calculate average row AR
-  const rowARs = result.map(row => row.reduce((sum, p) => sum + p.aspectRatio, 0));
-  const avgRowAR = rowARs.reduce((s, ar) => s + ar, 0) / rowARs.length;
-  const minAllowedAR = avgRowAR / maxHeightRatio;
-  
-  // Log removed: Height validation - intermediate validation step
-  
-  // Find rows that are too small (would be too tall)
-  let needsRedistribution = true;
-  let iterations = 0;
-  const maxIterations = result.length * 2; // Prevent infinite loop
-  
-  while (needsRedistribution && iterations < maxIterations) {
-    needsRedistribution = false;
-    iterations++;
-    
-    // Recalculate row ARs
-    const currentARs = result.map(row => row.reduce((sum, p) => sum + p.aspectRatio, 0));
-    const currentAvgAR = currentARs.reduce((s, ar) => s + ar, 0) / result.length;
-    const currentMinAllowedAR = currentAvgAR / maxHeightRatio;
-    
-    for (let i = 0; i < result.length; i++) {
-      if (currentARs[i] < currentMinAllowedAR && result[i].length > 0) {
-        // This row is too small - try to merge with adjacent row
-        
-        // Prefer merging with smaller adjacent row
-        const prevAR = i > 0 ? currentARs[i - 1] : Infinity;
-        const nextAR = i < result.length - 1 ? currentARs[i + 1] : Infinity;
-        
-        if (prevAR <= nextAR && i > 0) {
-          // Merge with previous row
-          result[i - 1] = [...result[i - 1], ...result[i]];
-          result.splice(i, 1);
-          needsRedistribution = true;
-          
-          // Log removed: Merged row with previous - low-level detail
-          break;
-        } else if (i < result.length - 1) {
-          // Merge with next row
-          result[i] = [...result[i], ...result[i + 1]];
-          result.splice(i + 1, 1);
-          needsRedistribution = true;
-          
-          // Log removed: Merged row with next - low-level detail
-          break;
-        }
-      }
-    }
-  }
-  
-  // If we ended up with just one row but started with more, that's acceptable
-  // The geometry demanded it
-  
-  return result;
+  // Simplified: just return rows as-is, no merging
+  // F-ratio scoring will reward good tier separation
+  return rows;
 }
 
 // ============================================================================
-// AR-Stratified Distribution
+// Simplified Distribution (replaced stratified sampling)
 // ============================================================================
 
-// AR bucket thresholds
-const AR_BUCKET_PORTRAIT = 0.8;
-const AR_BUCKET_LANDSCAPE = 1.25;
-
-type ARBucket = 'portrait' | 'square' | 'landscape';
-
 /**
- * Classify a photo into an AR bucket.
- */
-function getARBucket(ar: number): ARBucket {
-  if (ar < AR_BUCKET_PORTRAIT) return 'portrait';
-  if (ar > AR_BUCKET_LANDSCAPE) return 'landscape';
-  return 'square';
-}
-
-/**
- * Distribute photos to two regions using stratified sampling by AR bucket.
+ * Distribute photos to two regions using simple slice.
  * 
- * Each region receives a proportional sample from each AR bucket,
- * ensuring shape diversity rather than clustering all portraits together.
+ * SIMPLIFIED: Previous stratified sampling enforced proportional AR representation,
+ * which created "sameness". Now just slice - the input order (shuffled or sorted)
+ * determines which photos go where. Let randomization create variety.
  * 
  * @param photos - All content photos (should already be ordered/shuffled)
  * @param besideCount - Target number for BESIDE region
- * @param randomize - Whether to shuffle within buckets
+ * @param _randomize - Unused (kept for API compatibility)
  * @returns [besidePhotos, belowPhotos]
  */
 export function stratifiedARDistribution(
   photos: PhotoDimension[],
   besideCount: number,
-  randomize: boolean
+  _randomize: boolean
 ): [PhotoDimension[], PhotoDimension[]] {
   // Edge cases
   if (besideCount <= 0) return [[], photos];
   if (besideCount >= photos.length) return [photos, []];
   
-  // Group photos by AR bucket
-  const buckets: Record<ARBucket, PhotoDimension[]> = {
-    portrait: [],
-    square: [],
-    landscape: [],
-  };
+  // Simple slice - input order determines distribution
+  const beside = photos.slice(0, besideCount);
+  const below = photos.slice(besideCount);
   
-  for (const photo of photos) {
-    buckets[getARBucket(photo.aspectRatio)].push(photo);
-  }
-  
-  // Shuffle within buckets if randomizing
-  if (randomize) {
-    buckets.portrait = shuffleArray(buckets.portrait);
-    buckets.square = shuffleArray(buckets.square);
-    buckets.landscape = shuffleArray(buckets.landscape);
-  }
-  
-  // Calculate proportional allocation per bucket
-  const total = photos.length;
-  const besideFraction = besideCount / total;
-  
-  const besideFromPortrait = Math.round(buckets.portrait.length * besideFraction);
-  const besideFromSquare = Math.round(buckets.square.length * besideFraction);
-  // Remaining goes to landscape (adjusts for rounding)
-  let besideFromLandscape = besideCount - besideFromPortrait - besideFromSquare;
-  besideFromLandscape = Math.max(0, Math.min(besideFromLandscape, buckets.landscape.length));
-  
-  // Build arrays
-  const beside: PhotoDimension[] = [
-    ...buckets.portrait.slice(0, besideFromPortrait),
-    ...buckets.square.slice(0, besideFromSquare),
-    ...buckets.landscape.slice(0, besideFromLandscape),
-  ];
-  
-  const below: PhotoDimension[] = [
-    ...buckets.portrait.slice(besideFromPortrait),
-    ...buckets.square.slice(besideFromSquare),
-    ...buckets.landscape.slice(besideFromLandscape),
-  ];
-  
-  // Handle rounding errors
-  while (beside.length > besideCount && below.length < photos.length - besideCount) {
-    below.push(beside.pop()!);
-  }
-  while (beside.length < besideCount && below.length > 0) {
-    beside.push(below.shift()!);
-  }
-  
-  // Final shuffle to mix buckets within each region
-  const finalBeside = randomize ? shuffleArray(beside) : beside;
-  const finalBelow = randomize ? shuffleArray(below) : below;
-  
-  return [finalBeside, finalBelow];
+  return [beside, below];
 }

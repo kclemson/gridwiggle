@@ -67,8 +67,8 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   canvas_minAR: 0.5,
   canvas_maxAR: 2.25,
   row_arBudgetJitter: 0.6,
-  row_maxHeightRatio: 1.8,
-  hero_maxToSmallest: 45,
+  row_maxHeightRatio: 10.0,  // Effectively disabled - let F-ratio scoring handle variety
+  hero_maxToSmallest: 200,   // Effectively disabled - let F-ratio scoring handle variety
   hero_lowCountThreshold: 8,
   hero_lowCountMultiplier: 0.85,
   hero_prominenceTopFraction: 0.25,

@@ -1,110 +1,103 @@
 
-# Fix: Remove Overly Conservative Canvas AR Feasibility Check
 
-## The Problem
+# Hatchet Approach: Remove Three Arbitrary Constraints
 
-The layout engine is rejecting **nearly all beside configurations** for large photo sets (46 photos) because of a flawed feasibility check in `canBesideCountMeetCanvasAR`.
+## Goal
 
-### Evidence from Captures (46 photos, heroAR 1.755)
+Remove the arbitrary constants and hard rejections that are systematically blocking landscape layouts for large photo sets.
 
-| Metric | Value |
-|--------|-------|
-| `canvas_ar_infeasible_for_besidecount` rejections | 114-116 per layout |
-| Valid candidates | Only `besideCount=0` passes |
-| Final Canvas AR | 0.31-0.37 (extreme portraits) |
+## Changes
 
-### Root Cause: The Check Ignores BELOW Height
+### 1. Remove the 0.6× Multiplier in BELOW Row Calculation
 
-```text
-File: src/lib/v3/feasibility.ts, lines 139-152
-
-Current logic:
-  canvasWidth = heroAR + gap + besideWidth + 2*gap
-  bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap)  ← ONLY hero row height
-  if bestCaseAR > maxAR * 1.1 → reject
-```
-
-**The bug**: The denominator `(1.0 + 2 * normalizedGap)` is the height of just the hero row, ignoring BELOW region entirely.
-
-### Walkthrough with Numbers
-
-For `besideCount = 10` with 46 photos (36 go BELOW):
-
-| Step | Calculation | Value |
-|------|-------------|-------|
-| sumBesideAR | 10 × 1.14 | 11.4 |
-| maxRows | min(10, 6) | 6 |
-| minBesideWidth | 11.4 / 6 | 1.9 |
-| minHeroRowWidth | 1.755 + 0.008 + 1.9 | 3.66 |
-| canvasWidth | 3.66 + 0.016 | 3.68 |
-| **bestCaseAR** | 3.68 / 1.016 | **3.62** |
-| threshold | 2.25 × 1.1 | 2.475 |
-| Result | 3.62 > 2.475 | **REJECTED** |
-
-But with 36 BELOW photos, actual height would be ~4-5, giving actual AR ~0.8-1.0 → **should be valid!**
-
-## The Fix
-
-Remove this check entirely. It duplicates the canvas AR validation that already exists in `region-search.ts` (lines 370-422), which correctly includes BELOW height.
-
-### Implementation
-
-**File: `src/lib/v3/feasibility.ts`**
-
-Replace lines 139-154:
+**File:** `src/lib/v3/normalized-pack.ts`
+**Lines:** 347-348
 
 ```typescript
 // Before:
-// No BELOW photos or no height needed → use original check
-// Use effective canvas AR bounds (relaxed for low photo counts)
-const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
-const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
-const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
+// Conservative estimate: use 0.6x minAR to account for distribution variance
+const effectiveMinAR = minAR * 0.6;
 
-if (!feasible) {
-  devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
-    besideCount: besidePhotos.length,
-    minHeroRowWidth: minHeroRowWidth.toFixed(2),
-    bestCaseAR: bestCaseAR.toFixed(2),
-    maxAR: effectiveMaxAR,
-  });
-}
-
-return { feasible, minHeroRowWidth };
+// After:
+// Use actual minAR - the hero_maxToSmallest constraint is validated post-pack anyway
+const effectiveMinAR = minAR;
 ```
+
+**Why:** This 0.6× "safety factor" forces more rows in BELOW, making layouts taller. The `hero_maxToSmallest` constraint is already validated post-pack in `intersection.ts`, so this pre-filtering is redundant and overly conservative.
+
+---
+
+### 2. Convert Prominence Hard Rejection to Soft Rejection
+
+**File:** `src/lib/v3/region-search.ts`
+**Lines:** 442-461
 
 ```typescript
+// Before:
+if (prominenceRatio < effectiveMinProminence) {
+  // ... capture logic ...
+  continue;  // HARD SKIP
+}
+
 // After:
-// Always return feasible - let region-search.ts validate canvas AR
-// with full knowledge of BELOW height (accurate vs. this estimate)
-return { feasible: true, minHeroRowWidth };
+if (prominenceRatio < effectiveMinProminence) {
+  // ... capture logic ...
+  // Soft rejection: allow but track for scoring/diagnostics
+  // Don't continue - let the configuration be evaluated
+}
 ```
 
-## Why This is Safe
+**Why:** High-beside configurations (which produce wider canvases) have larger beside cells, lower prominence ratios, and get hard-rejected. This systematically eliminates all landscape-capable configurations before they're even scored.
 
-1. **Canvas AR is already validated in region-search.ts** (lines 370-422) after actual packing, with correct BELOW height
-2. **Soft rejections handle edge cases** - layouts outside ideal AR bounds are penalized in scoring but still returned
-3. **No new code paths** - just removing a redundant, overly-conservative filter
+---
+
+### 3. Increase Row Caps from 6 to 10
+
+**File:** `src/lib/v3/feasibility.ts`
+
+**Line 65:**
+```typescript
+// Before:
+const maxPhysicalRows = Math.min(besideCount, 6); // Reasonable cap
+
+// After:
+const maxPhysicalRows = Math.min(besideCount, 10); // Allow more rows for large sets
+```
+
+**Line 123:**
+```typescript
+// Before:
+const maxRows = Math.min(besidePhotos.length, 6);
+
+// After:
+const maxRows = Math.min(besidePhotos.length, 10);
+```
+
+**Why:** With many BESIDE photos, limiting to 6 rows forces extremely wide beside regions. Allowing up to 10 rows gives more realistic width estimates.
+
+---
+
+## Pinned for Later
+
+Remove the "too wide" rejection codepath entirely (region-search.ts lines 343-349). Currently, this check rejects configs that would be "too wide" but there's no equivalent check rejecting "too tall" configs. The asymmetry biases toward portraits.
+
+---
 
 ## Expected Impact
 
-| Metric | Before | After |
-|--------|--------|-------|
-| Feasibility rejections (46 photos) | 114-116 | ~0-5 |
-| Valid candidates | ~1 (besideCount=0) | ~30-44 |
-| Canvas AR range | 0.31-0.37 | **0.50-1.50** |
-| Landscape layouts (AR > 1.0) | 0% | ~15-30% |
+| Metric | Before | After (Expected) |
+|--------|--------|------------------|
+| Valid wide configurations | ~0 | 15-25+ |
+| Canvas AR range (46 photos) | 0.31–0.68 | 0.50–1.50+ |
+| Landscape layouts (AR > 1.0) | 0% | 15-30% |
 
-## Files Changed
+---
 
-| File | Change |
-|------|--------|
-| `src/lib/v3/feasibility.ts` | Remove the overly-conservative `bestCaseAR` check (lines 139-152) |
+## Files to Edit
 
-## Test Verification
+| File | Changes |
+|------|---------|
+| `src/lib/v3/normalized-pack.ts` | Remove 0.6× multiplier (line 348) |
+| `src/lib/v3/region-search.ts` | Convert prominence check to soft rejection (lines 442-461) |
+| `src/lib/v3/feasibility.ts` | Increase row caps 6→10 (lines 65, 123) |
 
-After this fix:
-1. Run 10 shuffles on the 46-photo set in V3Test
-2. Verify `canvas_ar_infeasible_for_besidecount` rejections drop to near-zero
-3. Verify Canvas AR distribution widens (some layouts with AR > 0.8, some > 1.0)
-4. Export new captures to confirm improvement in UI

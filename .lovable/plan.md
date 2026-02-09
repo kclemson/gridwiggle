@@ -1,39 +1,152 @@
 
 
-# Double Down on AR Budget Jitter
+# Radical Simplification: Strip the Overconfident Constraints
 
-## Current State
+## The Pattern We've Seen
 
-`row_arBudgetJitter = 0.4` → rows vary ±40% from base AR budget
+Throughout V3 development, we repeatedly:
+1. Built something with tight constraints we thought defined "good"
+2. Found layouts looking too similar
+3. Relaxed those constraints and things looked better
 
-## Proposed Change
+This suggests the core issue isn't missing features—it's **too many constraints baked in from assumptions we now know were wrong**.
 
-**File: `src/lib/v3/types.ts`, line 69**
+---
 
-```typescript
-// Before
-row_arBudgetJitter: 0.4,
+## What We KNOW Is Important (Keep)
 
-// After
-row_arBudgetJitter: 0.6,
+| Constraint | Purpose | Evidence |
+|------------|---------|----------|
+| Canvas AR bounds (0.5-2.25) | Prevent absurdly tall/wide canvases | Users complained about extremes |
+| Prominence check | Hero must feel like a hero | Visual hierarchy is the point |
+| Cell packing | Photos must fill their rows | Core geometry requirement |
+
+---
+
+## What We Thought Was Important But Probably Isn't (Remove/Loosen)
+
+### 1. **hero_maxToSmallest (lines 343-352 in normalized-pack.ts, lines 48-62 in feasibility.ts)**
+
+**Original assumption**: "Tiny content cells look bad, so hero can't be more than 45× the smallest cell"
+
+**What we know now**: With F-ratio scoring rewarding tier coherence, we *want* size variety. This constraint actively fights against the goal.
+
+**Proposed change**: Remove entirely or set to a very high value (e.g., 200)
+
+---
+
+### 2. **row_maxHeightRatio (lines 285-347 in utils.ts)**
+
+**Original assumption**: "Rows that are too different in height look unbalanced"
+
+**What we know now**: Row height variation IS the variety we want. The F-ratio scores it. The `validateAndRedistribute` function actively MERGES rows that are "too different" - fighting against variety.
+
+**Proposed change**: Remove the merge logic entirely or set `row_maxHeightRatio` to a very high value (e.g., 10.0)
+
+---
+
+### 3. **Stratified AR Distribution (lines 379-442 in utils.ts)**
+
+**Original assumption**: "Each region should have proportional representation of portrait/square/landscape"
+
+**What we know now**: This enforces sameness. If the hero is portrait, maybe ALL the landscape photos should go BESIDE it. The randomization should decide, not a stratification algorithm.
+
+**Proposed change**: Replace with simple slice: `beside = photos.slice(0, besideCount); below = photos.slice(besideCount);`
+
+---
+
+### 4. **Early Exit in Region Search (lines 471-484 in region-search.ts)**
+
+**Original assumption**: "8 candidates is enough for variety"
+
+**What we know now**: We're not exploring the full space. More candidates = more variety.
+
+**Proposed change**: Remove early exit entirely, or increase to 20+
+
+---
+
+### 5. **Feasibility Pre-Checks (feasibility.ts)**
+
+**Original assumption**: "We can algebraically prune impossible configurations before packing"
+
+**What we know now**: These add complexity and may be over-pruning. With soft rejections, we can just TRY configurations and score them.
+
+**Proposed change**: Remove `canMeetProminenceConstraints` check in region-search.ts (lines 182-197). Let the scoring handle it.
+
+---
+
+## The Simplification
+
+### Before (Current Flow)
+```text
+1. Calculate besideCount range (feasibility)  
+2. For each besideCount:
+   a. Stratified distribution to regions
+   b. Early prominence feasibility check ← REMOVES OPTIONS
+   c. Early canvas AR feasibility check ← REMOVES OPTIONS
+   d. Pack with row height redistribution ← HOMOGENIZES ROWS
+   e. Validate prominence / maxToSmallest ← REMOVES OPTIONS
+   f. Score with F-ratio
+3. Early exit after 8 candidates ← STOPS EXPLORING
+4. Weighted random select
 ```
 
-## What This Means
+### After (Simplified Flow)
+```text
+1. Calculate besideCount range (keep - geometry-based)
+2. For each besideCount:
+   a. Simple slice to regions (random order already shuffled)
+   b. Pack WITHOUT row merging
+   c. Score with F-ratio + soft rejections for AR bounds
+3. Collect ALL candidates (no early exit)
+4. Weighted random select
+```
 
-| Jitter | Min Budget | Max Budget | Height Ratio |
-|--------|------------|------------|--------------|
-| 0.2 | 80% | 120% | 1.5:1 |
-| 0.4 | 60% | 140% | 2.3:1 |
-| **0.6** | **40%** | **160%** | **4:1** |
+---
 
-With 0.6 jitter:
-- A "tall" row might target 40% of base AR → 2-3 large photos
-- A "short" row might target 160% of base AR → 8-10 small photos
-- Maximum height ratio between rows: 4:1
+## Test Matrix: Expected Behavior
 
-## Risk
+| Hero AR | Photos | Before (Constrained) | After (Simple) |
+|---------|--------|---------------------|----------------|
+| 1.7 (landscape) | 46 | Row heights ±20%, sameness in BELOW | Row heights can vary 4:1, clear tiers |
+| 0.6 (portrait) | 46 | Stratified distribution splits shapes | Could get all landscape beside hero |
+| 1.0 (square) | 20 | maxToSmallest rejects high-variety configs | High variety configs pass, scored by F-ratio |
+| 1.7 | 8 (low count) | Low count multipliers engaged | Same (keep this accommodation) |
+| 0.8 | 30 | ~8 candidates explored | All candidates explored, more variety |
 
-**Low**: The geometric constraints (`canvas_minAR`, `canvas_maxAR`, `hero_maxToSmallest`) still guard against truly broken layouts. We're just giving the randomization more room to explore within those bounds.
+---
 
-If 0.6 feels too chaotic, we can dial back to 0.5. If it's still not enough variety, we can push to 0.7.
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `types.ts` | Set `hero_maxToSmallest: 200` (effectively disabled) |
+| `types.ts` | Set `row_maxHeightRatio: 10.0` (effectively disabled) |
+| `utils.ts` | Replace `stratifiedARDistribution` with simple slice |
+| `utils.ts` | Remove `validateAndRedistribute` logic (or make it no-op) |
+| `region-search.ts` | Remove early prominence feasibility check (lines 182-197) |
+| `region-search.ts` | Remove early exit after 8 candidates (lines 471-484) |
+
+---
+
+## Risk Assessment
+
+**Medium risk but controlled**: 
+- We're removing guardrails, but F-ratio scoring + canvas AR bounds remain as the "safety net"
+- Soft rejections mean we never fail completely
+- If layouts look chaotic, we can add specific constraints back one at a time
+
+**Key insight**: It's easier to add constraints to reign in chaos than to loosen constraints to create variety. We should start simple.
+
+---
+
+## Implementation Order
+
+1. Disable `hero_maxToSmallest` and `row_maxHeightRatio` (tuning only)
+2. Remove stratified distribution (use simple slice)
+3. Remove early feasibility pruning
+4. Remove early exit
+5. Test and observe
+
+Each step is reversible and can be tested independently.
 

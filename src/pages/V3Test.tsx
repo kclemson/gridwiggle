@@ -20,7 +20,7 @@ import {
   loadPhotoSetAsPhotos,
   SavedPhotoSet,
 } from '@/test/layout/photoGenerator';
-import { generateCollageLayoutV3 } from '@/lib/v3/index';
+import { generateCollageLayoutV4 } from '@/lib/v4/index';
 import { getLastRejectedLayout, clearRejectedLayout } from '@/lib/v3/intersection';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { 
@@ -119,7 +119,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     }
   });
   
-  const layout = generateCollageLayoutV3(photoItems, settings, { photoWeights });
+  const layout = generateCollageLayoutV4(photoItems, settings, { photoWeights, randomize: true });
   const durationMs = performance.now() - startTime;
   const logs = devLogger.getLogs();
   const rejectedLayout = getLastRejectedLayout();

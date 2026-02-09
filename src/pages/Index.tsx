@@ -790,10 +790,11 @@ export default function Index() {
                     className="absolute top-0 hidden xl:block"
                     style={{ right: 'calc(100% + 24px)', width: '700px' }}
                   >
-                    <DebugPanel 
-                      logs={debugLogs}
-                      durationMs={lastDurationMs}
-                    />
+                <DebugPanel 
+                  logs={debugLogs}
+                  durationMs={lastDurationMs}
+                  photos={state.photos}
+                />
                   </div>
                 )}
               </div>

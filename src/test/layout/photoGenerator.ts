@@ -6,6 +6,77 @@ import { SyntheticPhoto } from './types';
 const MIN_ASPECT = 0.5;   // 9:16 portrait
 const MAX_ASPECT = 3.0;   // Panorama
 
+// LocalStorage key for saved photo sets
+const PHOTO_SETS_KEY = 'v3-test-photo-sets';
+
+/**
+ * A saved real-world photo set for testing.
+ */
+export interface SavedPhotoSet {
+  id: string;           // e.g., 'set-1234567890'
+  name: string;         // Display name
+  createdAt: string;    // ISO timestamp
+  photos: Array<{ ar: number; isHero: boolean }>;
+}
+
+/**
+ * Get all saved photo sets from localStorage.
+ */
+export function getSavedPhotoSets(): SavedPhotoSet[] {
+  const raw = localStorage.getItem(PHOTO_SETS_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save a new photo set (parsed from clipboard JSON).
+ * Returns the generated ID.
+ */
+export function savePhotoSet(name: string, data: Array<{ ar: number; isHero: boolean }>): string {
+  const sets = getSavedPhotoSets();
+  const id = `set-${Date.now()}`;
+  sets.push({
+    id,
+    name,
+    createdAt: new Date().toISOString(),
+    photos: data,
+  });
+  localStorage.setItem(PHOTO_SETS_KEY, JSON.stringify(sets));
+  return id;
+}
+
+/**
+ * Delete a saved photo set by ID.
+ */
+export function deletePhotoSet(id: string): void {
+  const sets = getSavedPhotoSets().filter(s => s.id !== id);
+  localStorage.setItem(PHOTO_SETS_KEY, JSON.stringify(sets));
+}
+
+/**
+ * Convert a saved photo set to SyntheticPhoto[], shuffled.
+ * Preserves the ARs but randomizes order for variety testing.
+ */
+export function loadPhotoSetAsPhotos(set: SavedPhotoSet): SyntheticPhoto[] {
+  const photos = set.photos.map((p, i) => createSyntheticPhoto(
+    `${set.id}-p${i + 1}`,
+    p.ar,
+    p.isHero ? 1 : 3
+  ));
+  
+  // Shuffle order (ARs preserved)
+  for (let i = photos.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [photos[i], photos[j]] = [photos[j], photos[i]];
+  }
+  
+  return photos;
+}
+
 /**
  * Common real-world aspect ratios with weights.
  * Based on DSLR (3:2), phone (4:3), widescreen (16:9), and square formats.

@@ -9,7 +9,7 @@ import { PhotoDimension, RegionAssignment, V3Tuning, LayoutCell } from './types'
 import { packToFillHeight, packToFillWidth, calculateRowCountRange, calculateBelowRowCount } from './normalized-pack';
 import { devLogger } from '@/lib/devLogger';
 import { shuffleArray, getEffectiveMinProminence, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR, stratifiedARDistribution } from './utils';
-import { canMeetProminenceConstraints, canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
+import { canBesideCountMeetCanvasAR, calculateBesideCountRange } from './feasibility';
 
 // ============================================================================
 // Rejected Pack Type (for capturing last rejected layout)
@@ -176,25 +176,8 @@ export function findValidRegionAssignment(
         continue; // Skip entire besideCount — no row config can work
       }
       
-      const avgBesideAR = besidePhotos.reduce((s, p) => s + p.aspectRatio, 0) / besideCount;
-      
-      // Check if ANY row count can satisfy both prominence constraints
-      const prominenceFeasibility = canMeetProminenceConstraints(
-        heroAR,
-        besideCount,
-        avgBesideAR,
-        photos.length,
-        tuning
-      );
-      
-      if (!prominenceFeasibility.feasible) {
-        devLogger.log('region', 'Skipping besideCount (prominence constraints unsatisfiable)', {
-          besideCount,
-          validRowRange: `[${prominenceFeasibility.minRows}, ${prominenceFeasibility.maxRows}]`,
-          reason: prominenceFeasibility.reason,
-        });
-        continue; // Skip entire besideCount iteration
-      }
+      // SIMPLIFIED: Removed early prominence feasibility check
+      // Let packing happen and scoring handle it - reduces over-pruning
     }
     
     // Handle "no BESIDE" case (hero at top, all content below)
@@ -468,18 +451,7 @@ export function findValidRegionAssignment(
         softRejection,
       });
       
-      // Early exit for randomize mode - we don't need exhaustive search
-      if (randomize && validRegionAssignments.length >= 8) {
-        devLogger.log('region', 'Early exit (enough candidates for randomize)', {
-          candidates: validRegionAssignments.length,
-        });
-        break;
-      }
-    }
-    
-    // Check if we should exit outer loop too
-    if (randomize && validRegionAssignments.length >= 8) {
-      break;
+      // SIMPLIFIED: No early exit - explore all candidates for maximum variety
     }
   }
   

@@ -54,44 +54,86 @@ function extractPhotoDimensions(
 }
 
 // ============================================================================
-// Tier Coherence Scoring (F-ratio)
+// Cell Balance Scoring (F-ratio + Spread Constraint)
 // ============================================================================
 
-function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
-  if (areas.length < tierCount * 2) {
-    return 0.5; // Neutral score for small sets
+/**
+ * Score a set of cell areas for visual balance.
+ * 
+ * This is a GENERAL-PURPOSE function that works on ANY set of cells.
+ * It has no knowledge of hero/beside/below - just evaluates the geometry.
+ * 
+ * Two components:
+ * 1. COHERENCE (F-ratio): Do cells cluster into distinct size tiers?
+ * 2. SPREAD PENALTY: Is the largest/smallest ratio reasonable?
+ * 
+ * @param areas - All cell areas to evaluate
+ * @param photoCount - Total photos for adaptive spread limit
+ * @param tuning - V3Tuning for baseSpreadLimit
+ * @param tierCount - Number of tiers to detect (default 3)
+ */
+function scoreCellBalance(
+  areas: number[],
+  photoCount: number,
+  tuning: V3Tuning,
+  tierCount: number = 3
+): { score: number; coherence: number; spreadRatio: number; spreadPenalty: number } {
+  if (areas.length < 2) {
+    return { score: 1.0, coherence: 1.0, spreadRatio: 1, spreadPenalty: 0 };
   }
   
   const sorted = [...areas].sort((a, b) => b - a);
-  const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  const largest = sorted[0];
+  const smallest = sorted[sorted.length - 1];
   
-  const tierSize = Math.ceil(sorted.length / tierCount);
-  const tiers: number[][] = [];
-  for (let i = 0; i < tierCount; i++) {
-    tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+  // === Component 1: Tier Coherence (F-ratio) ===
+  let coherence = 0.5;
+  if (areas.length >= tierCount * 2) {
+    const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+    
+    const tierSize = Math.ceil(sorted.length / tierCount);
+    const tiers: number[][] = [];
+    for (let i = 0; i < tierCount; i++) {
+      tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+    }
+    
+    const tierMeans = tiers.map(tier => 
+      tier.reduce((a, b) => a + b, 0) / tier.length
+    );
+    
+    const betweenVar = tierMeans.reduce((sum, mean) => 
+      sum + Math.pow(mean - grandMean, 2), 0
+    ) / tierCount;
+    
+    let withinVarSum = 0;
+    for (let i = 0; i < tierCount; i++) {
+      const tierMean = tierMeans[i];
+      const tierVar = tiers[i].reduce((sum, area) => 
+        sum + Math.pow(area - tierMean, 2), 0
+      ) / tiers[i].length;
+      withinVarSum += tierVar;
+    }
+    const withinVar = withinVarSum / tierCount;
+    
+    const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
+    coherence = Math.min(1.0, fRatio / 5);
   }
   
-  const tierMeans = tiers.map(tier => 
-    tier.reduce((a, b) => a + b, 0) / tier.length
-  );
+  // === Component 2: Spread Penalty ===
+  // Adaptive limit: scales with sqrt(photoCount / 10)
+  // 10 photos → 15:1, 40 photos → 30:1, 90 photos → 45:1
+  const adaptiveLimit = tuning.tier_baseSpreadLimit * Math.sqrt(photoCount / 10);
+  const spreadRatio = smallest > 0 ? largest / smallest : Infinity;
   
-  const betweenVar = tierMeans.reduce((sum, mean) => 
-    sum + Math.pow(mean - grandMean, 2), 0
-  ) / tierCount;
+  // Penalty ramps up when spreadRatio exceeds adaptiveLimit
+  // At 2x the limit, penalty = 0.3 (significant but not fatal)
+  const spreadPenalty = spreadRatio <= adaptiveLimit 
+    ? 0 
+    : Math.min(0.4, (spreadRatio - adaptiveLimit) / adaptiveLimit * 0.3);
   
-  let withinVarSum = 0;
-  for (let i = 0; i < tierCount; i++) {
-    const tierMean = tierMeans[i];
-    const tierVar = tiers[i].reduce((sum, area) => 
-      sum + Math.pow(area - tierMean, 2), 0
-    ) / tiers[i].length;
-    withinVarSum += tierVar;
-  }
-  const withinVar = withinVarSum / tierCount;
+  const score = Math.max(0.1, coherence - spreadPenalty);
   
-  const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
-  
-  return Math.min(1.0, fRatio / 5);
+  return { score, coherence, spreadRatio, spreadPenalty };
 }
 
 // ============================================================================
@@ -207,11 +249,12 @@ function generateCandidates(
           continue;
         }
         
-        // Score using F-ratio + presence bonus
-        const allAreas = [...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
-        const coherenceScore = tierCoherenceScore(allAreas);
+        // Score using F-ratio + spread constraint + presence bonus
+        // Include hero in balance scoring - this is the key fix!
+        const allAreas = [heroArea, ...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
+        const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-        const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
+        const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
         
         // Pick corner (random for variety, top-left for determinism)
         const corner = randomize 

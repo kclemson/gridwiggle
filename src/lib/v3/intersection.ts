@@ -20,7 +20,7 @@ import {
 } from './types';
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findValidRegionAssignment, RejectedPack } from './region-search';
-import { calculateContentStats, coefficientOfVariation, getEffectiveMinProminence, getEffectiveMaxToSmallest, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
+import { calculateContentStats, tierCoherenceScore, getEffectiveMinProminence, getEffectiveMaxToSmallest, getEffectiveCanvasMinAR, getEffectiveCanvasMaxAR } from './utils';
 import { proposePositions, validateProminence, validateSmallestCellRatio, findHeroPhoto, getContentPhotos } from './entities/hero';
 import { devLogger } from '@/lib/devLogger';
 
@@ -562,14 +562,14 @@ function scoreConfiguration(
   // Base score from prominence (higher prominence = better)
   const prominenceScore = prominenceRatio / tuning.hero_targetProminence;
   
-  // Cell area uniformity (lower variance = better)
+  // Tier coherence: reward distinct size hierarchy (consistent with region-search)
   const areas = cells.slice(1).map(c => c.width * c.height); // Exclude hero
-  const areaUniformity = areas.length > 1 ? 1 / (1 + coefficientOfVariation(areas)) : 1;
+  const coherenceScore = tierCoherenceScore(areas);
   
   // Random tiebreaker only when shuffling for variety
   const randomTiebreaker = randomize ? Math.random() * 0.01 : 0;
   
-  return (prominenceScore * 0.6) + (areaUniformity * 0.4) + randomTiebreaker;
+  return (prominenceScore * 0.6) + (coherenceScore * 0.4) + randomTiebreaker;
 }
 
 
@@ -679,9 +679,9 @@ function generateSimpleRowsLayout(
     position: 'top-left',
   };
   
-  // Score based on area uniformity (scale-invariant)
+  // Score based on tier coherence (scale-invariant, consistent with hero layouts)
   const areas = cells.map(c => c.width * c.height);
-  const areaUniformity = 1 / (1 + coefficientOfVariation(areas));
+  const coherenceScore = tierCoherenceScore(areas);
   
   return {
     proposal: dummyProposal,
@@ -690,7 +690,7 @@ function generateSimpleRowsLayout(
     canvasHeight,
     canvasWidth,
     prominenceRatio: 1,
-    score: areaUniformity,
+    score: coherenceScore,
     softRejection,
   };
 }

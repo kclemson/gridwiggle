@@ -1,129 +1,114 @@
 
 
-# Relaxing Constraints for More Variety
+# Fixing Landscape Variety: Randomize Search Order + Row Count
 
-## Problem Diagnosis
+## The Problem
 
-The uniformity in photo sizes comes from two places where we're being **too tight**:
+Your capture data reveals two issues limiting canvas AR variety:
 
-1. **AR Budget Jitter is too small** (`row_arBudgetJitter = 0.2`)
-2. **Row count range has a hidden cap** (`Math.ceil(n / 2)`)
+| File | Photo Count | Hero AR | Canvas AR Range | Issue |
+|------|-------------|---------|-----------------|-------|
+| First | 46 | 0.80 (portrait) | 0.50 - 0.72 | ALL portrait |
+| Second | 5-35 | varied | 0.48 - 1.45 | Better, but still portrait-heavy |
 
-Both already exist as knobs - we just need to relax them.
+The 46-photo set with portrait hero produces **zero** landscape canvases despite `canvas_maxAR = 2.25` allowing them.
 
----
+## Root Cause: Ordered Search + Early Exit
 
-## Root Cause 1: Conservative Jitter
+The search in `region-search.ts` loops through `besideCount` values **in ascending order**:
 
-In `distributeByARBudget()`, each row targets a "jittered" AR budget:
-
+```text
+for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++)
 ```
-jitteredTarget = baseRowAR × (1 ± jitter)
+
+Combined with the early exit at 8 candidates:
+
+```text
+if (randomize && validRegionAssignments.length >= 8) break;
 ```
 
-With `jitter = 0.2`, row heights vary by only ±20%. This produces rows that are all **roughly the same height** - the "wall of uniformity."
+**Result:** The first 8 valid candidates all come from low `besideCount` values → tall canvases → portrait bias.
 
-**Fix**: Increase `row_arBudgetJitter` from `0.2` to `0.4` (or even `0.5`).
+## The Fix: Randomize Search Order
 
-This means:
-- One row might be 60% of base budget → tall row with fewer photos
-- Another might be 140% of base budget → short row with many photos
-- Natural size hierarchy emerges without any new parameters
+Instead of searching 0→1→2→3... randomize the order we visit `besideCount` values:
 
----
+```text
+// Before: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+// After:  [5, 2, 8, 0, 3, 7, 1, 6, 4]  (shuffled)
+```
 
-## Root Cause 2: Row Count Cap
+This ensures the 8 collected candidates represent diverse configurations, not just the first 8 in sequence.
 
-In `calculateBelowRowCount()`, line 357:
+## Implementation Details
+
+### File: `src/lib/v3/region-search.ts`
+
+**Change 1: Randomize besideCount search order (around line 161)**
 
 ```typescript
-const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
+// Current:
+for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
+
+// New:
+// Build array of besideCount values to try
+const besideCountsToTry = [];
+for (let bc = minBeside; bc <= maxBeside; bc++) {
+  besideCountsToTry.push(bc);
+}
+
+// Shuffle if randomizing for variety
+const orderedBesideCounts = randomize 
+  ? shuffleArray(besideCountsToTry) 
+  : besideCountsToTry;
+
+for (const besideCount of orderedBesideCounts) {
 ```
 
-That `Math.ceil(n / 2)` means for 46 photos, maxRows is capped at 23 - but more importantly, it artificially limits variety when minRows is high.
+**Change 2: Randomize besideRowCount order (around line 311)**
 
-For example, if constraints say `minRows = 5, maxRows = 4` (from the cap), the range collapses to just `[5, 5]` - no variety at all.
-
-**Fix**: Remove the `Math.ceil(n / 2)` cap entirely. Let the geometric constraints (`maxRowsByMinAR`, `minRowsByMaxAR`, `minRowsByCellSize`) determine the valid range naturally.
-
----
-
-## Implementation
-
-### File: `src/lib/v3/types.ts`
-
-Change line 69:
 ```typescript
-// Before
-row_arBudgetJitter: 0.2,
+// Current:
+for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
 
-// After
-row_arBudgetJitter: 0.4,
+// New:
+const besideRowCountsToTry = [];
+for (let rc = minRows; rc <= maxRows; rc++) {
+  besideRowCountsToTry.push(rc);
+}
+const orderedBesideRowCounts = randomize 
+  ? shuffleArray(besideRowCountsToTry) 
+  : besideRowCountsToTry;
+
+for (const besideRowCount of orderedBesideRowCounts) {
 ```
 
-This widens the per-row AR budget variation from ±20% to ±40%.
+### Why This Works
 
-### File: `src/lib/v3/normalized-pack.ts`
-
-Change line 357:
-```typescript
-// Before
-const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR, Math.ceil(n / 2)));
-
-// After
-const maxRows = Math.max(minRows, Math.min(n, maxRowsByMinAR));
-```
-
-Remove the artificial `n/2` cap that was constraining the row count range.
-
----
+- **Same constraint system** — no new parameters or relaxed thresholds
+- **Same candidate pool** — just visited in random order
+- **Early exit still works** — but now collects diverse candidates
+- **No directional bias** — portrait and landscape configs have equal chance of being in first 8
 
 ## Expected Impact
 
-### Before (jitter 0.2, with n/2 cap)
+| Before | After |
+|--------|-------|
+| First 8 candidates: besideCount 0-4 | First 8 candidates: random mix of all valid besideCount |
+| Canvas AR clustered around minAR | Canvas AR spread across valid range |
+| Portrait hero → portrait canvas | Portrait hero → variety of canvas shapes |
 
-| Row | AR Budget | Photos | Height |
-|-----|-----------|--------|--------|
-| 1 | 4.2 | 5 | 0.15 |
-| 2 | 3.8 | 5 | 0.16 |
-| 3 | 4.0 | 5 | 0.155 |
-| 4 | 4.1 | 5 | 0.152 |
+## Test Matrix
 
-All rows nearly identical → F-ratio ~0.3
+For 46 photos with portrait hero (AR 0.8):
 
-### After (jitter 0.4, no n/2 cap)
+| Metric | Before | Expected After |
+|--------|--------|----------------|
+| Canvas AR range | 0.50 - 0.72 | 0.50 - 1.50+ |
+| Layouts with canvasAR > 1.0 | 0% | ~30-40% |
+| Unique configurations | ~3-4 | ~8+ |
 
-| Row | AR Budget | Photos | Height |
-|-----|-----------|--------|--------|
-| 1 | 5.5 | 7 | 0.11 (short, crowded) |
-| 2 | 3.0 | 4 | 0.20 (tall, spacious) |
-| 3 | 4.8 | 6 | 0.13 |
-| 4 | 2.7 | 3 | 0.22 (tall) |
+## Summary
 
-Clear size tiers → F-ratio ~2.5+
-
----
-
-## Why This Works
-
-We're not adding new constraints - we're **relaxing existing ones**:
-
-1. The jitter parameter already exists and is designed for this purpose - we were just being too conservative with `0.2`
-
-2. The `n/2` cap was a safety valve from earlier iterations when we weren't sure how many rows made sense - now that we have proper geometric constraints (`maxRowsByMinAR`, `minRowsByMaxAR`, `minRowsByCellSize`), it's redundant
-
----
-
-## Technical Details
-
-### Files to Modify
-
-| File | Line | Change |
-|------|------|--------|
-| `src/lib/v3/types.ts` | 69 | `row_arBudgetJitter: 0.2` → `0.4` |
-| `src/lib/v3/normalized-pack.ts` | 357 | Remove `Math.ceil(n / 2)` from max calculation |
-
-### Risk Assessment
-
-**Low risk**: Both changes widen existing ranges rather than introducing new logic. The geometric constraints remain in place to prevent truly broken layouts (too tall, too wide, tiny cells). We're just giving the randomization more room to explore.
+This is a pure algorithmic fix — no new tuning parameters, no relaxed constraints. We're just ensuring that when `randomize=true`, we actually explore the search space randomly rather than sequentially.
 

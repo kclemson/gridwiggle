@@ -200,20 +200,14 @@ export function findValidRegionAssignment(
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      // Soft rejection for AR bounds
-      let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
+      // Hard rejection for AR bounds (symmetric enforcement)
       const AR_EPSILON = 0.01;
       
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
-        softRejection = {
-          reason: 'canvas_too_tall',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${tuning.canvas_minAR}-${tuning.canvas_maxAR}` },
-        };
-      } else if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        softRejection = {
-          reason: 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), allowed: `${tuning.canvas_minAR}-${tuning.canvas_maxAR}` },
-        };
+        continue; // Hard skip: canvas too tall
+      }
+      if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+        continue; // Hard skip: canvas too wide
       }
       
       const emptyBesideResult = { cells: [], width: 0, height: 1.0 };
@@ -225,7 +219,6 @@ export function findValidRegionAssignment(
         besideRowCount: 0,
         belowRowCount,
         score,
-        softRejection,
       });
       continue;
     }
@@ -267,20 +260,14 @@ export function findValidRegionAssignment(
       const normalizedHeightWithBorder = totalHeight + 2 * normalizedGap;
       const canvasAR = normalizedWidthWithBorder / normalizedHeightWithBorder;
       
-      // Soft rejection for AR bounds
-      let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
+      // Hard rejection for AR bounds (symmetric enforcement)
       const AR_EPSILON = 0.01;
       
       if (canvasAR < tuning.canvas_minAR - AR_EPSILON) {
-        softRejection = {
-          reason: 'canvas_too_tall',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount, besideRowCount, belowRowCount },
-        };
-      } else if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
-        softRejection = {
-          reason: 'canvas_too_wide',
-          details: { canvasAR: +canvasAR.toFixed(2), besideCount, besideRowCount, belowRowCount },
-        };
+        continue; // Hard skip: canvas too tall
+      }
+      if (canvasAR > tuning.canvas_maxAR + AR_EPSILON) {
+        continue; // Hard skip: canvas too wide
       }
       
       // Per-row prominence check (hero vs beside region only)
@@ -307,7 +294,6 @@ export function findValidRegionAssignment(
         besideRowCount,
         canvasAR: canvasAR.toFixed(2),
         score: score.toFixed(3),
-        softRejection: softRejection?.reason,
       });
       
       validRegionAssignments.push({
@@ -316,7 +302,6 @@ export function findValidRegionAssignment(
         besideRowCount,
         belowRowCount,
         score,
-        softRejection,
       });
     }
   }
@@ -357,10 +342,6 @@ export function findValidRegionAssignment(
       besideRowCount: 0,
       belowRowCount: fallbackRowResult.value,
       score: 0.1,
-      softRejection: { 
-        reason: 'fallback_all_below', 
-        details: { photoCount: photos.length, heroAR: +heroAR.toFixed(2) } 
-      },
     },
     lastRejectedPack,
   };

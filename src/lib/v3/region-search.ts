@@ -158,7 +158,18 @@ export function findValidRegionAssignment(
     randomize,
   });
   
-  for (let besideCount = minBeside; besideCount <= maxBeside; besideCount++) {
+  // Build array of besideCount values to try
+  const besideCountsToTry: number[] = [];
+  for (let bc = minBeside; bc <= maxBeside; bc++) {
+    besideCountsToTry.push(bc);
+  }
+  
+  // Shuffle if randomizing for variety - ensures diverse canvas AR in first 8 candidates
+  const orderedBesideCounts = randomize 
+    ? shuffleArray(besideCountsToTry) 
+    : besideCountsToTry;
+
+  for (const besideCount of orderedBesideCounts) {
     // Distribute using AR-stratified sampling (proportional from each AR bucket)
     const [besidePhotos, belowPhotos] = stratifiedARDistribution(
       orderedPhotos,
@@ -308,7 +319,18 @@ export function findValidRegionAssignment(
     // Try different row counts for BESIDE
     const [minRows, maxRows] = calculateRowCountRange(besidePhotos, 1.0, normalizedGap);
     
-    for (let besideRowCount = minRows; besideRowCount <= maxRows; besideRowCount++) {
+    // Build array of row counts to try
+    const besideRowCountsToTry: number[] = [];
+    for (let rc = minRows; rc <= maxRows; rc++) {
+      besideRowCountsToTry.push(rc);
+    }
+    
+    // Shuffle if randomizing for variety
+    const orderedBesideRowCounts = randomize 
+      ? shuffleArray(besideRowCountsToTry) 
+      : besideRowCountsToTry;
+
+    for (const besideRowCount of orderedBesideRowCounts) {
       // Pack BESIDE at height = 1
       const besideResult = packToFillHeight(besidePhotos, 1.0, normalizedGap, besideRowCount, tuning, randomize);
       

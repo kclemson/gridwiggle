@@ -131,27 +131,11 @@ export function canBesideCountMeetCanvasAR(
   const requiredTotalHeight = canvasWidth / tuning.canvas_maxAR;
   const requiredBelowHeight = Math.max(0, requiredTotalHeight - heroRowHeightWithGaps);
   
-  // NOTE: Removed the "BELOW too short" check that was here.
-  // That check was inverted - it rejected wide canvases for not having enough
-  // height from BELOW, but we *want* wide canvases. The actual AR validation
-  // in region-search.ts handles this correctly with soft rejections.
-  
-  // No BELOW photos or no height needed → use original check
-  // Use effective canvas AR bounds (relaxed for low photo counts)
-  const effectiveMaxAR = getEffectiveCanvasMaxAR(totalContentCount, tuning);
-  const bestCaseAR = canvasWidth / (1.0 + 2 * normalizedGap);
-  const feasible = bestCaseAR <= effectiveMaxAR * 1.1;
-  
-  if (!feasible) {
-    devLogger.log('feasibility', 'Canvas AR infeasible for besideCount', {
-      besideCount: besidePhotos.length,
-      minHeroRowWidth: minHeroRowWidth.toFixed(2),
-      bestCaseAR: bestCaseAR.toFixed(2),
-      maxAR: effectiveMaxAR,
-    });
-  }
-  
-  return { feasible, minHeroRowWidth };
+  // Always return feasible - let region-search.ts validate canvas AR
+  // with full knowledge of BELOW height (accurate vs. this estimate).
+  // The previous check here ignored BELOW height entirely, causing it to
+  // reject valid landscape configurations for large photo sets.
+  return { feasible: true, minHeroRowWidth };
 }
 
 /**

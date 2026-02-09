@@ -347,6 +347,64 @@ function validateAndRedistribute(
 }
 
 // ============================================================================
+// Tier Coherence Scoring (F-ratio)
+// ============================================================================
+
+/**
+ * Calculate tier coherence (F-ratio) for cell areas.
+ * Measures how well areas cluster into distinct size tiers.
+ * 
+ * High F = clear hierarchy (good for hero layouts)
+ * Low F = too uniform OR too chaotic
+ * 
+ * This replaces uniformity + parity scoring with a single metric that
+ * REWARDS hierarchy rather than penalizing it.
+ */
+export function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
+  if (areas.length < tierCount * 2) {
+    // Not enough cells for meaningful tiers - neutral score
+    return 0.5;
+  }
+  
+  const sorted = [...areas].sort((a, b) => b - a);
+  const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  
+  // Split into equal-sized tiers
+  const tierSize = Math.ceil(sorted.length / tierCount);
+  const tiers: number[][] = [];
+  for (let i = 0; i < tierCount; i++) {
+    tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+  }
+  
+  // Calculate tier means
+  const tierMeans = tiers.map(tier => 
+    tier.reduce((a, b) => a + b, 0) / tier.length
+  );
+  
+  // Between-tier variance: how spread apart are the tier means?
+  const betweenVar = tierMeans.reduce((sum, mean) => 
+    sum + Math.pow(mean - grandMean, 2), 0
+  ) / tierCount;
+  
+  // Within-tier variance: how scattered within each tier?
+  let withinVarSum = 0;
+  for (let i = 0; i < tierCount; i++) {
+    const tierMean = tierMeans[i];
+    const tierVar = tiers[i].reduce((sum, area) => 
+      sum + Math.pow(area - tierMean, 2), 0
+    ) / tiers[i].length;
+    withinVarSum += tierVar;
+  }
+  const withinVar = withinVarSum / tierCount;
+  
+  // F-ratio (protect against division by zero)
+  const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
+  
+  // Normalize: F of 5+ → score 1.0
+  return Math.min(1.0, fRatio / 5);
+}
+
+// ============================================================================
 // AR-Stratified Distribution
 // ============================================================================
 

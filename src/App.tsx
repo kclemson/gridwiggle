@@ -6,6 +6,7 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import LayoutRating from "./pages/LayoutRating";
 import V3Test from "./pages/V3Test";
+import HeroFractionRating from "./pages/HeroFractionRating";
 import { remoteLogger } from "@/lib/remoteLogger";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ const App = () => {
               <>
                 <Route path="/layout-rating" element={<LayoutRating />} />
                 <Route path="/v3-test" element={<V3Test />} />
+                <Route path="/hero-fraction" element={<HeroFractionRating />} />
               </>
             )}
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

@@ -10,7 +10,7 @@ interface HeroFractionVisualizationProps {
  * Hero rects shown in amber/gold, remaining space is neutral gray.
  */
 export function HeroFractionVisualization({ result }: HeroFractionVisualizationProps) {
-  const { canvasAR, heroRects, heroARs, heroCount, actualAreaFraction, template } = result;
+  const { canvasAR, heroRects, heroARs, heroCount, actualAreaFraction, template, scenario } = result;
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -53,6 +53,11 @@ export function HeroFractionVisualization({ result }: HeroFractionVisualizationP
 
       {/* Stats badges */}
       <div className="flex flex-wrap gap-2 justify-center">
+        {scenario && (
+          <Badge variant="default" className="font-mono text-xs">
+            {scenario}
+          </Badge>
+        )}
         <Badge variant="outline" className="font-mono text-xs">
           Area: {Math.round(actualAreaFraction * 100)}%
         </Badge>

@@ -379,6 +379,124 @@ export function generateHeroFractionBatch(_count: number = 40): HeroPlacementRes
   return results;
 }
 
+// ─── Round 3: Boundary Stress-Test Generator ─────────────────────────
+
+export function generateRound3Batch(): HeroPlacementResult[] {
+  const results: HeroPlacementResult[] = [];
+
+  // 1. Dual Area Fraction Sweep (12 trials)
+  const dualAreaSteps = [0.16, 0.18, 0.20, 0.38, 0.40, 0.42, 0.44];
+  // Portrait subset: pick 6 from 7 steps (drop one randomly for exact count, or just use first 6)
+  for (let i = 0; i < 6; i++) {
+    const af = dualAreaSteps[i < 6 ? i : 6];
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.6, 0.7)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(0.8, 1.2)), r2(randomInRange(0.8, 1.2))],
+      heroAreaFraction: af,
+      template: 'diagonal-corners',
+      scenario: `r3/dual-area/portrait/${af}`,
+    }));
+  }
+  // Landscape subset: 6 trials
+  for (let i = 0; i < 6; i++) {
+    const af = dualAreaSteps[i < 6 ? i : 6];
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(1.5, 1.7)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(0.8, 1.2)), r2(randomInRange(0.8, 1.2))],
+      heroAreaFraction: af,
+      template: 'diagonal-corners',
+      scenario: `r3/dual-area/landscape/${af}`,
+    }));
+  }
+
+  // 2. Band AR Ratio Sweep (10 trials)
+  const ratioSteps = [2.0, 2.3, 2.6, 2.9, 3.2];
+  for (const ratio of ratioSteps) {
+    const canvasAR = r2(randomInRange(0.6, 0.7));
+    const heroAR = r2(ratio * canvasAR);
+    results.push(generateHeroPlacement({
+      canvasAR,
+      heroCount: 1,
+      heroARs: [heroAR],
+      heroAreaFraction: r2(randomInRange(0.22, 0.32)),
+      template: 'top-band',
+      scenario: `r3/band-ratio/top/${ratio}`,
+    }));
+  }
+  for (const ratio of ratioSteps) {
+    const canvasAR = r2(randomInRange(0.6, 0.7));
+    const heroAR = r2(ratio * canvasAR);
+    results.push(generateHeroPlacement({
+      canvasAR,
+      heroCount: 1,
+      heroARs: [heroAR],
+      heroAreaFraction: r2(randomInRange(0.22, 0.32)),
+      template: 'bottom-band',
+      scenario: `r3/band-ratio/bottom/${ratio}`,
+    }));
+  }
+
+  // 3. Single Hero on Square Canvas (8 trials)
+  const singleSteps = [0.28, 0.30, 0.32, 0.34, 0.36, 0.38, 0.40, 0.42];
+  for (const af of singleSteps) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.95, 1.05)),
+      heroCount: 1,
+      heroARs: [r2(randomInRange(0.85, 1.15))],
+      heroAreaFraction: af,
+      template: 'corner-anchor',
+      scenario: `r3/single-square/${af}`,
+    }));
+  }
+
+  // 4. Axis-Mismatch Confirmation (6 trials)
+  for (let i = 0; i < 3; i++) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.55, 0.7)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(1.4, 2.0)), r2(randomInRange(1.4, 2.0))],
+      heroAreaFraction: r2(randomInRange(0.25, 0.30)),
+      template: 'side-by-side',
+      scenario: `r3/axis-mismatch/sbs-portrait/${i + 1}`,
+    }));
+  }
+  for (let i = 0; i < 3; i++) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(1.5, 1.8)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(0.5, 0.75)), r2(randomInRange(0.5, 0.75))],
+      heroAreaFraction: r2(randomInRange(0.25, 0.30)),
+      template: 'top-bottom',
+      scenario: `r3/axis-mismatch/tb-landscape/${i + 1}`,
+    }));
+  }
+
+  // 5. Wild Cards (4 trials)
+  for (let i = 0; i < 4; i++) {
+    const isDual = Math.random() > 0.5;
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.5, 2.0)),
+      heroCount: isDual ? 2 : 1,
+      heroARs: isDual
+        ? [r2(randomInRange(0.5, 2.0)), r2(randomInRange(0.5, 2.0))]
+        : [r2(randomInRange(0.5, 2.0))],
+      heroAreaFraction: r2(randomInRange(0.16, 0.44)),
+      template: isDual ? randomChoice(DUAL_TEMPLATES) : randomChoice(SINGLE_TEMPLATES),
+      scenario: `r3/wildcard/${i + 1}`,
+    }));
+  }
+
+  // Shuffle
+  for (let i = results.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [results[i], results[j]] = [results[j], results[i]];
+  }
+
+  return results; // 12 + 10 + 8 + 6 + 4 = 40 trials
+}
+
 // ─── Round 2: Structured Scenario Generator ──────────────────────────
 
 type CanvasShape = 'portrait' | 'square' | 'landscape';

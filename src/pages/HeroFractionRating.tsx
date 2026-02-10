@@ -7,6 +7,7 @@ import { HeroFractionVisualization } from '@/components/hero-fraction/HeroFracti
 import {
   generateHeroFractionBatch,
   generateRound2Batch,
+  generateRound3Batch,
   HeroPlacementResult,
   HeroFractionRatingData,
   HERO_FRACTION_TAGS,
@@ -22,11 +23,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type RoundType = 'round1' | 'round2';
+type RoundType = 'round1' | 'round2' | 'round3';
 
 const GENERATORS: Record<RoundType, () => HeroPlacementResult[]> = {
   round1: () => generateHeroFractionBatch(),
   round2: () => generateRound2Batch(),
+  round3: () => generateRound3Batch(),
 };
 
 export default function HeroFractionRating() {
@@ -163,6 +165,7 @@ export default function HeroFractionRating() {
               <SelectContent>
                 <SelectItem value="round1">Round 1</SelectItem>
                 <SelectItem value="round2">Round 2</SelectItem>
+                <SelectItem value="round3">Round 3 (boundaries)</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -48,16 +48,6 @@ export default function HeroFractionRating() {
     });
   }, []);
 
-  // Persist tags whenever they change for a 'bad' rated trial
-  useEffect(() => {
-    const existing = ratings.get(currentIndex);
-    if (existing && existing.rating === 'bad') {
-      const tagsArray = Array.from(selectedTags);
-      if (JSON.stringify(existing.tags) !== JSON.stringify(tagsArray)) {
-        setRatings(prev => new Map(prev).set(currentIndex, { ...existing, tags: tagsArray }));
-      }
-    }
-  }, [selectedTags]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rate = useCallback(
     (rating: 'good' | 'bad' | 'skip') => {
@@ -191,21 +181,19 @@ export default function HeroFractionRating() {
           </Button>
         </div>
 
-        {/* Issue tags (shown for bad ratings) */}
-        {currentRating === 'bad' && (
-          <div className="flex flex-wrap justify-center gap-2">
-            {HERO_FRACTION_TAGS.map(tag => (
-              <Badge
-                key={tag}
-                variant={selectedTags.has(tag) ? 'default' : 'outline'}
-                className="cursor-pointer select-none"
-                onClick={() => toggleTag(tag)}
-              >
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        )}
+        {/* Issue tags — always visible, select before rating */}
+        <div className="flex flex-wrap justify-center gap-2">
+          {HERO_FRACTION_TAGS.map(tag => (
+            <Badge
+              key={tag}
+              variant={selectedTags.has(tag) ? 'default' : 'outline'}
+              className="cursor-pointer select-none"
+              onClick={() => toggleTag(tag)}
+            >
+              {tag}
+            </Badge>
+          ))}
+        </div>
 
         <div className="flex justify-center items-center gap-4">
           <Button variant="ghost" size="sm" onClick={goPrev} disabled={currentIndex === 0}>
@@ -223,7 +211,7 @@ export default function HeroFractionRating() {
 
         {/* Keyboard hints */}
         <p className="text-center text-xs text-muted-foreground">
-          Keyboard: G = Good, B = Bad, S = Skip, ← → = Navigate
+          Select tags first, then G = Good, B = Bad, S = Skip, ← → = Navigate
         </p>
       </div>
     </div>

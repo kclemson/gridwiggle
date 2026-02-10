@@ -8,7 +8,10 @@ import {
   generateHeroFractionBatch,
   HeroPlacementResult,
   HeroFractionRatingData,
+  HERO_FRACTION_TAGS,
+  HeroFractionTag,
 } from '@/test/layout/heroFractionGenerator';
+import { Badge } from '@/components/ui/badge';
 
 const BATCH_SIZE = 40;
 
@@ -18,10 +21,43 @@ export default function HeroFractionRating() {
   );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<Map<number, HeroFractionRatingData>>(new Map());
+  const [selectedTags, setSelectedTags] = useState<Set<HeroFractionTag>>(new Set());
 
   const current = batch[currentIndex];
   const ratedCount = ratings.size;
   const progress = (ratedCount / batch.length) * 100;
+
+  // Restore tags when navigating to a previously-rated trial
+  const currentRating = ratings.get(currentIndex)?.rating;
+  const currentTags = ratings.get(currentIndex)?.tags;
+
+  // Sync selectedTags when navigating between trials
+  useEffect(() => {
+    if (currentTags) {
+      setSelectedTags(new Set(currentTags as HeroFractionTag[]));
+    } else {
+      setSelectedTags(new Set());
+    }
+  }, [currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleTag = useCallback((tag: HeroFractionTag) => {
+    setSelectedTags(prev => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag); else next.add(tag);
+      return next;
+    });
+  }, []);
+
+  // Persist tags whenever they change for a 'bad' rated trial
+  useEffect(() => {
+    const existing = ratings.get(currentIndex);
+    if (existing && existing.rating === 'bad') {
+      const tagsArray = Array.from(selectedTags);
+      if (JSON.stringify(existing.tags) !== JSON.stringify(tagsArray)) {
+        setRatings(prev => new Map(prev).set(currentIndex, { ...existing, tags: tagsArray }));
+      }
+    }
+  }, [selectedTags]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rate = useCallback(
     (rating: 'good' | 'bad' | 'skip') => {
@@ -34,15 +70,17 @@ export default function HeroFractionRating() {
         actualAreaFraction: result.actualAreaFraction,
         template: result.template,
         rating,
+        tags: rating === 'bad' ? Array.from(selectedTags) : [],
         ratedAt: new Date().toISOString(),
       };
       setRatings(prev => new Map(prev).set(currentIndex, data));
+      if (rating !== 'bad') setSelectedTags(new Set());
       // Auto-advance
       if (currentIndex < batch.length - 1) {
         setCurrentIndex(i => i + 1);
       }
     },
-    [batch, currentIndex],
+    [batch, currentIndex, selectedTags],
   );
 
   const goPrev = useCallback(() => {
@@ -96,8 +134,6 @@ export default function HeroFractionRating() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [rate, goPrev, goNext]);
-
-  const currentRating = ratings.get(currentIndex)?.rating;
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -155,7 +191,22 @@ export default function HeroFractionRating() {
           </Button>
         </div>
 
-        {/* Navigation */}
+        {/* Issue tags (shown for bad ratings) */}
+        {currentRating === 'bad' && (
+          <div className="flex flex-wrap justify-center gap-2">
+            {HERO_FRACTION_TAGS.map(tag => (
+              <Badge
+                key={tag}
+                variant={selectedTags.has(tag) ? 'default' : 'outline'}
+                className="cursor-pointer select-none"
+                onClick={() => toggleTag(tag)}
+              >
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        )}
+
         <div className="flex justify-center items-center gap-4">
           <Button variant="ghost" size="sm" onClick={goPrev} disabled={currentIndex === 0}>
             <ChevronLeft className="h-4 w-4" />

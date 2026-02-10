@@ -1,37 +1,33 @@
 
 
-# Fix Overlapping Dual Heroes
+# Fix Tag Chips: Always Visible, Select Before Rating
 
 ## Problem
 
-When two heroes are placed using dual templates, their combined dimensions can exceed the canvas, causing overlap. In the screenshot: side-by-side with two wide landscape heroes (AR ~1.9) on a near-square canvas at 52% total area -- each hero is wide enough that they overlap in the middle.
+Two issues with the current tag UI:
 
-## Root Cause
+1. Tags only appear *after* a trial is rated "bad" (`currentRating === 'bad'`), but pressing B auto-advances to the next trial -- so you never see the chips for the trial you just rated.
+2. The desired workflow is: look at the visualization, optionally select issue tags, *then* press B/G/S to confirm the rating and advance. Tags should be available before committing a rating.
 
-`placeDualHeroes` positions heroes at opposite edges without checking whether they collide. For side-by-side: Hero 1 starts at x=0, Hero 2 ends at x=1, but `d1.w + d2.w` can exceed 1.0.
+## Solution
 
-## Fix
+**Always show the tag chips** below the visualization (before the rating buttons). Selecting tags is just pre-loading your reasoning. When you press B, the selected tags get saved with the rating. When you press G or S, tags are cleared (they don't apply to good/skip ratings).
 
-Add an overlap check in `generateHeroPlacement` for dual heroes. After computing dims and placing rects, detect overlap and **shrink heroes proportionally** until they no longer collide, maintaining their aspect ratios.
+This also means auto-advance happens for all ratings (good, bad, skip), and tags reset on advance.
 
-Specifically, for each template:
-- **side-by-side**: if `d1.w + d2.w > 1`, scale both widths (and heights to preserve AR) so they sum to at most ~0.95 (leaving a small gap)
-- **top-bottom**: if `d1.h + d2.h > 1`, scale both heights (and widths) similarly
-- **diagonal-corners**: check for 2D rect intersection and scale down if overlapping
+## Changes
 
-## Technical Details
+### File: `src/pages/HeroFractionRating.tsx`
 
-### File: `src/test/layout/heroFractionGenerator.ts`
+1. **Move tag chips above the rating buttons** and remove the `currentRating === 'bad'` conditional -- tags are always visible.
 
-Add a helper function `fixDualOverlap` called after `placeDualHeroes` that:
+2. **Auto-advance on all ratings** including "bad" (currently bad doesn't advance). Tags get captured at rate-time from `selectedTags`.
 
-1. For `side-by-side`: checks if `d1.w + d2.w > maxSum` (where `maxSum = 0.95`). If so, computes `scale = maxSum / (d1.w + d2.w)` and multiplies both heroes' w and h by `scale`, then re-centers vertically.
+3. **Remove the useEffect that persists tags on change** (line 52-60) -- no longer needed since tags are captured at rate-time, not retroactively synced.
 
-2. For `top-bottom`: same logic but on the height axis. Checks `d1.h + d2.h > 0.95` and scales accordingly.
+4. **Keep the useEffect that restores tags when navigating back** (line 35-41) -- so revisiting a previously-rated trial shows its saved tags.
 
-3. For `diagonal-corners`: checks actual rectangle intersection (AABB overlap test). If overlapping, uniformly scale both heroes down until no overlap, with a minimum gap.
-
-After fixing dims, recalculate `actualAreaFraction` from the corrected rects.
+5. **Update keyboard hint** to mention tag selection workflow: "Select tags, then G/B/S to rate"
 
 No other files change.
 

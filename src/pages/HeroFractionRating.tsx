@@ -8,6 +8,7 @@ import {
   generateHeroFractionBatch,
   generateRound2Batch,
   generateRound3Batch,
+  generateRound4Batch,
   HeroPlacementResult,
   HeroFractionRatingData,
   HERO_FRACTION_TAGS,
@@ -23,12 +24,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type RoundType = 'round1' | 'round2' | 'round3';
+type RoundType = 'round1' | 'round2' | 'round3' | 'round4';
 
 const GENERATORS: Record<RoundType, () => HeroPlacementResult[]> = {
   round1: () => generateHeroFractionBatch(),
   round2: () => generateRound2Batch(),
   round3: () => generateRound3Batch(),
+  round4: () => generateRound4Batch(),
 };
 
 export default function HeroFractionRating() {
@@ -201,6 +203,7 @@ export default function HeroFractionRating() {
                 <SelectItem value="round1">Round 1</SelectItem>
                 <SelectItem value="round2">Round 2</SelectItem>
                 <SelectItem value="round3">Round 3 (boundaries)</SelectItem>
+                <SelectItem value="round4">Round 4 (validation)</SelectItem>
               </SelectContent>
             </Select>
           </div>

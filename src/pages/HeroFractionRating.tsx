@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -6,18 +6,32 @@ import { ThumbsDown, ThumbsUp, SkipForward, ChevronLeft, ChevronRight, Download,
 import { HeroFractionVisualization } from '@/components/hero-fraction/HeroFractionVisualization';
 import {
   generateHeroFractionBatch,
+  generateRound2Batch,
   HeroPlacementResult,
   HeroFractionRatingData,
   HERO_FRACTION_TAGS,
   HeroFractionTag,
 } from '@/test/layout/heroFractionGenerator';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
-const BATCH_SIZE = 40;
+type RoundType = 'round1' | 'round2';
+
+const GENERATORS: Record<RoundType, () => HeroPlacementResult[]> = {
+  round1: () => generateHeroFractionBatch(),
+  round2: () => generateRound2Batch(),
+};
 
 export default function HeroFractionRating() {
+  const [round, setRound] = useState<RoundType>('round2');
   const [batch, setBatch] = useState<HeroPlacementResult[]>(() =>
-    generateHeroFractionBatch(BATCH_SIZE)
+    GENERATORS[round]()
   );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<Map<number, HeroFractionRatingData>>(new Map());
@@ -51,6 +65,7 @@ export default function HeroFractionRating() {
         heroAreaFraction: result.heroAreaFraction,
         actualAreaFraction: result.actualAreaFraction,
         template: result.template,
+        scenario: result.scenario,
         rating,
         tags: rating === 'bad' ? Array.from(tags) : [],
         ratedAt: new Date().toISOString(),
@@ -103,7 +118,15 @@ export default function HeroFractionRating() {
   }, [ratings]);
 
   const regenerate = useCallback(() => {
-    setBatch(generateHeroFractionBatch(BATCH_SIZE));
+    setBatch(GENERATORS[round]());
+    setCurrentIndex(0);
+    setRatings(new Map());
+  }, [round]);
+
+  const switchRound = useCallback((value: string) => {
+    const r = value as RoundType;
+    setRound(r);
+    setBatch(GENERATORS[r]());
     setCurrentIndex(0);
     setRatings(new Map());
   }, []);
@@ -128,8 +151,19 @@ export default function HeroFractionRating() {
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-foreground">Hero Area Fraction Rating</h1>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-foreground">Hero Area Fraction Rating</h1>
+            <Select value={round} onValueChange={switchRound}>
+              <SelectTrigger className="w-32 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="round1">Round 1</SelectItem>
+                <SelectItem value="round2">Round 2</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={regenerate}>
               <RotateCcw className="mr-1 h-4 w-4" />

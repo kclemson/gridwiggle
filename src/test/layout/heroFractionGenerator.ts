@@ -38,19 +38,23 @@ export interface HeroPlacementConfig {
   heroARs: number[];
   heroAreaFraction: number;
   template: HeroTemplate;
+  /** Human-readable label describing what this trial tests */
+  scenario?: string;
 }
 
 export interface HeroPlacementResult extends HeroPlacementConfig {
   heroRects: HeroRect[];
   /** Actual total hero area fraction after clamping */
   actualAreaFraction: number;
+  scenario: string;
 }
 
 export const HERO_FRACTION_TAGS = [
   'hero-too-large',
   'hero-too-small',
   'bad-placement',
-  'bad-shape',
+  'bad-combo',
+  'cramped',
 ] as const;
 
 export type HeroFractionTag = typeof HERO_FRACTION_TAGS[number];
@@ -62,6 +66,7 @@ export interface HeroFractionRatingData {
   heroAreaFraction: number;
   actualAreaFraction: number;
   template: string;
+  scenario: string;
   rating: 'good' | 'bad' | 'skip';
   tags: string[];
   ratedAt: string;
@@ -271,6 +276,8 @@ function fixDualOverlap(
 // ─── Public API ──────────────────────────────────────────────────────
 
 export function generateHeroPlacement(config: HeroPlacementConfig): HeroPlacementResult {
+  const scenario = config.scenario ?? `${config.heroCount === 1 ? 'single' : 'dual'}/${config.template}`;
+
   if (config.heroCount === 1) {
     const { w, h, actualFraction } = computeHeroDims(
       config.heroAreaFraction,
@@ -278,7 +285,7 @@ export function generateHeroPlacement(config: HeroPlacementConfig): HeroPlacemen
       config.canvasAR,
     );
     const rect = placeSingleHero(config.template as SingleHeroTemplate, w, h);
-    return { ...config, heroRects: [rect], actualAreaFraction: actualFraction };
+    return { ...config, scenario, heroRects: [rect], actualAreaFraction: actualFraction };
   }
   
   // Dual: split area fraction evenly between heroes
@@ -292,7 +299,7 @@ export function generateHeroPlacement(config: HeroPlacementConfig): HeroPlacemen
   rects = fixDualOverlap(config.template as DualHeroTemplate, rects);
   const actualFraction = rects.reduce((sum, r) => sum + r.w * r.h, 0);
   
-  return { ...config, heroRects: rects, actualAreaFraction: actualFraction };
+  return { ...config, scenario, heroRects: rects, actualAreaFraction: actualFraction };
 }
 
 function randomInRange(min: number, max: number): number {
@@ -369,4 +376,109 @@ export function generateHeroFractionBatch(_count: number = 40): HeroPlacementRes
   }
 
   return results;
+}
+
+// ─── Round 2: Structured Scenario Generator ──────────────────────────
+
+type CanvasShape = 'portrait' | 'square' | 'landscape';
+type HeroShape = 'P' | 'S' | 'L';
+
+const CANVAS_SHAPE_AR: Record<CanvasShape, { min: number; max: number }> = {
+  portrait:  { min: 0.55, max: 0.75 },
+  square:    { min: 0.9, max: 1.1 },
+  landscape: { min: 1.4, max: 1.8 },
+};
+
+const HERO_SHAPE_AR: Record<HeroShape, { min: number; max: number }> = {
+  P: { min: 0.5, max: 0.75 },
+  S: { min: 0.85, max: 1.15 },
+  L: { min: 1.4, max: 2.0 },
+};
+
+const CANVAS_SHAPES: CanvasShape[] = ['portrait', 'square', 'landscape'];
+
+const DUAL_COMBOS: [HeroShape, HeroShape][] = [
+  ['P', 'P'], ['P', 'L'], ['L', 'P'], ['L', 'L'], ['S', 'P'], ['S', 'L'],
+];
+
+/** Pick a template that stress-tests the given combo */
+function stressDualTemplate(canvas: CanvasShape, h1: HeroShape, h2: HeroShape): DualHeroTemplate {
+  // side-by-side is hardest on portrait canvas with mixed ARs
+  if (canvas === 'portrait' && (h1 !== h2)) return 'side-by-side';
+  // top-bottom is hardest on landscape canvas
+  if (canvas === 'landscape') return 'top-bottom';
+  // diagonal for square or same-shape combos
+  return 'diagonal-corners';
+}
+
+/**
+ * Round 2: structured scenarios with explicit scenario labels.
+ * Narrowed area fraction (0.18–0.42) to focus on the decision boundary.
+ */
+export function generateRound2Batch(): HeroPlacementResult[] {
+  const results: HeroPlacementResult[] = [];
+
+  // ── Single-hero: 5 templates × 3 canvas shapes = 15 ──
+  // Hero AR chosen to create maximum contrast with canvas
+  for (const canvas of CANVAS_SHAPES) {
+    const contrastHeroShape: HeroShape = canvas === 'portrait' ? 'L' : canvas === 'landscape' ? 'P' : 'S';
+    for (const tmpl of SINGLE_TEMPLATES) {
+      const canvasRange = CANVAS_SHAPE_AR[canvas];
+      const heroRange = HERO_SHAPE_AR[contrastHeroShape];
+      const scenario = `single/${canvas}/${contrastHeroShape}-hero/${tmpl}`;
+      results.push(generateHeroPlacement({
+        canvasAR: r2(randomInRange(canvasRange.min, canvasRange.max)),
+        heroCount: 1,
+        heroARs: [r2(randomInRange(heroRange.min, heroRange.max))],
+        heroAreaFraction: r2(randomInRange(0.18, 0.40)),
+        template: tmpl,
+        scenario,
+      }));
+    }
+  }
+
+  // ── Dual-hero AR contrast: 3 canvas shapes × 6 combos = 18 ──
+  for (const canvas of CANVAS_SHAPES) {
+    for (const [h1, h2] of DUAL_COMBOS) {
+      const canvasRange = CANVAS_SHAPE_AR[canvas];
+      const h1Range = HERO_SHAPE_AR[h1];
+      const h2Range = HERO_SHAPE_AR[h2];
+      const tmpl = stressDualTemplate(canvas, h1, h2);
+      const scenario = `dual/${canvas}/${h1}+${h2}/${tmpl}`;
+      results.push(generateHeroPlacement({
+        canvasAR: r2(randomInRange(canvasRange.min, canvasRange.max)),
+        heroCount: 2,
+        heroARs: [
+          r2(randomInRange(h1Range.min, h1Range.max)),
+          r2(randomInRange(h2Range.min, h2Range.max)),
+        ],
+        heroAreaFraction: r2(randomInRange(0.20, 0.42)),
+        template: tmpl,
+        scenario,
+      }));
+    }
+  }
+
+  // ── Wild-card: 7 trials with full randomness ──
+  for (let i = 0; i < 7; i++) {
+    const isDual = Math.random() > 0.5;
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.5, 2.0)),
+      heroCount: isDual ? 2 : 1,
+      heroARs: isDual
+        ? [r2(randomInRange(0.5, 2.0)), r2(randomInRange(0.5, 2.0))]
+        : [r2(randomInRange(0.5, 2.0))],
+      heroAreaFraction: r2(randomInRange(0.15, 0.45)),
+      template: isDual ? randomChoice(DUAL_TEMPLATES) : randomChoice(SINGLE_TEMPLATES),
+      scenario: `wildcard/${i + 1}`,
+    }));
+  }
+
+  // Shuffle
+  for (let i = results.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [results[i], results[j]] = [results[j], results[i]];
+  }
+
+  return results; // 15 + 18 + 7 = 40 trials
 }

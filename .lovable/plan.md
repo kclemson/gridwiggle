@@ -1,35 +1,56 @@
 
 
-# Hero Fraction Rating Tool Updates
+# Stratified Sampling for Hero Fraction Generator (No Template Filtering)
 
-Three changes based on our discussion:
+## Goal
 
-## 1. Match canvas AR range to main app (0.5 - 2.25)
+Ensure every batch of 40 trials systematically covers diverse combinations of canvas AR, hero AR, and template -- so we can **discover** which combos work and which don't through rating, rather than pre-filtering.
 
-The main layout engine uses `canvas_minAR: 0.5` and `canvas_maxAR: 2.25`. The rating tool currently generates canvases in the narrower 0.65 - 1.55 range. Update both single-hero and dual-hero generation loops to use **0.5 - 2.25**.
+## What Changes
 
-## 2. Replace `top-band-split` with `top-bottom` dual-hero template
+Only one file changes: `src/test/layout/heroFractionGenerator.ts`
 
-The `top-band-split` template (two heroes side-by-side at top) was rated 100% bad. Replace it with `top-bottom`: Hero 1 centered horizontally at the top edge, Hero 2 centered horizontally at the bottom edge.
+The `generateHeroFractionBatch` function switches from fully random to stratified generation. Everything else (types, placement functions, visualization, rating page) stays exactly as-is. All 5 single templates and all 3 dual templates remain eligible everywhere.
 
-## 3. Brighter canvas background
+## Stratified Sampling Design
 
-Change the canvas from `bg-muted/40` to `bg-white` so the canvas boundary is clearly distinct from the dark page background.
+**Three AR buckets** (used for both canvas and hero):
 
----
+| Bucket | Range |
+|--------|-------|
+| Portrait | 0.5 - 0.8 |
+| Near-square | 0.8 - 1.2 |
+| Landscape | 1.2 - 2.25 |
+
+**Single heroes (28 trials):** 9 cells in the canvas-bucket x hero-bucket grid. 3 trials per cell = 27, plus 1 wild-card (fully random) = 28. Within each cell, exact AR values, area fraction (0.15-0.60), and template are randomized from the full set of 5 templates.
+
+**Dual heroes (12 trials):** 9 cells, 1 trial per cell = 9, plus 3 wild-cards = 12. Hero 1's AR is bucketed, hero 2's AR is fully random (0.5-2.0). Template chosen randomly from all 3 dual templates.
+
+Final array is shuffled so bucket structure isn't visible during rating.
 
 ## Technical Details
 
 ### `src/test/layout/heroFractionGenerator.ts`
 
-- Change both `randomInRange(0.65, 1.55)` calls (lines ~164 and ~175) to `randomInRange(0.5, 2.25)`
-- In the `DualHeroTemplate` type, rename `'top-band-split'` to `'top-bottom'`
-- In the `DUAL_TEMPLATES` array, rename `'top-band-split'` to `'top-bottom'`
-- Replace the `'top-band-split'` case in `placeDualHeroes` with `'top-bottom'` logic:
-  - Hero 1: `{ x: (1 - d1.w) / 2, y: 0, w: d1.w, h: d1.h }`
-  - Hero 2: `{ x: (1 - d2.w) / 2, y: 1 - d2.h, w: d2.w, h: d2.h }`
+**Add AR bucket definition:**
+```text
+const AR_BUCKETS = [
+  { min: 0.5, max: 0.8 },
+  { min: 0.8, max: 1.2 },
+  { min: 1.2, max: 2.25 },
+];
+```
 
-### `src/components/hero-fraction/HeroFractionVisualization.tsx`
+**Replace `generateHeroFractionBatch`:**
+- Nested loop over `AR_BUCKETS` for canvas x hero (9 combos)
+- For single: generate 3 trials per combo (27) + 1 fully random = 28
+- For dual: generate 1 trial per combo (9) + 3 fully random = 12
+- Each trial picks `canvasAR` from its canvas bucket, `heroAR` from its hero bucket, random area fraction, random template from the full eligible set
+- Shuffle the combined 40-element array
 
-- Change canvas class from `bg-muted/40` to `bg-white`
+**No changes to:**
+- Template types or arrays (all 5 single + 3 dual stay)
+- `placeSingleHero` or `placeDualHeroes` functions
+- `computeHeroDims` or any other existing logic
+- Visualization component or rating page
 

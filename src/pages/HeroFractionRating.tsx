@@ -91,13 +91,48 @@ export default function HeroFractionRating() {
     rate('bad', nextTags);
   }, [selectedTags, rate]);
 
+  const saveNotes = useCallback(() => {
+    if (!notes) return;
+    setRatings(prev => {
+      const existing = prev.get(currentIndex);
+      if (existing) {
+        const next = new Map(prev);
+        next.set(currentIndex, { ...existing, notes: notes || undefined });
+        return next;
+      }
+      // No rating yet — store a placeholder so notes survive navigation
+      const result = batch[currentIndex];
+      const next = new Map(prev);
+      next.set(currentIndex, {
+        canvasAR: result.canvasAR,
+        heroCount: result.heroCount,
+        heroARs: result.heroARs,
+        heroAreaFraction: result.heroAreaFraction,
+        actualAreaFraction: result.actualAreaFraction,
+        template: result.template,
+        scenario: result.scenario,
+        rating: 'skip',
+        tags: [],
+        notes: notes || undefined,
+        ratedAt: new Date().toISOString(),
+      });
+      return next;
+    });
+  }, [notes, currentIndex, batch]);
+
   const goPrev = useCallback(() => {
-    if (currentIndex > 0) setCurrentIndex(i => i - 1);
-  }, [currentIndex]);
+    if (currentIndex > 0) {
+      saveNotes();
+      setCurrentIndex(i => i - 1);
+    }
+  }, [currentIndex, saveNotes]);
 
   const goNext = useCallback(() => {
-    if (currentIndex < batch.length - 1) setCurrentIndex(i => i + 1);
-  }, [currentIndex, batch.length]);
+    if (currentIndex < batch.length - 1) {
+      saveNotes();
+      setCurrentIndex(i => i + 1);
+    }
+  }, [currentIndex, batch.length, saveNotes]);
 
   const exportJSON = useCallback(() => {
     const allRatings = Array.from(ratings.values());

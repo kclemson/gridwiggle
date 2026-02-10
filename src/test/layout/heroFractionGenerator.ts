@@ -199,6 +199,75 @@ function placeDualHeroes(
   }
 }
 
+// ─── Dual Overlap Fix ────────────────────────────────────────────────
+
+const MAX_SUM = 0.95; // leave a small gap between heroes
+
+function rectsOverlap(a: HeroRect, b: HeroRect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function fixDualOverlap(
+  template: DualHeroTemplate,
+  rects: HeroRect[],
+): HeroRect[] {
+  const [r1, r2] = rects;
+
+  switch (template) {
+    case 'side-by-side': {
+      const totalW = r1.w + r2.w;
+      if (totalW > MAX_SUM) {
+        const scale = MAX_SUM / totalW;
+        r1.w *= scale; r1.h *= scale;
+        r2.w *= scale; r2.h *= scale;
+        // re-position: hero1 left-aligned, hero2 right-aligned, re-center vertically
+        r1.y = (1 - r1.h) / 2;
+        r2.x = 1 - r2.w;
+        r2.y = (1 - r2.h) / 2;
+      }
+      break;
+    }
+    case 'top-bottom': {
+      const totalH = r1.h + r2.h;
+      if (totalH > MAX_SUM) {
+        const scale = MAX_SUM / totalH;
+        r1.w *= scale; r1.h *= scale;
+        r2.w *= scale; r2.h *= scale;
+        // re-position: hero1 top, hero2 bottom, re-center horizontally
+        r1.x = (1 - r1.w) / 2;
+        r2.x = (1 - r2.w) / 2;
+        r2.y = 1 - r2.h;
+      }
+      break;
+    }
+    case 'diagonal-corners': {
+      // Iteratively scale down until no overlap
+      let scale = 1;
+      const maxIter = 20;
+      for (let i = 0; i < maxIter && rectsOverlap(
+        { x: r1.x, y: r1.y, w: r1.w * scale, h: r1.h * scale },
+        { x: r2.x + r2.w * (1 - scale), y: r2.y + r2.h * (1 - scale), w: r2.w * scale, h: r2.h * scale },
+      ); i++) {
+        scale *= 0.9;
+      }
+      if (scale < 1) {
+        r1.w *= scale; r1.h *= scale;
+        r2.w *= scale; r2.h *= scale;
+        // Reanchor to corners
+        r2.x = 1 - r2.w;
+        r2.y = 1 - r2.h;
+        // If mirrored (r1 was top-right), fix r1 too
+        if (r1.x > 0.1) r1.x = 1 - r1.w;
+        if (r1.y > 0.1) r1.y = 1 - r1.h;
+      }
+      break;
+    }
+  }
+
+  return [r1, r2];
+}
+
 // ─── Public API ──────────────────────────────────────────────────────
 
 export function generateHeroPlacement(config: HeroPlacementConfig): HeroPlacementResult {
@@ -219,8 +288,9 @@ export function generateHeroPlacement(config: HeroPlacementConfig): HeroPlacemen
     return { w, h };
   });
   
-  const rects = placeDualHeroes(config.template as DualHeroTemplate, dims);
-  const actualFraction = dims.reduce((sum, d) => sum + d.w * d.h, 0);
+  let rects = placeDualHeroes(config.template as DualHeroTemplate, dims);
+  rects = fixDualOverlap(config.template as DualHeroTemplate, rects);
+  const actualFraction = rects.reduce((sum, r) => sum + r.w * r.h, 0);
   
   return { ...config, heroRects: rects, actualAreaFraction: actualFraction };
 }

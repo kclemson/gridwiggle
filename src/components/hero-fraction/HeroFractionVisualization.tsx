@@ -16,7 +16,7 @@ export function HeroFractionVisualization({ result }: HeroFractionVisualizationP
     <div className="flex flex-col items-center gap-3">
       {/* Canvas */}
       <div
-        className="relative border-2 border-border bg-muted/40 overflow-hidden"
+        className="relative border-2 border-border bg-white overflow-hidden"
         style={{
           aspectRatio: `${canvasAR}`,
           maxHeight: '55vh',

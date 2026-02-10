@@ -46,6 +46,15 @@ export interface HeroPlacementResult extends HeroPlacementConfig {
   actualAreaFraction: number;
 }
 
+export const HERO_FRACTION_TAGS = [
+  'hero-too-large',
+  'hero-too-small',
+  'bad-placement',
+  'bad-shape',
+] as const;
+
+export type HeroFractionTag = typeof HERO_FRACTION_TAGS[number];
+
 export interface HeroFractionRatingData {
   canvasAR: number;
   heroCount: number;
@@ -54,6 +63,7 @@ export interface HeroFractionRatingData {
   actualAreaFraction: number;
   template: string;
   rating: 'good' | 'bad' | 'skip';
+  tags: string[];
   ratedAt: string;
 }
 

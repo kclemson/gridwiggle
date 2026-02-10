@@ -1,54 +1,48 @@
 
 
-# Round 4: Rule Validation (Success Cases Only)
+# Document Hero Placement Rules (No Enforcement)
 
 ## Goal
 
-Generate trials that **should all look good** according to the proposed rules. If any trial looks bad, it means the rule needs adjusting. This is a confirmation pass, not an exploration.
+Capture the validated rules from Rounds 1-4 in a single reference file. No engine changes, no validation logic, no tuning parameter additions. Just a well-organized document so the rules don't get lost while we continue discussing other changes.
 
-## Trial Design (~30 trials)
+## What Changes
 
-Each group demonstrates one rule by showing configs that obey it.
+### New file: `src/lib/v3/hero-constraints.ts`
 
-### 1. Band Templates on Square Canvases (8 trials)
-Confirms bands work when canvas AR is 0.85-1.15.
-- 2x `top-band` on square canvas (AR 0.95-1.05), area 0.25-0.35
-- 2x `bottom-band` on square canvas, area 0.25-0.35
-- 2x `left-band` on square canvas, area 0.25-0.35
-- 2x `right-band` on square canvas, area 0.25-0.35
+A documentation-only file containing the complete validated rule set:
 
-### 2. Dual Heroes Within Floor/Ceiling (6 trials)
-Confirms dual area range 0.22-0.42 works across canvas shapes.
-- 2x on portrait canvas (AR 0.6-0.7), `diagonal-corners`, area 0.25 and 0.35
-- 2x on square canvas (AR 0.95-1.05), `diagonal-corners`, area 0.25 and 0.35
-- 2x on landscape canvas (AR 1.4-1.7), `diagonal-corners`, area 0.25 and 0.35
+```typescript
+/**
+ * Hero Placement Constraints
+ * 
+ * Derived from 4 rounds of visual rating (~120 trials).
+ * These are NOT enforced in the engine yet — this file serves
+ * as the single source of truth for when we're ready to encode them.
+ *
+ * SINGLE HERO:
+ * - General area range: 0.15 - 0.60
+ * - Square canvas (AR 0.85-1.15) ceiling: 0.35
+ * - Floor TBD (not yet stress-tested below 0.20)
+ *
+ * DUAL HERO:
+ * - Combined area range: 0.22 - 0.42
+ *
+ * TEMPLATE RESTRICTIONS:
+ * - Band templates (top/bottom/left/right-band): 
+ *     only on square-ish canvases (AR 0.85-1.15)
+ * - side-by-side: banned on portrait canvases
+ * - top-bottom: banned on landscape canvases
+ *
+ * RELIABLE TEMPLATES:
+ * - corner-anchor: works on all canvas shapes
+ * - diagonal-corners: works on all canvas shapes (dual hero)
+ */
+```
 
-### 3. Single Hero on Square Canvas at/Below Ceiling (4 trials)
-Confirms single hero ceiling of 0.35 on square canvases.
-- 4x `corner-anchor` on square canvas, area fractions 0.20, 0.25, 0.30, 0.35
+No other files are touched. No tuning params, no validation functions, no engine integration.
 
-### 4. Axis-Aligned Dual Templates (6 trials)
-Confirms `side-by-side` works on landscape and `top-bottom` works on portrait (the non-banned orientations).
-- 3x `side-by-side` on landscape canvas (AR 1.4-1.7), area 0.25-0.35
-- 3x `top-bottom` on portrait canvas (AR 0.6-0.7), area 0.25-0.35
-
-### 5. Corner-Anchor Versatility (6 trials)
-Confirms the most reliable template works everywhere.
-- 2x portrait canvas, mixed hero ARs, area 0.20-0.40
-- 2x square canvas, mixed hero ARs, area 0.20-0.35
-- 2x landscape canvas, mixed hero ARs, area 0.20-0.40
-
-**Total: 8 + 6 + 4 + 6 + 6 = 30 trials**
-
-Each trial gets a descriptive scenario label like `r4/bands-square/top-band/1`, `r4/dual-range/portrait/0.25`, etc.
-
-## Technical Changes
-
-### `src/test/layout/heroFractionGenerator.ts`
-- Add `generateRound4Batch(): HeroPlacementResult[]`
-
-### `src/pages/HeroFractionRating.tsx`
-- Add `'round4'` to `RoundType`
-- Add entry in `GENERATORS` record
-- Add "Round 4 (validation)" option to the Select dropdown
+| File | Change |
+|------|--------|
+| `src/lib/v3/hero-constraints.ts` | New file: documented rule set only |
 

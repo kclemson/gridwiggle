@@ -16,7 +16,7 @@ export type SingleHeroTemplate =
 
 export type DualHeroTemplate =
   | 'diagonal-corners'
-  | 'top-band-split'
+  | 'top-bottom'
   | 'side-by-side';
 
 export type HeroTemplate = SingleHeroTemplate | DualHeroTemplate;
@@ -64,7 +64,7 @@ const SINGLE_TEMPLATES: SingleHeroTemplate[] = [
 ];
 
 const DUAL_TEMPLATES: DualHeroTemplate[] = [
-  'diagonal-corners', 'top-band-split', 'side-by-side',
+  'diagonal-corners', 'top-bottom', 'side-by-side',
 ];
 
 const MAX_DIM_FRACTION = 0.85; // Hero can't exceed 85% of canvas in either dimension
@@ -168,13 +168,10 @@ function placeDualHeroes(
         { x: 1 - d2.w, y: 1 - d2.h, w: d2.w, h: d2.h },
       ];
     }
-    case 'top-band-split': {
-      const totalW = d1.w + d2.w;
-      const gap = Math.min(0.02, (1 - totalW) / 3);
-      const startX = (1 - totalW - gap) / 2;
+    case 'top-bottom': {
       return [
-        { x: startX, y: 0, w: d1.w, h: d1.h },
-        { x: startX + d1.w + gap, y: 0, w: d2.w, h: d2.h },
+        { x: (1 - d1.w) / 2, y: 0, w: d1.w, h: d1.h },
+        { x: (1 - d2.w) / 2, y: 1 - d2.h, w: d2.w, h: d2.h },
       ];
     }
     case 'side-by-side': {
@@ -235,7 +232,7 @@ export function generateHeroFractionBatch(count: number = 40): HeroPlacementResu
   // Single hero trials
   for (let i = 0; i < singleCount; i++) {
     const config: HeroPlacementConfig = {
-      canvasAR: r2(randomInRange(0.65, 1.55)),
+      canvasAR: r2(randomInRange(0.5, 2.25)),
       heroCount: 1,
       heroARs: [r2(randomInRange(0.5, 2.0))],
       heroAreaFraction: r2(randomInRange(0.15, 0.60)),
@@ -247,7 +244,7 @@ export function generateHeroFractionBatch(count: number = 40): HeroPlacementResu
   // Dual hero trials
   for (let i = 0; i < dualCount; i++) {
     const config: HeroPlacementConfig = {
-      canvasAR: r2(randomInRange(0.65, 1.55)),
+      canvasAR: r2(randomInRange(0.5, 2.25)),
       heroCount: 2,
       heroARs: [r2(randomInRange(0.5, 2.0)), r2(randomInRange(0.5, 2.0))],
       heroAreaFraction: r2(randomInRange(0.15, 0.60)),

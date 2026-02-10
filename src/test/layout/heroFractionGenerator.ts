@@ -497,6 +497,107 @@ export function generateRound3Batch(): HeroPlacementResult[] {
   return results; // 12 + 10 + 8 + 6 + 4 = 40 trials
 }
 
+// ─── Round 4: Rule Validation (Success Cases Only) ───────────────────
+
+export function generateRound4Batch(): HeroPlacementResult[] {
+  const results: HeroPlacementResult[] = [];
+
+  // 1. Band Templates on Square Canvases (8 trials)
+  const bandTemplates: SingleHeroTemplate[] = ['top-band', 'bottom-band', 'left-band', 'right-band'];
+  for (const tmpl of bandTemplates) {
+    for (let i = 0; i < 2; i++) {
+      results.push(generateHeroPlacement({
+        canvasAR: r2(randomInRange(0.95, 1.05)),
+        heroCount: 1,
+        heroARs: [r2(randomInRange(0.7, 1.5))],
+        heroAreaFraction: r2(randomInRange(0.25, 0.35)),
+        template: tmpl,
+        scenario: `r4/bands-square/${tmpl}/${i + 1}`,
+      }));
+    }
+  }
+
+  // 2. Dual Heroes Within Floor/Ceiling (6 trials)
+  const dualCanvases: Array<{ label: string; min: number; max: number }> = [
+    { label: 'portrait', min: 0.6, max: 0.7 },
+    { label: 'square', min: 0.95, max: 1.05 },
+    { label: 'landscape', min: 1.4, max: 1.7 },
+  ];
+  for (const canvas of dualCanvases) {
+    for (const af of [0.25, 0.35]) {
+      results.push(generateHeroPlacement({
+        canvasAR: r2(randomInRange(canvas.min, canvas.max)),
+        heroCount: 2,
+        heroARs: [r2(randomInRange(0.8, 1.2)), r2(randomInRange(0.8, 1.2))],
+        heroAreaFraction: af,
+        template: 'diagonal-corners',
+        scenario: `r4/dual-range/${canvas.label}/${af}`,
+      }));
+    }
+  }
+
+  // 3. Single Hero on Square Canvas at/Below Ceiling (4 trials)
+  for (const af of [0.20, 0.25, 0.30, 0.35]) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.95, 1.05)),
+      heroCount: 1,
+      heroARs: [r2(randomInRange(0.85, 1.15))],
+      heroAreaFraction: af,
+      template: 'corner-anchor',
+      scenario: `r4/single-square/${af}`,
+    }));
+  }
+
+  // 4. Axis-Aligned Dual Templates (6 trials)
+  for (let i = 0; i < 3; i++) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(1.4, 1.7)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(0.7, 1.3)), r2(randomInRange(0.7, 1.3))],
+      heroAreaFraction: r2(randomInRange(0.25, 0.35)),
+      template: 'side-by-side',
+      scenario: `r4/axis-aligned/sbs-landscape/${i + 1}`,
+    }));
+  }
+  for (let i = 0; i < 3; i++) {
+    results.push(generateHeroPlacement({
+      canvasAR: r2(randomInRange(0.6, 0.7)),
+      heroCount: 2,
+      heroARs: [r2(randomInRange(0.7, 1.3)), r2(randomInRange(0.7, 1.3))],
+      heroAreaFraction: r2(randomInRange(0.25, 0.35)),
+      template: 'top-bottom',
+      scenario: `r4/axis-aligned/tb-portrait/${i + 1}`,
+    }));
+  }
+
+  // 5. Corner-Anchor Versatility (6 trials)
+  const cornerCanvases: Array<{ label: string; min: number; max: number; areaMax: number }> = [
+    { label: 'portrait', min: 0.6, max: 0.7, areaMax: 0.40 },
+    { label: 'square', min: 0.95, max: 1.05, areaMax: 0.35 },
+    { label: 'landscape', min: 1.4, max: 1.7, areaMax: 0.40 },
+  ];
+  for (const canvas of cornerCanvases) {
+    for (let i = 0; i < 2; i++) {
+      results.push(generateHeroPlacement({
+        canvasAR: r2(randomInRange(canvas.min, canvas.max)),
+        heroCount: 1,
+        heroARs: [r2(randomInRange(0.6, 1.8))],
+        heroAreaFraction: r2(randomInRange(0.20, canvas.areaMax)),
+        template: 'corner-anchor',
+        scenario: `r4/corner-anchor/${canvas.label}/${i + 1}`,
+      }));
+    }
+  }
+
+  // Shuffle
+  for (let i = results.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [results[i], results[j]] = [results[j], results[i]];
+  }
+
+  return results; // 8 + 6 + 4 + 6 + 6 = 30 trials
+}
+
 // ─── Round 2: Structured Scenario Generator ──────────────────────────
 
 type CanvasShape = 'portrait' | 'square' | 'landscape';

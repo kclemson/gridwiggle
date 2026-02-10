@@ -13,6 +13,7 @@ import {
   HeroFractionTag,
 } from '@/test/layout/heroFractionGenerator';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -36,6 +37,7 @@ export default function HeroFractionRating() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<Map<number, HeroFractionRatingData>>(new Map());
   const [selectedTags, setSelectedTags] = useState<Set<HeroFractionTag>>(new Set());
+  const [notes, setNotes] = useState('');
 
   const current = batch[currentIndex];
   const ratedCount = ratings.size;
@@ -45,13 +47,11 @@ export default function HeroFractionRating() {
   const currentRating = ratings.get(currentIndex)?.rating;
   const currentTags = ratings.get(currentIndex)?.tags;
 
-  // Sync selectedTags when navigating between trials
+  // Sync selectedTags and notes when navigating between trials
   useEffect(() => {
-    if (currentTags) {
-      setSelectedTags(new Set(currentTags as HeroFractionTag[]));
-    } else {
-      setSelectedTags(new Set());
-    }
+    const saved = ratings.get(currentIndex);
+    setSelectedTags(saved?.tags ? new Set(saved.tags as HeroFractionTag[]) : new Set());
+    setNotes(saved?.notes ?? '');
   }, [currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rate = useCallback(
@@ -68,16 +68,18 @@ export default function HeroFractionRating() {
         scenario: result.scenario,
         rating,
         tags: rating === 'bad' ? Array.from(tags) : [],
+        notes: notes || undefined,
         ratedAt: new Date().toISOString(),
       };
       setRatings(prev => new Map(prev).set(currentIndex, data));
       setSelectedTags(new Set());
+      setNotes('');
       // Auto-advance
       if (currentIndex < batch.length - 1) {
         setCurrentIndex(i => i + 1);
       }
     },
-    [batch, currentIndex, selectedTags],
+    [batch, currentIndex, selectedTags, notes],
   );
 
   const toggleTag = useCallback((tag: HeroFractionTag) => {
@@ -227,6 +229,15 @@ export default function HeroFractionRating() {
             </Badge>
           ))}
         </div>
+
+        {/* Optional notes */}
+        <Textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Optional notes about this trial..."
+          className="max-w-lg mx-auto text-sm"
+          rows={2}
+        />
 
         <div className="flex justify-center items-center gap-4">
           <Button variant="ghost" size="sm" onClick={goPrev} disabled={currentIndex === 0}>

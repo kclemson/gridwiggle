@@ -1,33 +1,22 @@
 
 
-# Fix Tag Chips: Always Visible, Select Before Rating
+# Tags Auto-Rate as "Bad"
 
-## Problem
+## What Changes
 
-Two issues with the current tag UI:
+Clicking a tag chip will now **simultaneously select that tag AND submit a "bad" rating** for the current trial. This removes the two-step process -- one click does both.
 
-1. Tags only appear *after* a trial is rated "bad" (`currentRating === 'bad'`), but pressing B auto-advances to the next trial -- so you never see the chips for the trial you just rated.
-2. The desired workflow is: look at the visualization, optionally select issue tags, *then* press B/G/S to confirm the rating and advance. Tags should be available before committing a rating.
+- Clicking a tag = rate as "bad" with that tag selected, then auto-advance
+- Multiple tags: if you want multiple tags, navigate back after rating and click additional tags (which will update the saved rating)
+- G and S keyboard shortcuts still work for good/skip ratings without tags
 
-## Solution
-
-**Always show the tag chips** below the visualization (before the rating buttons). Selecting tags is just pre-loading your reasoning. When you press B, the selected tags get saved with the rating. When you press G or S, tags are cleared (they don't apply to good/skip ratings).
-
-This also means auto-advance happens for all ratings (good, bad, skip), and tags reset on advance.
-
-## Changes
+## Technical Details
 
 ### File: `src/pages/HeroFractionRating.tsx`
 
-1. **Move tag chips above the rating buttons** and remove the `currentRating === 'bad'` conditional -- tags are always visible.
+1. **Update `toggleTag`** to also call `rate('bad')` with the newly toggled tag included. Since `rate` reads from `selectedTags` state and state updates are batched, we need to compute the new tag set inline and pass it directly to rate.
 
-2. **Auto-advance on all ratings** including "bad" (currently bad doesn't advance). Tags get captured at rate-time from `selectedTags`.
+2. **Modify `rate` to accept an optional `tagsOverride` parameter** so `toggleTag` can pass the updated tags directly (avoiding stale state from the `selectedTags` Set not yet being updated).
 
-3. **Remove the useEffect that persists tags on change** (line 52-60) -- no longer needed since tags are captured at rate-time, not retroactively synced.
-
-4. **Keep the useEffect that restores tags when navigating back** (line 35-41) -- so revisiting a previously-rated trial shows its saved tags.
-
-5. **Update keyboard hint** to mention tag selection workflow: "Select tags, then G/B/S to rate"
-
-No other files change.
+3. When navigating back to a rated trial and clicking another tag, it updates the existing rating's tags and re-saves (stays on the same trial so you can review).
 

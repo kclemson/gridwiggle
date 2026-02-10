@@ -69,6 +69,7 @@ export interface HeroFractionRatingData {
   scenario: string;
   rating: 'good' | 'bad' | 'skip';
   tags: string[];
+  notes?: string;
   ratedAt: string;
 }
 

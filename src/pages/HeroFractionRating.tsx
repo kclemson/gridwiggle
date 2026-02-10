@@ -40,17 +40,9 @@ export default function HeroFractionRating() {
     }
   }, [currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggleTag = useCallback((tag: HeroFractionTag) => {
-    setSelectedTags(prev => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag); else next.add(tag);
-      return next;
-    });
-  }, []);
-
-
   const rate = useCallback(
-    (rating: 'good' | 'bad' | 'skip') => {
+    (rating: 'good' | 'bad' | 'skip', tagsOverride?: Set<HeroFractionTag>) => {
+      const tags = tagsOverride ?? selectedTags;
       const result = batch[currentIndex];
       const data: HeroFractionRatingData = {
         canvasAR: result.canvasAR,
@@ -60,11 +52,11 @@ export default function HeroFractionRating() {
         actualAreaFraction: result.actualAreaFraction,
         template: result.template,
         rating,
-        tags: rating === 'bad' ? Array.from(selectedTags) : [],
+        tags: rating === 'bad' ? Array.from(tags) : [],
         ratedAt: new Date().toISOString(),
       };
       setRatings(prev => new Map(prev).set(currentIndex, data));
-      if (rating !== 'bad') setSelectedTags(new Set());
+      setSelectedTags(new Set());
       // Auto-advance
       if (currentIndex < batch.length - 1) {
         setCurrentIndex(i => i + 1);
@@ -72,6 +64,13 @@ export default function HeroFractionRating() {
     },
     [batch, currentIndex, selectedTags],
   );
+
+  const toggleTag = useCallback((tag: HeroFractionTag) => {
+    const nextTags = new Set(selectedTags);
+    if (nextTags.has(tag)) nextTags.delete(tag); else nextTags.add(tag);
+    // Clicking a tag auto-rates as "bad" with that tag
+    rate('bad', nextTags);
+  }, [selectedTags, rate]);
 
   const goPrev = useCallback(() => {
     if (currentIndex > 0) setCurrentIndex(i => i - 1);

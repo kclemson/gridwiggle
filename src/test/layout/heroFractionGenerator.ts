@@ -69,6 +69,12 @@ const DUAL_TEMPLATES: DualHeroTemplate[] = [
 
 const MAX_DIM_FRACTION = 0.85; // Hero can't exceed 85% of canvas in either dimension
 
+const AR_BUCKETS = [
+  { min: 0.5, max: 0.8 },   // Portrait
+  { min: 0.8, max: 1.2 },   // Near-square
+  { min: 1.2, max: 2.25 },  // Landscape
+];
+
 // ─── Hero Sizing ─────────────────────────────────────────────────────
 
 /**
@@ -222,42 +228,65 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function generateHeroFractionBatch(count: number = 40): HeroPlacementResult[] {
+export function generateHeroFractionBatch(_count: number = 40): HeroPlacementResult[] {
   const results: HeroPlacementResult[] = [];
-  
-  // ~70% single hero, ~30% dual
-  const singleCount = Math.round(count * 0.7);
-  const dualCount = count - singleCount;
-  
-  // Single hero trials
-  for (let i = 0; i < singleCount; i++) {
-    const config: HeroPlacementConfig = {
-      canvasAR: r2(randomInRange(0.5, 2.25)),
-      heroCount: 1,
-      heroARs: [r2(randomInRange(0.5, 2.0))],
-      heroAreaFraction: r2(randomInRange(0.15, 0.60)),
-      template: randomChoice(SINGLE_TEMPLATES),
-    };
-    results.push(generateHeroPlacement(config));
+
+  // ── Single heroes: 3 per cell × 9 cells = 27, + 1 wild-card = 28 ──
+  for (const canvasBucket of AR_BUCKETS) {
+    for (const heroBucket of AR_BUCKETS) {
+      for (let t = 0; t < 3; t++) {
+        const config: HeroPlacementConfig = {
+          canvasAR: r2(randomInRange(canvasBucket.min, canvasBucket.max)),
+          heroCount: 1,
+          heroARs: [r2(randomInRange(heroBucket.min, heroBucket.max))],
+          heroAreaFraction: r2(randomInRange(0.15, 0.60)),
+          template: randomChoice(SINGLE_TEMPLATES),
+        };
+        results.push(generateHeroPlacement(config));
+      }
+    }
   }
-  
-  // Dual hero trials
-  for (let i = 0; i < dualCount; i++) {
-    const config: HeroPlacementConfig = {
+  // 1 wild-card single
+  results.push(generateHeroPlacement({
+    canvasAR: r2(randomInRange(0.5, 2.25)),
+    heroCount: 1,
+    heroARs: [r2(randomInRange(0.5, 2.0))],
+    heroAreaFraction: r2(randomInRange(0.15, 0.60)),
+    template: randomChoice(SINGLE_TEMPLATES),
+  }));
+
+  // ── Dual heroes: 1 per cell × 9 cells = 9, + 3 wild-cards = 12 ──
+  for (const canvasBucket of AR_BUCKETS) {
+    for (const hero1Bucket of AR_BUCKETS) {
+      const config: HeroPlacementConfig = {
+        canvasAR: r2(randomInRange(canvasBucket.min, canvasBucket.max)),
+        heroCount: 2,
+        heroARs: [
+          r2(randomInRange(hero1Bucket.min, hero1Bucket.max)),
+          r2(randomInRange(0.5, 2.0)), // hero 2 fully random
+        ],
+        heroAreaFraction: r2(randomInRange(0.15, 0.60)),
+        template: randomChoice(DUAL_TEMPLATES),
+      };
+      results.push(generateHeroPlacement(config));
+    }
+  }
+  // 3 wild-card duals
+  for (let i = 0; i < 3; i++) {
+    results.push(generateHeroPlacement({
       canvasAR: r2(randomInRange(0.5, 2.25)),
       heroCount: 2,
       heroARs: [r2(randomInRange(0.5, 2.0)), r2(randomInRange(0.5, 2.0))],
       heroAreaFraction: r2(randomInRange(0.15, 0.60)),
       template: randomChoice(DUAL_TEMPLATES),
-    };
-    results.push(generateHeroPlacement(config));
+    }));
   }
-  
-  // Shuffle so singles and duals are interleaved
+
+  // Shuffle so bucket structure isn't visible during rating
   for (let i = results.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [results[i], results[j]] = [results[j], results[i]];
   }
-  
+
   return results;
 }

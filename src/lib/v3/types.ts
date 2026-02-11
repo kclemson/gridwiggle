@@ -257,6 +257,33 @@ export function isSoftRejection(reason: string): boolean {
 }
 
 // ============================================================================
+// Packable Region (generic region abstraction)
+// ============================================================================
+
+/**
+ * A region that can be packed with photos independently.
+ * 
+ * This is the generic building block for layout templates.
+ * A corner-anchor template produces 2 regions, an edge-anchor produces 3,
+ * a dual-hero could produce 4. The packing loop operates on regions[]
+ * without knowing how many there are or what topology created them.
+ */
+export interface PackableRegion {
+  /** 'height' = packToFillHeight (fixed height, derive width), 'width' = packToFillWidth (fixed width, derive height) */
+  constraint: 'height' | 'width';
+  /** The fixed dimension: height for height-constrained, width for width-constrained */
+  targetDimension: number;
+  /** Photos assigned to this region */
+  photos: PhotoDimension[];
+  /** Geometrically-derived row count */
+  targetRowCount: number;
+  /** Offset for positioning in canvas space */
+  offset: { x: number; y: number };
+  /** Packed result (filled after packing) */
+  result: NormalizedPackResult | null;
+}
+
+// ============================================================================
 // Rejected Layout Types (for debugging)
 // ============================================================================
 

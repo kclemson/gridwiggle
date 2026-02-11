@@ -1,20 +1,59 @@
 
 
-# Fix Switch Thumb Visibility in Unchecked State
+# Add Detailed Smart Crop Diagnostic Logging
 
 ## Problem
 
-The switch thumb (circle) uses `bg-background` which is the same dark color as the dialog footer, making it invisible against the dark track in the off state.
+When smart crop crashes on mobile, we have no visibility into WHERE in the pipeline it fails. The current logging only covers worker creation. The actual processing flow -- blob access, postMessage, model loading, inference -- is a black box in production.
 
-## Fix
+## What Changes
 
-**File:** `src/components/ui/switch.tsx`
+Add granular `remoteLogger` calls at every stage of the smart crop pipeline so crashes leave a breadcrumb trail in the edge function logs.
 
-Add a visible border to the thumb so it stands out against the dark track background. Change the Thumb className to include `border border-muted-foreground/50`.
+## Logging Points to Add
 
-| Element | Current | New |
-|---------|---------|-----|
-| Thumb (line ~20) | `bg-background shadow-lg ring-0` | `bg-background shadow-lg ring-0 border border-muted-foreground/50` |
+### 1. `src/pages/Index.tsx` — `handleSingleSmartCrop` (~line 538)
 
-This gives the circle a subtle outline so it's always visible regardless of track color, while still looking clean when the switch is checked.
+| Stage | Log |
+|-------|-----|
+| Entry | Photo id, blob size, dimensions, objectUrl validity |
+| Pre-call | Right before `getSmartCrop()` |
+| Success | Result summary (skipCrop, confidence, subjects) |
+| Error | Full error with stack trace via `remoteLogger.error` |
+| Finally | Completion marker |
+
+### 2. `src/services/smartCropService.ts` — `getSmartCrop` (~line 59)
+
+| Stage | Log |
+|-------|-----|
+| Entry | Blob size, type, dimensions |
+| Worker available | Whether worker was obtained |
+| Pre-postMessage | Right before sending to worker |
+| Timeout | When 60s timeout fires |
+| Worker crash | In `handleError` — include errorEvent message/filename/lineno |
+| Result received | Type of result (success/skipCrop) |
+| Error from worker | Error message from worker |
+
+### 3. `src/workers/visionWorker.ts` — status messages (already posts status, but add more)
+
+Add `self.postMessage({ type: 'status', message: '...' })` at these points:
+- Before `RawImage.fromBlob` (blob size)
+- After image loaded (dimensions)
+- Before resize
+- After resize
+- Before model inference
+- After inference (detection count)
+
+These status messages already flow through the `onStatus` callback and will be captured by the remote logger in `handleSingleSmartCrop`.
+
+## Technical Details
+
+**Files modified:**
+- `src/pages/Index.tsx` — wrap `handleSingleSmartCrop` with remote logger calls
+- `src/services/smartCropService.ts` — add logging at each stage boundary
+- `src/workers/visionWorker.ts` — add more granular status messages (these relay through the existing message channel)
+
+**No new dependencies.** Uses existing `remoteLogger` infrastructure. Worker status messages use the existing `self.postMessage({ type: 'status' })` pattern which already flows to the caller.
+
+The key insight: on mobile OOM crashes, the page dies instantly. But the remote logger batches and flushes -- so if we log BEFORE each risky step, the last logged step tells us exactly which operation caused the crash. The `beforeunload` flush handler in `remoteLogger.ts` will attempt to send buffered logs before the page dies.
 

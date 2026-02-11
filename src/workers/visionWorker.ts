@@ -105,12 +105,15 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   if (e.data.type !== 'detect') return;
   
   try {
+    self.postMessage({ type: 'status', message: 'Loading AI model...' });
     const model = await loadModel();
-    
-    self.postMessage({ type: 'status', message: 'Loading image...' });
+    self.postMessage({ type: 'status', message: 'Model ready. Loading image...' });
     
     // Load image directly from blob - no base64 conversion needed
+    const blobSize = e.data.imageBlob?.size ?? -1;
+    self.postMessage({ type: 'status', message: `Loading image (blob: ${blobSize} bytes)...` });
     let image = await RawImage.fromBlob(e.data.imageBlob);
+    self.postMessage({ type: 'status', message: `Image loaded: ${image.width}x${image.height}` });
     
     // Scale down to max 640px for performance
     const maxSize = 640;
@@ -123,11 +126,14 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       const scale = Math.min(maxSize / origW, maxSize / origH);
       processedWidth = Math.round(origW * scale);
       processedHeight = Math.round(origH * scale);
+      self.postMessage({ type: 'status', message: `Resizing to ${processedWidth}x${processedHeight}...` });
       image = await image.resize(processedWidth, processedHeight);
+      self.postMessage({ type: 'status', message: 'Resize complete' });
     }
     
-    self.postMessage({ type: 'status', message: 'Detecting subjects...' });
+    self.postMessage({ type: 'status', message: 'Running inference...' });
     const results = await model(image) as DetectionResult[];
+    self.postMessage({ type: 'status', message: `Inference done: ${results.length} detections` });
     
     // Calculate optimal crop
     const crop = calculateOptimalCrop(

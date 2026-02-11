@@ -63,8 +63,17 @@ export async function getSmartCrop(
   height: number,
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
+  remoteLogger.info('vision-svc', 'getSmartCrop entry', {
+    blobSize: blob?.size ?? -1,
+    blobType: blob?.type ?? 'none',
+    width,
+    height,
+  });
+
   // Check worker availability first - fail fast with fallback
   const currentWorker = getWorker();
+  remoteLogger.info('vision-svc', 'Worker check', { available: !!currentWorker });
+  
   if (!currentWorker) {
     onStatus?.('Using full image (AI unavailable)');
     return {
@@ -79,6 +88,7 @@ export async function getSmartCrop(
     
     // Timeout after 60 seconds (model download + processing)
     const timeoutId = setTimeout(() => {
+      remoteLogger.error('vision-svc', 'Timeout after 60s', { width, height });
       cleanup();
       resetWorker();
       reject(new Error('Processing timeout - please try again'));
@@ -93,6 +103,11 @@ export async function getSmartCrop(
     
     const handleMessage = (e: MessageEvent) => {
       if (e.data.type === 'result') {
+        remoteLogger.info('vision-svc', 'Result received', {
+          skipCrop: e.data.skipCrop ?? false,
+          confidence: e.data.confidence,
+          subjects: e.data.subjects,
+        });
         cleanup();
         resolve({
           crop: e.data.crop,
@@ -101,6 +116,7 @@ export async function getSmartCrop(
           skipCrop: e.data.skipCrop ?? false,
         });
       } else if (e.data.type === 'error') {
+        remoteLogger.error('vision-svc', 'Worker error message', { error: e.data.error });
         cleanup();
         resetWorker();
         reject(new Error(e.data.error));
@@ -112,6 +128,11 @@ export async function getSmartCrop(
     // Handle worker-level crashes (OOM, uncaught exceptions)
     // Resolve with fallback instead of rejecting - allows processing to continue
     const handleError = (errorEvent: ErrorEvent) => {
+      remoteLogger.error('vision-svc', 'Worker crash', {
+        message: errorEvent?.message ?? 'unknown',
+        filename: errorEvent?.filename ?? 'unknown',
+        lineno: errorEvent?.lineno ?? -1,
+      });
       console.error('Vision worker crashed:', errorEvent);
       cleanup();
       resetWorker();
@@ -125,6 +146,8 @@ export async function getSmartCrop(
     
     currentWorker.addEventListener('message', handleMessage);
     currentWorker.addEventListener('error', handleError);
+    
+    remoteLogger.info('vision-svc', 'Pre-postMessage', { blobSize: blob?.size ?? -1 });
     
     // Send blob directly - no base64 conversion needed
     // Blobs are structured-cloneable and passed efficiently

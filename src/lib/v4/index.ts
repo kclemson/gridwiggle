@@ -20,6 +20,20 @@ const VIRTUAL_CANVAS_BASE = 1000;
 // Candidate Interface (region-generic)
 // ============================================================================
 
+interface LayoutCandidateMeta {
+  template: string;
+  targetCanvasAR: number;
+  areaFrac: number;
+  arDeviation: number;
+  heroCoverage: number;
+  regionSizes: number[];
+  regionTargetRows: number[];
+  regionActualRows: number[];
+  besideWidth: number;
+  belowHeight: number;
+  candidateCount: number;
+}
+
 interface LayoutCandidate {
   regions: PackableRegion[];
   heroCell: NormalizedCell;
@@ -28,6 +42,12 @@ interface LayoutCandidate {
   prominenceRatio: number;
   score: number;
   corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  meta: LayoutCandidateMeta;
+}
+
+export interface V4LayoutResult {
+  layout: CollageLayout;
+  layoutMeta: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -385,9 +405,27 @@ function generateCandidates(
           prominenceRatio,
           score,
           corner,
+          meta: {
+            template: template.id,
+            targetCanvasAR,
+            areaFrac,
+            arDeviation,
+            heroCoverage,
+            regionSizes: regions.map(r => r.photos.length),
+            regionTargetRows: [baseBesideRows, baseBelowRows],
+            regionActualRows: regions.map(r => r.result?.rowCount ?? 0),
+            besideWidth,
+            belowHeight,
+            candidateCount: 0,
+          },
         });
       }
     }
+  }
+  
+  // Backfill candidateCount
+  for (const c of candidates) {
+    c.meta.candidateCount = candidates.length;
   }
   
   devLogger.log('layout', `V4 generated ${candidates.length} candidates (template-driven)`, {
@@ -489,7 +527,7 @@ export function generateCollageLayoutV4(
   photos: PhotoItem[],
   settings: CollageSettings,
   options: GenerateLayoutV4Options = {}
-): CollageLayout | null {
+): V4LayoutResult | null {
   if (photos.length < 2) return null;
   
   const { 
@@ -526,14 +564,15 @@ export function generateCollageLayoutV4(
   
   const candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
   
-  if (candidates.length === 0) {
-    devLogger.warn('layout', 'V4: No valid candidates found');
-    return null;
+  let selected: LayoutCandidate | null = null;
+  let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
+  
+  if (candidates.length > 0) {
+    selected = selectCandidate(candidates, randomize);
   }
   
-  const selected = selectCandidate(candidates, randomize);
-  
   if (!selected) {
+    devLogger.warn('layout', 'V4: No valid candidates found');
     return null;
   }
   
@@ -549,5 +588,28 @@ export function generateCollageLayoutV4(
     score: selected.score.toFixed(3),
   });
   
-  return convertToLayout(selected, normalizedGap);
+  const layoutMeta: Record<string, unknown> = {
+    template: selected.meta.template,
+    targetCanvasAR: selected.meta.targetCanvasAR,
+    actualCanvasAR: +(selected.canvasWidth / selected.canvasHeight).toFixed(3),
+    arDeviation: selected.meta.arDeviation,
+    areaFrac: selected.meta.areaFrac,
+    heroCoverage: selected.meta.heroCoverage,
+    heroAR: heroPhoto.aspectRatio,
+    prominenceRatio: selected.prominenceRatio,
+    score: selected.score,
+    corner: selected.corner,
+    candidateCount: selected.meta.candidateCount,
+    regionSizes: selected.meta.regionSizes,
+    regionTargetRows: selected.meta.regionTargetRows,
+    regionActualRows: selected.meta.regionActualRows,
+    besideWidth: selected.meta.besideWidth,
+    belowHeight: selected.meta.belowHeight,
+    ...(softRejection ? { softRejection: softRejection.reason } : {}),
+  };
+  
+  return {
+    layout: convertToLayout(selected, normalizedGap),
+    layoutMeta,
+  };
 }

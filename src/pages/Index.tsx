@@ -539,16 +539,36 @@ export default function Index() {
     const photo = state.photos.find(p => p.id === photoId);
     if (!photo || photo.smartCrop) return;  // Already has crop
     
+    remoteLogger.info('smartcrop-manual', 'Entry', {
+      photoId,
+      blobSize: photo.blob?.size ?? -1,
+      blobType: photo.blob?.type ?? 'none',
+      width: photo.originalWidth,
+      height: photo.originalHeight,
+      hasObjectUrl: !!photo.objectUrl,
+    });
+    
     setSmartCroppingPhotoId(photoId);
     
     try {
+      remoteLogger.info('smartcrop-manual', 'Pre-getSmartCrop', { photoId });
       const result = await getSmartCrop(
         photo.objectUrl,
         photo.blob,
         photo.originalWidth,
         photo.originalHeight,
-        (status) => setProcessingStatus(status)
+        (status) => {
+          remoteLogger.info('smartcrop-manual', 'Status update', { photoId, status });
+          setProcessingStatus(status);
+        }
       );
+      
+      remoteLogger.info('smartcrop-manual', 'Result received', {
+        photoId,
+        skipCrop: result.skipCrop,
+        confidence: result.confidence,
+        subjects: result.subjects,
+      });
       
       const smartCropToApply = result.skipCrop ? null : result.crop;
       
@@ -560,8 +580,14 @@ export default function Index() {
       }
     } catch (error) {
       console.error('Smart crop failed:', error);
+      remoteLogger.error('smartcrop-manual', 'Failed', {
+        photoId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       // Silent fail - photo still works
     } finally {
+      remoteLogger.info('smartcrop-manual', 'Finally', { photoId });
       setSmartCroppingPhotoId(null);
     }
   }, [state.photos, state.layout, updatePhoto, regenerateCollage]);

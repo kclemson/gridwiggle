@@ -1,90 +1,145 @@
 
 
-# New Full-Span Hero Templates
+# Content Cell Uniformity Penalty
 
 ## Problem
 
-When a tall portrait hero lands on a landscape canvas (or a wide landscape hero on a portrait canvas), the corner-anchor template produces awkward layouts — the hero either dominates 77% of the canvas height or gets artificially shrunk. Neither outcome looks good.
+The current scoring function (`scoreCellBalance`) evaluates all cell areas together -- hero included. Because the hero is always the largest cell, the spread ratio (largest/smallest) is always dominated by hero-vs-content contrast. This makes the scorer blind to within-content imbalance: a layout where one row has 8 tiny cells and another has 3 normal cells scores the same as a layout with perfectly even rows.
+
+The root cause is NOT in the packer or the row distributor. The `distributeByARBudget` function works correctly -- it produces organic row distributions based on AR budgets. The problem is that when it occasionally produces an uneven distribution (which it will, especially with portrait-heavy photo sets), the scorer can't tell the difference. So bad distributions survive the competitive selection process instead of being outscored by better alternatives.
 
 ## User Outcome
 
-Instead of fighting the geometry, the engine will recognize these mismatched hero/canvas combinations and use a purpose-built template where the hero naturally spans the full height (or width) as a column (or row), with all content photos packed into the remaining space beside (or below) it.
+Layouts with wildly uneven row heights will naturally lose in competitive scoring to layouts with balanced rows. No hard caps, no new constraints in the packing algorithm, no special cases. The existing generation loop already produces multiple candidates with different row distributions -- this change simply gives the scorer the ability to distinguish the good ones from the bad ones.
 
-**Portrait hero + landscape canvas**: Hero becomes a full-height left/right column. Content fills the remaining width in rows.
+## How It Works
 
-**Landscape hero + portrait canvas**: Hero becomes a full-width top/bottom row. Content fills the remaining height in rows.
+Add a content-only area uniformity check using coefficient of variation (CV = standard deviation / mean). CV is scale-independent, so it works regardless of photo count or canvas size. High CV = some content cells much larger/smaller than others (crushed row symptom). Low CV = uniform content cells (good layout).
 
-## Design
+The penalty is gentle and capped -- it only engages when CV exceeds a threshold, and the maximum penalty is small enough that it nudges selection without overriding other scoring factors.
 
-Two new single-hero templates in the registry:
+```text
+contentCV = stddev(contentAreas) / mean(contentAreas)
 
-**`hero-column`** (portrait hero on landscape canvas)
-- Hero spans full canvas height, positioned left or right
-- Content fills a single region beside the hero (width-constrained)
-- Canvas AR: 1.15 - 2.25 (landscape only)
-- Hero AR: 0.4 - 0.85 (portrait heroes)
-- Area fraction: 0.15 - 0.35
+if contentCV > 0.35:
+    penalty = min(0.25, (contentCV - 0.35) * 0.5)
+else:
+    penalty = 0
 
-**`hero-row`** (landscape hero on portrait canvas)
-- Hero spans full canvas width, positioned top or bottom
-- Content fills a single region below/above the hero (width-constrained)
-- Canvas AR: 0.50 - 0.85 (portrait only)
-- Hero AR: 1.2 - 3.0 (landscape heroes)
-- Area fraction: 0.15 - 0.35
+finalScore = rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty
+```
 
-## Test Matrix
+## Comprehensive Test Matrix
 
-| Hero AR | Canvas AR | Template Selected | Hero Placement | Content Region |
-|---------|-----------|-------------------|----------------|----------------|
-| 0.68 | 1.5 | hero-column | Full-height left column | Rows beside it |
-| 0.50 | 1.8 | hero-column | Full-height left column | Rows beside it |
-| 0.68 | 1.0 | corner-anchor | Corner (unchanged) | Beside + below |
-| 1.5 | 0.7 | hero-row | Full-width top row | Rows below it |
-| 2.0 | 0.6 | hero-row | Full-width top row | Rows below it |
-| 1.5 | 1.0 | corner-anchor | Corner (unchanged) | Beside + below |
+### Part 1: Row Distribution Scenarios (what CV looks like)
+
+These show how CV responds to different row distributions for a fixed photo count and region width. "Row heights" are relative (taller row = fewer photos at same width).
+
+| Photos | Rows | Distribution | Row Heights (rel) | Content CV | Penalty | Verdict |
+|--------|------|-------------|-------------------|-----------|---------|---------|
+| 14 | 3 | [5, 5, 4] | ~equal | ~0.12 | 0 | No penalty (good) |
+| 14 | 3 | [6, 4, 4] | mild imbalance | ~0.20 | 0 | No penalty (acceptable) |
+| 14 | 3 | [8, 3, 3] | crushed first row | ~0.50 | 0.075 | Penalized (bad) |
+| 14 | 3 | [9, 3, 2] | severe imbalance | ~0.65 | 0.15 | Heavily penalized |
+| 14 | 3 | [10, 2, 2] | extreme | ~0.75 | 0.20 | Near max penalty |
+| 20 | 4 | [5, 5, 5, 5] | perfect | ~0.08 | 0 | No penalty |
+| 20 | 4 | [7, 5, 4, 4] | slight | ~0.18 | 0 | No penalty |
+| 20 | 4 | [10, 4, 3, 3] | crushed | ~0.48 | 0.065 | Penalized |
+| 10 | 3 | [4, 3, 3] | good | ~0.10 | 0 | No penalty |
+| 10 | 3 | [6, 2, 2] | bad | ~0.55 | 0.10 | Penalized |
+| 6 | 2 | [3, 3] | perfect | ~0.05 | 0 | No penalty |
+| 6 | 2 | [4, 2] | mild | ~0.25 | 0 | No penalty |
+| 6 | 2 | [5, 1] | bad | ~0.60 | 0.125 | Penalized |
+| 30 | 5 | [6, 6, 6, 6, 6] | perfect | ~0.06 | 0 | No penalty |
+| 30 | 5 | [10, 6, 5, 5, 4] | imbalanced | ~0.35 | 0 | Borderline (no penalty) |
+| 30 | 5 | [12, 6, 5, 4, 3] | crushed | ~0.50 | 0.075 | Penalized |
+
+### Part 2: Template x Hero AR x Canvas AR (does the penalty fire for the right templates?)
+
+Each row assumes a representative photo set (14 content photos, mixed AR 0.6-1.8).
+
+| Template | Hero AR | Canvas AR | Typical Row Dist | Content CV | Penalty? | Notes |
+|----------|---------|-----------|-------------------|-----------|----------|-------|
+| hero-column | 0.68 | 1.5 | 14 in ~3-4 rows | 0.10-0.50 | Sometimes | Portrait hero, wide content region -- portrait photo clusters can pile up |
+| hero-column | 0.50 | 1.8 | 14 in ~3-4 rows | 0.10-0.50 | Sometimes | Very narrow hero, wide content -- more room for imbalance |
+| hero-column | 0.80 | 1.2 | 14 in ~4-5 rows | 0.08-0.30 | Rarely | Wider hero, narrower content -- less room for extremes |
+| hero-row | 1.5 | 0.7 | 14 in ~4-5 rows | 0.08-0.25 | Rarely | Content below, full-width region -- well-constrained |
+| hero-row | 2.0 | 0.6 | 14 in ~5-6 rows | 0.06-0.20 | Rarely | Wide hero, lots of rows -- very uniform |
+| corner-anchor | 0.68 | 1.0 | beside: 5, below: 9 | 0.10-0.40 | Sometimes | Standard layout -- can have imbalance in beside region |
+| corner-anchor | 1.0 | 1.0 | beside: 6, below: 8 | 0.08-0.30 | Rarely | Square hero on square canvas -- well balanced |
+| corner-anchor | 1.5 | 1.5 | beside: 4, below: 10 | 0.10-0.35 | Rarely | Landscape hero -- most photos below, even distribution |
+| corner-anchor | 0.68 | 1.5 | beside: 7, below: 7 | 0.12-0.45 | Sometimes | Portrait hero on landscape -- the original problem case |
+| diagonal-corners | 0.8+1.2 | 1.0 | 3 regions | 0.15-0.40 | Sometimes | Multi-hero -- more region complexity |
+
+### Part 3: Interaction with Existing Penalties (do they stack correctly?)
+
+| Scenario | AR Pen | Coverage Pen | Prominence Pen | Content CV Pen | Total Penalties | Score Impact |
+|----------|--------|-------------|----------------|----------------|----------------|-------------|
+| Good layout, even rows | 0 | 0 | 0 | 0 | 0 | Full score |
+| Good layout, crushed row | 0 | 0 | 0 | 0.10 | 0.10 | Mild demotion |
+| AR miss + crushed row | 0.15 | 0 | 0 | 0.10 | 0.25 | Significant demotion |
+| Hero too big + crushed row | 0 | 0.20 | 0 | 0.15 | 0.35 | Strong demotion |
+| All penalties stacking | 0.15 | 0.15 | 0.10 | 0.20 | 0.60 | Near-zero score (0.05 floor) |
+| Crushed row but perfect otherwise | 0 | 0 | 0 | 0.15 | 0.15 | Loses to even-row variant |
+
+### Part 4: Edge Cases
+
+| Scenario | Photos | Content CV | Expected Behavior |
+|----------|--------|-----------|-------------------|
+| 1 content photo | 1 | 0 (single value) | No penalty, `coefficientOfVariation` returns 0 for < 2 values |
+| 2 content photos | 2 | varies | Low CV even with size diff (only 2 values) -- penalty unlikely |
+| All identical AR | any | ~0.02 | Near-zero CV -- no penalty regardless of row count |
+| All portrait (AR 0.6-0.7) | 14 | 0.05-0.15 | Low CV because similar ARs pack uniformly -- no penalty |
+| Mixed (AR 0.5-2.5) | 14 | 0.15-0.50 | Higher CV possible -- penalty engages only for extreme imbalance |
+| Content-only layout (no hero) | 20 | N/A | This code path is hero-only; content-only uses separate scoring |
+
+### Part 5: Why This Doesn't Create New Problems
+
+| Concern | Why It's Safe |
+|---------|---------------|
+| Over-penalizing natural AR variation | CV threshold of 0.35 is generous -- normal variation from mixed photo ARs produces CV of 0.10-0.25 |
+| Conflicting with F-ratio scoring | F-ratio evaluates ALL cells (hero included); content CV evaluates ONLY content. They measure different things |
+| Reducing layout diversity | Max penalty is 0.25 -- bad layouts still have nonzero scores (0.05 floor) and can be selected via weighted random, just less likely |
+| Breaking content-only layouts | Change only applies in `generateCandidates` and `generateDualHeroCandidates` -- content-only path is untouched |
+| Breaking dual-hero layouts | Same penalty applies -- if content cells are uneven in a dual-hero layout, it should also be penalized |
 
 ## Technical Details
 
-### 1. Template Registry (`src/lib/v3/hero-constraints.ts`)
+### Change 1: Import `coefficientOfVariation`
 
-Add two new entries to `HERO_TEMPLATES`:
+**File:** `src/lib/v4/index.ts`
 
+Add to existing import from `'../v3/utils'`:
 ```
-hero-column:
-  heroCount: 1
-  canvasAR: { min: 1.15, max: 2.25 }
-  heroAreaFraction: { min: 0.15, max: 0.35 }
-  heroAR: { min: 0.4, max: 0.85 }
-  positions: ['left', 'right']
-
-hero-row:
-  heroCount: 1
-  canvasAR: { min: 0.50, max: 0.85 }
-  heroAreaFraction: { min: 0.15, max: 0.35 }
-  heroAR: { min: 1.2, max: 3.0 }
-  positions: ['top', 'bottom']
+import { ..., coefficientOfVariation } from '../v3/utils';
 ```
 
-### 2. Topology Functions (`src/lib/v3/hero-constraints.ts`)
+### Change 2: Add penalty in single-region scoring (~line 396)
 
-**`heroColumnTopology`**: Hero height = 1.0 (full canvas height minus gaps). Hero width = heroAR * heroHeight. One content region beside it, width-constrained at `canvasAR - wHero - gaps`.
+After computing `allContentAreas` and before the final `score` line:
 
-**`heroRowTopology`**: Hero width = canvasAR (full canvas width minus gaps). Hero height = heroWidth / heroAR. One content region below it, width-constrained at canvas width, target height = `1.0 - hHero - gaps`.
+```typescript
+const contentCV = coefficientOfVariation(allContentAreas);
+const CV_THRESHOLD = 0.35;
+const contentUniformityPenalty = contentCV > CV_THRESHOLD
+  ? Math.min(0.25, (contentCV - CV_THRESHOLD) * 0.5)
+  : 0;
+```
 
-### 3. Template Dispatch (`src/lib/v3/hero-constraints.ts`)
+Add `contentUniformityPenalty` to the score subtraction.
 
-Add cases to `getTemplateTopology` for `'hero-column'` and `'hero-row'`.
+### Change 3: Add penalty in two-region scoring (~line 517)
 
-### 4. Generation Pipeline (`src/lib/v4/index.ts`)
+Same logic after `allContentAreas` is populated from both regions.
 
-No structural changes needed. The existing `generateCandidates` loop already:
-- Calls `findCandidateTemplates` (which will now return hero-column/hero-row when hero AR matches)
-- Calls `getTemplateTopology` (which will dispatch to the new functions)
-- Packs regions generically
+### Change 4: Add penalty in dual-hero scoring (~line 745)
 
-The only adjustment: when a template produces a single content region (no "beside" region), the pipeline needs to handle `regions.length === 1` gracefully. Currently it assumes 2 regions (beside + below). We'll add a check so that when there's only 1 region, we skip the beside-width computation and set the canvas width directly from the topology.
+Same logic in `generateDualHeroCandidates`.
 
-### 5. Region Count Derivation
+### Summary
 
-For single-region templates, all content photos go into that one region. No beside/below split needed. We'll add a simple check: if `topology.regions.length === 1`, assign all content to region 0 and skip `deriveRegionCounts`.
+- 1 new import
+- 3 identical penalty blocks (one per scoring path)
+- No new files, no new parameters, no changes to packing or distribution logic
+- Existing `coefficientOfVariation` function already exists and is tested
 

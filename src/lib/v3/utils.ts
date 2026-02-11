@@ -383,7 +383,7 @@ export function sampleAreaFractions(
  * matches this rectangle?" Works for both height-constrained and
  * width-constrained regions.
  * 
- * Formula: round(photoCount * meanAR * targetHeight / targetWidth)
+ * Formula: round(sqrt(photoCount * meanAR * targetHeight / targetWidth))
  * Clamped to [1, ceil(photoCount / 2)].
  * 
  * @param photoCount - Number of photos in the region
@@ -401,7 +401,7 @@ export function deriveTargetRowCount(
   if (photoCount <= 0) return 0;
   if (targetWidth <= 0) return Math.max(1, Math.ceil(photoCount / 2));
   
-  const raw = photoCount * meanAR * targetHeight / targetWidth;
+  const raw = Math.sqrt(photoCount * meanAR * targetHeight / targetWidth);
   const clamped = Math.max(1, Math.min(Math.ceil(photoCount / 2), Math.round(raw)));
   return clamped;
 }

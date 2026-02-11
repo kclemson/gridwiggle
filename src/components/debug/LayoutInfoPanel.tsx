@@ -40,46 +40,47 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
         </div>
         <div className="text-xs text-muted-foreground/80 font-mono space-y-0.5">
           <div>template: {template} ({corner})</div>
+          <div className="mt-1">
+            target area fraction: {areaFrac.toFixed(3)}
+            <span className="text-muted-foreground/50 ml-1">
+              [hero % of canvas used for photo split planning]
+            </span>
+          </div>
           {heroCoverage != null && (
             <div className="text-primary font-semibold">
-              hero coverage: {(heroCoverage * 100).toFixed(1)}% of canvas
+              actual hero coverage: {(heroCoverage * 100).toFixed(1)}% of canvas
             </div>
           )}
+          <div className="mt-1">target canvas AR: {targetCanvasAR.toFixed(2)}</div>
           <div>
-            target AR: {targetCanvasAR.toFixed(2)} → actual: {actualCanvasAR.toFixed(2)}
+            actual canvas AR: {actualCanvasAR.toFixed(2)}
             <span className="text-muted-foreground/60 ml-1">
-              (dev: {(arDeviation * 100).toFixed(1)}%)
+              (deviation: {(arDeviation * 100).toFixed(1)}%)
             </span>
           </div>
-          <div>
-            area fraction: {areaFrac.toFixed(3)}
-            <span className="text-muted-foreground/50 ml-1">
-              [target hero % for photo split planning]
-            </span>
-          </div>
-          <div>
-            hero AR: {heroAR.toFixed(2)} | prominence: {prominenceRatio.toFixed(2)}x
+          <div className="mt-1">
+            actual hero AR: {heroAR.toFixed(2)} | actual prominence: {prominenceRatio.toFixed(2)}x
             <span className="text-muted-foreground/50 ml-1">
               [hero is {prominenceRatio.toFixed(1)}x the largest content photo]
             </span>
           </div>
-          <div>
+          <div className="mt-1">
             score: {score.toFixed(3)} | candidates: {candidateCount}
           </div>
           {regionSizes?.[0] > 0 && (
-            <div>
-              region 0 (beside): {regionSizes[0]} photos, {regionActualRows[0]} rows
-              <span className="text-muted-foreground/60 ml-1">
-                (target: {regionTargetRows[0]}), w={besideWidth.toFixed(2)}
-              </span>
+            <div className="mt-1">
+              region 0 (beside): {regionSizes[0]} photos, w={besideWidth.toFixed(2)}
+              <div className="ml-2 text-muted-foreground/60">
+                target rows: {regionTargetRows[0]} | actual rows: {regionActualRows[0]}
+              </div>
             </div>
           )}
           {regionSizes?.[1] > 0 && (
-            <div>
-              region 1 (below): {regionSizes[1]} photos, {regionActualRows[1]} rows
-              <span className="text-muted-foreground/60 ml-1">
-                (target: {regionTargetRows[1]}), h={belowHeight.toFixed(2)}
-              </span>
+            <div className="mt-1">
+              region 1 (below): {regionSizes[1]} photos, h={belowHeight.toFixed(2)}
+              <div className="ml-2 text-muted-foreground/60">
+                target rows: {regionTargetRows[1]} | actual rows: {regionActualRows[1]}
+              </div>
             </div>
           )}
         </div>

@@ -211,20 +211,40 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
   const VARIATIONS_PER_COMBO = 5;
   
+  // Hero count distribution matching V3Test HERO_MIX
+  const HERO_MIX: Record<number, number> = {
+    0: 0.05,
+    1: 0.45,
+    2: 0.50,
+  };
+  const MIN_PHOTOS_FOR_HEROES: Record<number, number> = { 0: 1, 1: 1, 2: 8 };
+  
+  function sampleHeroCount(photoCount: number): number {
+    const roll = Math.random();
+    let cumulative = 0;
+    for (const [k, prob] of Object.entries(HERO_MIX)) {
+      const hc = Number(k);
+      cumulative += prob;
+      if (roll <= cumulative) {
+        if (photoCount < (MIN_PHOTOS_FOR_HEROES[hc] ?? 1)) return Math.min(1, photoCount);
+        return hc;
+      }
+    }
+    return 1;
+  }
+  
   for (const photoCount of TEST_PHOTO_COUNTS) {
     for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {
-      // 80% hero, 20% no-hero for regression coverage
-      const hasHero = Math.random() < 0.8;
-      // Random bias from -0.6 to +0.6 (avoid extremes)
+      const heroCount = sampleHeroCount(photoCount);
       const orientationBias = (Math.random() - 0.5) * 1.2;
       const tuning = { minPhotosPerRow: randomMinPhotosPerRow() };
       
-      if (hasHero) {
+      if (heroCount > 0) {
         // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
         cases.push({
-          photos: generatePhotoSet(photoCount, orientationBias, true),
+          photos: generatePhotoSet(photoCount, orientationBias, heroCount),
           shape: 'auto',
-          hasHero: true,
+          heroCount,
           orientationBias,
           tuning,
         });
@@ -235,12 +255,11 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
         if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
         if (isShapeAvailable('square', photoCount)) shapes.push('square');
         
-        // Pick one random shape for this variation
         const shape = shapes[Math.floor(Math.random() * shapes.length)];
         cases.push({
-          photos: generatePhotoSet(photoCount, orientationBias, false),
+          photos: generatePhotoSet(photoCount, orientationBias, 0),
           shape,
-          hasHero: false,
+          heroCount: 0,
           orientationBias,
           tuning,
         });

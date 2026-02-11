@@ -19,7 +19,7 @@ const BATCH_SIZE = 44;
  */
 export default function LayoutRating() {
   // Generate test cases on mount
-  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; hasHero: boolean; orientationBias: number; tuning?: { minPhotosPerRow?: number } }[]>([]);
+  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; heroCount: number; orientationBias: number; tuning?: { minPhotosPerRow?: number } }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<RatedLayout[]>([]);
   const [selectedTags, setSelectedTags] = useState<LayoutTag[]>([]);
@@ -71,7 +71,7 @@ export default function LayoutRating() {
       photoCount: currentResult.testCase.photos.length,
       orientationBias: currentResult.testCase.orientationBias,
       shape: currentResult.testCase.shape,
-      hasHero: currentResult.testCase.hasHero,
+      heroCount: currentResult.testCase.heroCount,
       rowCount: currentResult.rowCount,
       rowSizes: currentResult.rowSizes,
       rowHeroAdjacent: currentResult.rowHeroAdjacent,
@@ -201,7 +201,7 @@ export default function LayoutRating() {
         
         {/* Shape indicator banner */}
         {(() => {
-          const { hasHero, shape, photos, orientationBias } = currentResult.testCase;
+          const { heroCount, shape, photos, orientationBias } = currentResult.testCase;
           const photoCount = photos.length;
           
           // Show bias direction
@@ -210,7 +210,7 @@ export default function LayoutRating() {
                           : '→M';  // L=landscape, P=portrait, M=mixed
           
           // For hero layouts, show input (auto) and resulting aspect
-          if (hasHero) {
+          if (heroCount > 0) {
             const resultAspect = currentResult.canvasAspect > 1.2 ? 'landscape'
               : currentResult.canvasAspect < 0.85 ? 'portrait'
               : 'square-ish';

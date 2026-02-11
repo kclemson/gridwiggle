@@ -42,7 +42,7 @@ export interface SyntheticPhoto {
 export interface LayoutTestCase {
   photos: SyntheticPhoto[];
   shape: CollageSettings['shape'];
-  hasHero: boolean;
+  heroCount: number;         // 0, 1, 2, etc.
   orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
   tuning?: Partial<LayoutTuning>;
 }
@@ -77,7 +77,7 @@ export interface RatedLayout {
   photoCount: number;
   orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
   shape: CollageSettings['shape'];
-  hasHero: boolean;
+  heroCount: number;
   
   // Layout metrics
   rowCount: number;

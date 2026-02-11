@@ -18,7 +18,7 @@ export function MetricsBadges({ result }: MetricsBadgesProps) {
       </Badge>
       
       <Badge variant="outline" className="font-mono">
-        Hero: {testCase.hasHero ? 'Yes' : 'No'}
+        Heroes: {testCase.heroCount}
       </Badge>
       
       <Badge variant="outline" className="font-mono">

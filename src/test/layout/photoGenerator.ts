@@ -199,12 +199,15 @@ function createSyntheticPhoto(
 export function generatePhotoSet(
   count: number,
   orientationBias: number,
-  hasHero: boolean
+  heroCount: number
 ): SyntheticPhoto[] {
   const photos: SyntheticPhoto[] = [];
   
+  // Clamp heroCount to available photos
+  const effectiveHeroCount = Math.min(heroCount, count);
+  
   for (let i = 0; i < count; i++) {
-    const isHero = hasHero && i === 0;
+    const isHero = i < effectiveHeroCount;
     let aspectRatio: number;
     
     if (isHero) {

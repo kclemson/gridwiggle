@@ -125,7 +125,7 @@ export function ThumbnailNavigator({
               return (
                 <div 
                   key={photo.id}
-                  className="rounded-lg border border-border/50 bg-surface-elevated/30 overflow-hidden"
+                  className="rounded-lg border border-border/70 bg-surface-elevated/60 overflow-hidden"
                   style={{ flex: `1 1 ${calculatedWidth}px`, maxWidth: calculatedWidth * 1.8 }}
                 >
                   {/* Photo thumbnail */}
@@ -161,7 +161,7 @@ export function ThumbnailNavigator({
                             {/* Right strip */}
                             <div className="absolute bg-black/50" style={{ top: `${topPct}%`, right: 0, width: `${100 - leftPct - widthPct}%`, height: `${heightPct}%` }} />
                             {/* Crop border */}
-                            <div className="absolute border border-white/60 rounded-sm pointer-events-none" style={{ top: `${topPct}%`, left: `${leftPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }} />
+                            <div className="absolute border border-white/60 pointer-events-none" style={{ top: `${topPct}%`, left: `${leftPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }} />
                           </>
                         )}
 
@@ -172,10 +172,6 @@ export function ThumbnailNavigator({
                           </div>
                         )}
 
-                        {/* Index number */}
-                        <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[10px] px-1 rounded">
-                          {index + 1}
-                        </div>
                       </>
                     ) : (
                       <Skeleton className="w-full h-full rounded" />
@@ -195,7 +191,7 @@ export function ThumbnailNavigator({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-7 w-7 [&_svg]:size-3"
                             disabled={isProcessing}
                             onClick={(e) => {
                               e.stopPropagation();

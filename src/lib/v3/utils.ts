@@ -172,7 +172,12 @@ export function distributeByARBudget(
   const totalAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0);
   const baseRowAR = totalAR / targetRowCount;
   
-  // Step 2: Greedy pack with jitter
+  // Step 2: Compute minimum photos per row to prevent sparse rows
+  // 0.7× average ensures jitter can't create jarring count imbalances (e.g. 6,2,5)
+  const avgPerRow = n / targetRowCount;
+  const minPerRow = Math.max(2, Math.floor(avgPerRow * 0.7));
+  
+  // Step 3: Greedy pack with jitter
   const rows: PhotoDimension[][] = [];
   let currentRow: PhotoDimension[] = [];
   let currentAR = 0;
@@ -186,8 +191,8 @@ export function distributeByARBudget(
     const jitteredTarget = baseRowAR * jitterMultiplier;
     
     // Should we start a new row?
-    // Only if: current row not empty AND current AR has reached jittered budget
-    if (currentRow.length > 0 && currentAR >= jitteredTarget) {
+    // Only if: row has minimum photos AND current AR has reached jittered budget
+    if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
       rows.push(currentRow);
       currentRow = [];
       currentAR = 0;

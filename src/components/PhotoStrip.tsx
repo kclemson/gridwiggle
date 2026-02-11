@@ -59,19 +59,19 @@ export function PhotoStrip({
       {/* Actions - unified row */}
       <div className="flex justify-center items-center gap-2">
         <Button variant="outline" size="sm" onClick={onViewAll}>
-          <Crop className="h-4 w-4 mr-1.5" />
+          <Crop className="h-4 w-4" />
           Adjust Crops
         </Button>
         <Button variant="outline" size="sm" onClick={onAddPhotos}>
-          <Plus className="h-4 w-4 mr-1.5" />
+          <Plus className="h-4 w-4" />
           Add Photos
         </Button>
         {showGenerateButton && onGenerate && (
           <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
             {isGenerating ? (
-              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Wand2 className="h-4 w-4 mr-1.5" />
+              <Wand2 className="h-4 w-4" />
             )}
             Generate
           </Button>
@@ -82,7 +82,7 @@ export function PhotoStrip({
           onClick={onClearAll}
           className="text-destructive hover:text-destructive"
         >
-          <Trash2 className="h-4 w-4 mr-1.5" />
+          <Trash2 className="h-4 w-4" />
           Clear All
         </Button>
       </div>

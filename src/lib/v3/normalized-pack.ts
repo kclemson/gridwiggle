@@ -6,7 +6,7 @@
  */
 
 import { PhotoDimension, NormalizedCell, NormalizedPackResult, V3Tuning, DEFAULT_V3_TUNING } from './types';
-import { distributeByARBudget } from './utils';
+import { distributeByARBudget, deriveTargetRowCount, mean } from './utils';
 
 // ============================================================================
 // Pack to Fill Height (for BESIDE region)
@@ -138,6 +138,106 @@ export function packToFillHeight(
     height: targetHeight,
     rowCount: rows.length,
   };
+}
+
+// ============================================================================
+// Dimension-Aware Packers (soft-target search)
+// ============================================================================
+
+/**
+ * Pack photos at a fixed height, searching for the row count that produces
+ * width closest to targetWidth. Wraps packToFillHeight with a bounded search.
+ * 
+ * @param photos - Photos to pack
+ * @param targetHeight - Fixed height (hard constraint)
+ * @param normalizedGap - Gap as fraction of hero height
+ * @param targetWidth - Desired width (soft target)
+ * @param tuning - V3Tuning for AR-budget distribution
+ * @param randomize - Whether to randomize row distribution
+ * @returns Best pack result minimizing width deviation from targetWidth
+ */
+export function packToFillHeightAtTargetWidth(
+  photos: PhotoDimension[],
+  targetHeight: number,
+  normalizedGap: number,
+  targetWidth: number,
+  tuning: V3Tuning = DEFAULT_V3_TUNING,
+  randomize: boolean = false
+): NormalizedPackResult {
+  if (photos.length === 0) {
+    return { cells: [], width: 0, height: 0, rowCount: 0 };
+  }
+  if (photos.length === 1) {
+    return packToFillHeight(photos, targetHeight, normalizedGap, 1, tuning, randomize);
+  }
+
+  const meanAR = mean(photos.map(p => p.aspectRatio));
+  const estimate = deriveTargetRowCount(photos.length, meanAR, targetWidth, targetHeight);
+  const maxRC = Math.max(1, Math.ceil(photos.length / 2));
+
+  let bestResult: NormalizedPackResult | null = null;
+  let bestDeviation = Infinity;
+
+  for (const delta of [0, -1, 1, -2, 2]) {
+    const rc = Math.max(1, Math.min(maxRC, estimate + delta));
+    const result = packToFillHeight(photos, targetHeight, normalizedGap, rc, tuning, randomize);
+    if (result.cells.length === 0) continue;
+    const deviation = Math.abs(result.width - targetWidth) / targetWidth;
+    if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
+      bestDeviation = deviation;
+      bestResult = result;
+    }
+  }
+
+  return bestResult ?? { cells: [], width: 0, height: 0, rowCount: 0 };
+}
+
+/**
+ * Pack photos at a fixed width, searching for the row count that produces
+ * height closest to targetHeight. Wraps packToFillWidth with a bounded search.
+ * 
+ * @param photos - Photos to pack
+ * @param targetWidth - Fixed width (hard constraint)
+ * @param normalizedGap - Gap as fraction of hero height
+ * @param targetHeight - Desired height (soft target)
+ * @param tuning - V3Tuning for AR-budget distribution
+ * @param randomize - Whether to randomize row distribution
+ * @returns Best pack result minimizing height deviation from targetHeight
+ */
+export function packToFillWidthAtTargetHeight(
+  photos: PhotoDimension[],
+  targetWidth: number,
+  normalizedGap: number,
+  targetHeight: number,
+  tuning: V3Tuning = DEFAULT_V3_TUNING,
+  randomize: boolean = false
+): NormalizedPackResult {
+  if (photos.length === 0) {
+    return { cells: [], width: 0, height: 0, rowCount: 0 };
+  }
+  if (photos.length === 1) {
+    return packToFillWidth(photos, targetWidth, normalizedGap, 1, tuning, randomize);
+  }
+
+  const meanAR = mean(photos.map(p => p.aspectRatio));
+  const estimate = deriveTargetRowCount(photos.length, meanAR, targetWidth, targetHeight);
+  const maxRC = Math.max(1, Math.ceil(photos.length / 2));
+
+  let bestResult: NormalizedPackResult | null = null;
+  let bestDeviation = Infinity;
+
+  for (const delta of [0, -1, 1, -2, 2]) {
+    const rc = Math.max(1, Math.min(maxRC, estimate + delta));
+    const result = packToFillWidth(photos, targetWidth, normalizedGap, rc, tuning, randomize);
+    if (result.cells.length === 0) continue;
+    const deviation = Math.abs(result.height - targetHeight) / targetHeight;
+    if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
+      bestDeviation = deviation;
+      bestResult = result;
+    }
+  }
+
+  return bestResult ?? { cells: [], width: 0, height: 0, rowCount: 0 };
 }
 
 // ============================================================================

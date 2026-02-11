@@ -9,7 +9,7 @@ import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING, PackableRegion } from '@/lib/v3/types';
 import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
-import { shuffleArray, deriveRegionCounts, deriveRegionCountsThreeWay, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, deriveRegionCountsThreeWay, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions, coefficientOfVariation } from '@/lib/v3/utils';
 import { devLogger, RejectedLayoutGeometry } from '@/lib/devLogger';
 import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax } from '@/lib/v3/hero-constraints';
 
@@ -390,10 +390,17 @@ function generateCandidates(
           const prominencePenalty = prominenceRatio < tuning.hero_minProminence
             ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0) : 0;
           
+          // Content-only uniformity: penalize high CV among content cells
+          const contentCV = coefficientOfVariation(allContentAreas);
+          const CV_THRESHOLD_1 = 0.35;
+          const contentUniformityPenalty = contentCV > CV_THRESHOLD_1
+            ? Math.min(0.25, (contentCV - CV_THRESHOLD_1) * 0.5)
+            : 0;
+          
           const allAreas = [heroArea, ...allContentAreas];
           const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
           const rawScore = balanceResult.score;
-          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
+          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
           
           const corner = randomize
             ? corners[Math.floor(Math.random() * 4)]
@@ -510,11 +517,18 @@ function generateCandidates(
           });
         }
         
+        // Content-only uniformity: penalize high CV among content cells
+        const contentCV = coefficientOfVariation(allContentAreas);
+        const CV_THRESHOLD_2 = 0.35;
+        const contentUniformityPenalty = contentCV > CV_THRESHOLD_2
+          ? Math.min(0.25, (contentCV - CV_THRESHOLD_2) * 0.5)
+          : 0;
+        
         const allAreas = [heroAreaVal, ...allContentAreas];
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
         
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
@@ -737,12 +751,19 @@ function generateDualHeroCandidates(
           ? Math.min(0.3, (tuning.hero_minProminence - minProm) * 1.0)
           : 0;
         
+        // Content-only uniformity: penalize high CV among content cells
+        const contentCV = coefficientOfVariation(allContentAreas);
+        const CV_THRESHOLD_3 = 0.35;
+        const contentUniformityPenalty = contentCV > CV_THRESHOLD_3
+          ? Math.min(0.25, (contentCV - CV_THRESHOLD_3) * 0.5)
+          : 0;
+        
         // Score with penalties
         const allAreas = [hero1Area, hero2Area, ...allContentAreas];
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = (r0Count > 0 ? 0.33 : 0) + (r1Count > 0 ? 0.34 : 0) + (r2Count > 0 ? 0.33 : 0);
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
         
         const corner = randomize
           ? diagonalCorners[Math.floor(Math.random() * 2)]

@@ -64,14 +64,14 @@ describe('deriveTargetRowCount', () => {
 
   it('narrow tall region → more rows', () => {
     // 6 photos, meanAR=1.2, width=0.15, height=1.0
-    // raw = 6 * 1.2 * 1.0 / 0.15 = 48 → clamped to ceil(6/2) = 3
+    // raw = sqrt(6 * 1.2 * 1.0 / 0.15) = sqrt(48) ≈ 6.93 → clamped to ceil(6/2) = 3
     const rows = deriveTargetRowCount(6, 1.2, 0.15, 1.0);
     expect(rows).toBe(3);
   });
 
   it('wide short region → fewer rows', () => {
     // 6 photos, meanAR=1.2, width=2.0, height=0.3
-    // raw = 6 * 1.2 * 0.3 / 2.0 = 1.08 → round = 1
+    // raw = sqrt(6 * 1.2 * 0.3 / 2.0) = sqrt(1.08) ≈ 1.04 → round = 1
     const rows = deriveTargetRowCount(6, 1.2, 2.0, 0.3);
     expect(rows).toBe(1);
   });

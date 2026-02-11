@@ -33,8 +33,6 @@ export interface CanvasARRange {
 export interface HeroAreaRange {
   min: number;
   max: number;
-  /** Tighter ceiling applied when canvas AR is 0.85-1.15 (square-ish) */
-  squareMax?: number;
 }
 
 export interface HeroARRange {
@@ -65,7 +63,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     id: 'corner-anchor',
     heroCount: 1,
     canvasAR: { min: 0.50, max: 2.25 },
-    heroAreaFraction: { min: 0.15, max: 0.40, squareMax: 0.35 },
+    heroAreaFraction: { min: 0.15, max: 0.40 },
     heroAR: { min: 0.4, max: 3.0 },
     positions: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
     description: 'Universal corner placement; tighter area ceiling on square canvases',
@@ -135,6 +133,33 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     description: 'Two heroes stacked; portrait canvases only',
   },
 ]) as readonly HeroTemplate[];
+
+// ============================================================================
+// Dynamic Area Fraction Ceiling
+// ============================================================================
+
+/**
+ * Compute the effective maximum area fraction for a template at a given canvas AR.
+ *
+ * As canvasAR grows beyond 1.0, the hero occupies more vertical space for the
+ * same area fraction (hHero = sqrt(areaFrac * canvasAR / heroAR)). This helper
+ * scales the ceiling down continuously so hHero stays ~0.50 regardless of canvas width.
+ *
+ * Formula: effectiveMax = template.max * clamp(1 / canvasAR, 0.5, 1.0)
+ *
+ * Examples (template.max = 0.40):
+ *   canvasAR 1.0  → 0.40   (unchanged)
+ *   canvasAR 1.5  → 0.27
+ *   canvasAR 2.0  → 0.20
+ *   canvasAR 2.25 → 0.18   (floor at 0.5 scale)
+ */
+export function effectiveAreaFractionMax(
+  heroAreaFraction: HeroAreaRange,
+  canvasAR: number
+): number {
+  const scale = Math.max(0.5, Math.min(1.0, 1.0 / canvasAR));
+  return heroAreaFraction.max * scale;
+}
 
 // ============================================================================
 // Lookup

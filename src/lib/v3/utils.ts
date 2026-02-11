@@ -294,27 +294,22 @@ export function sampleCanvasARValues(
 }
 
 /**
- * Sample hero area fraction values, respecting squareMax ceiling
- * when the canvas AR is near-square (0.85-1.15).
+ * Sample hero area fraction values within [min, effectiveMax].
+ * The caller is responsible for computing effectiveMax via
+ * effectiveAreaFractionMax() from hero-constraints.ts.
  */
 export function sampleAreaFractions(
   min: number,
-  max: number,
-  squareMax: number,
-  canvasAR: number,
+  effectiveMax: number,
   count: number
 ): number[] {
-  // Apply squareMax ceiling for near-square canvases
-  const effectiveMax = (canvasAR >= 0.85 && canvasAR <= 1.15)
-    ? Math.min(max, squareMax)
-    : max;
-  
-  if (count <= 1) return [(min + effectiveMax) / 2];
+  const clamped = Math.max(min, effectiveMax);
+  if (count <= 1) return [(min + clamped) / 2];
   
   const values: number[] = [];
   for (let i = 0; i < count; i++) {
     const t = i / (count - 1);
-    values.push(min + t * (effectiveMax - min));
+    values.push(min + t * (clamped - min));
   }
   return values;
 }

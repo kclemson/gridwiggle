@@ -132,7 +132,7 @@ export function ThumbnailNavigator({
                   <button
                     onClick={() => handleSelect(photo.id)}
                     className={cn(
-                      "relative transition-all overflow-hidden rounded",
+                      "relative transition-all overflow-hidden",
                       "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
                     )}
                     style={{ 
@@ -174,7 +174,7 @@ export function ThumbnailNavigator({
 
                       </>
                     ) : (
-                      <Skeleton className="w-full h-full rounded" />
+                      <Skeleton className="w-full h-full" />
                     )}
                   </button>
                   

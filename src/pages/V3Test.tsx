@@ -51,7 +51,19 @@ import {
 // Static settings matching production defaults
 const GAP_SIZE = 8;
 
-// Placeholder blob for synthetic photos (not used for CSS visualization)
+/** Configurable hero count distribution for random test generation. */
+const HERO_MIX: Record<number, number> = {
+  0: 0.05,  // 5% no-hero
+  1: 0.45,  // 45% single-hero
+  2: 0.50,  // 50% dual-hero
+};
+
+/** Minimum photo count required for a given hero count. */
+const MIN_PHOTOS_FOR_HEROES: Record<number, number> = {
+  0: 1,
+  1: 1,
+  2: 8,  // Engine gate: dual hero needs >= 8 photos
+};
 const PLACEHOLDER_BLOB = new Blob([''], { type: 'image/png' });
 
 /**
@@ -74,15 +86,41 @@ function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
 }
 
 /**
- * Generate a random photo set with 95% hero probability.
+ * Sample a heroCount from the HERO_MIX distribution,
+ * falling back to lower counts when photoCount is too small.
+ */
+function sampleHeroCount(photoCount: number): number {
+  const roll = Math.random();
+  let cumulative = 0;
+  
+  // Walk entries from highest heroCount down so fallback is natural
+  const entries = Object.entries(HERO_MIX)
+    .map(([k, v]) => ({ count: Number(k), prob: v }))
+    .sort((a, b) => a.count - b.count);
+  
+  for (const { count, prob } of entries) {
+    cumulative += prob;
+    if (roll <= cumulative) {
+      // Check minimum photo requirement, fall back to 1
+      if (photoCount < (MIN_PHOTOS_FOR_HEROES[count] ?? 1)) {
+        return Math.min(1, photoCount);
+      }
+      return count;
+    }
+  }
+  return 1; // fallback
+}
+
+/**
+ * Generate a random photo set with configurable hero distribution.
  */
 function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number; orientationBias: number } {
   const photoCount = TEST_PHOTO_COUNTS[Math.floor(Math.random() * TEST_PHOTO_COUNTS.length)];
   const orientationBias = (Math.random() - 0.5); // -0.5 to +0.5
-  const hasHero = Math.random() < 0.95; // 95% hero - no-hero cases are easier
-  const seed = Date.now(); // Use timestamp as pseudo-seed for reference
+  const heroCount = sampleHeroCount(photoCount);
+  const seed = Date.now();
   
-  const photos = generatePhotoSet(photoCount, orientationBias, hasHero);
+  const photos = generatePhotoSet(photoCount, orientationBias, heroCount);
   return { photos, seed, orientationBias };
 }
 
@@ -144,7 +182,7 @@ function buildCapture(
   const { photos, seed, orientationBias } = photoSet;
   const { layout, logs, durationMs, rejectedLayout } = result;
   
-  const heroPhoto = photos.find(p => p.priority === 1);
+  const heroPhotos = photos.filter(p => p.priority === 1);
   const avgAR = photos.reduce((s, p) => s + p.aspectRatio, 0) / photos.length;
   const { rejectReasons, feasibilityReasons, rejectCount, feasibilityCount } = 
     extractReasonFrequencies(logs);
@@ -153,8 +191,8 @@ function buildCapture(
   
   return {
     photoCount: photos.length,
-    heroCount: heroPhoto ? 1 : 0,
-    heroAR: heroPhoto?.aspectRatio ?? null,
+    heroCount: heroPhotos.length,
+    heroAR: heroPhotos.length > 0 ? heroPhotos[0].aspectRatio : null,
     avgAR,
     orientationBias,
     seed,
@@ -365,7 +403,7 @@ export default function V3Test() {
   const { photoSet, layout, layoutMeta, logs, durationMs, rejectedLayout } = state;
   
   // Stats
-  const heroPhoto = photoSet.photos.find(p => p.priority === 1);
+  const heroPhotos = photoSet.photos.filter(p => p.priority === 1);
   const avgAR = photoSet.photos.reduce((sum, p) => sum + p.aspectRatio, 0) / photoSet.photos.length;
   
   // Scale rejected layout from normalized space to pixels (1000 base)
@@ -481,13 +519,18 @@ export default function V3Test() {
             <Image className="h-4 w-4" />
             <span>{photoSet.photos.length} photos</span>
           </div>
-          {heroPhoto && (
+          {heroPhotos.length > 0 && (
             <div className="flex items-center gap-1">
               <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
-              <span>Hero AR: {heroPhoto.aspectRatio.toFixed(2)}</span>
+              <span>
+                {heroPhotos.length === 1 
+                  ? `Hero AR: ${heroPhotos[0].aspectRatio.toFixed(2)}`
+                  : `${heroPhotos.length} Heroes: ${heroPhotos.map(p => p.aspectRatio.toFixed(2)).join(', ')}`
+                }
+              </span>
             </div>
           )}
-          {!heroPhoto && (
+          {heroPhotos.length === 0 && (
             <div className="text-muted-foreground/50">No hero</div>
           )}
           <div>Avg AR: {avgAR.toFixed(2)}</div>

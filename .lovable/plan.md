@@ -1,64 +1,57 @@
 
 
-# ThumbnailNavigator: Card-Based Photo+Action Grouping
+# ThumbnailNavigator: Even Row Distribution
 
 ## Problem
 
-The buttons beneath each thumbnail float in space with no visual boundary connecting them to their photo. With 30+ photos of varying widths, this creates a chaotic layout where it's unclear which buttons belong to which photo.
+The current flex-wrap layout leaves ragged gaps at the end of rows. Items have fixed pixel widths, so leftover space just pools at the right edge.
 
 ## Solution
 
-Wrap each photo and its action buttons in a **card container** with a subtle border and rounded corners. This creates a clear visual unit: one card = one photo + its actions. Buttons stay always visible, but the card boundary eliminates ambiguity.
+Add `flex: 1 1 <calculatedWidth>px` to each card. This tells flexbox: "start at your natural width, but grow to share any leftover space on this row equally." The photo inside already uses `object-cover`, so a bit of extra width just reveals more of the image -- no distortion.
 
 ```text
-Current:                          Proposed:
-+-------+ +----------+           +----------+ +-------------+
-| photo | | photo    |           || photo  || || photo      ||
-+-------+ +----------+           ||        || ||            ||
- [*C][E]   [Undo][E]             |+--------+| |+-----------+||
-                                 | [*C] [E] | |  [Undo] [E] |
-                                 +----------+ +-------------+
-                                 (subtle border around each card)
+Before (fixed widths, gap pools at right):
+[portrait][landscape---][square-]
+[wide---------][portrait]              <- ragged right edge
+
+After (flex-grow distributes space):
+[portrait-][landscape------][square--]
+[wide-----------][portrait-----]       <- fills the row
 ```
 
 ## Technical Details
 
 **File:** `src/components/ThumbnailNavigator.tsx`
 
-### Change 1: Card wrapper around each photo unit
+### Single change: flex-grow on each card
 
-Replace the outer `div` per photo (currently `flex flex-col items-center gap-1`) with a styled container:
-
-```
-rounded-lg border border-border/50 bg-surface-elevated/30 overflow-hidden
-```
-
-This gives each photo+buttons group a subtle dark card background with a faint border, visually binding the thumbnail to its actions.
-
-### Change 2: Button row styling
-
-Give the button row a slight top border or background tint so it reads as a "toolbar" attached to its photo:
+Replace the explicit `style={{ width: calculatedWidth }}` on each card div with:
 
 ```
-flex items-center justify-center gap-1 px-1 py-0.5 border-t border-border/30
+style={{ flex: `1 1 ${calculatedWidth}px` }}
 ```
 
-### Change 3: Remove min-h/min-w overrides on buttons
+This sets:
+- `flex-grow: 1` -- take a share of leftover space
+- `flex-shrink: 1` -- can shrink slightly if needed
+- `flex-basis: ${calculatedWidth}px` -- start at the natural aspect-ratio width
 
-The current `min-h-[44px] min-w-[44px]` on ghost buttons makes them oversized relative to the thumbnails. Inside a card, we can use slightly smaller visual size while keeping adequate touch targets via padding. Change to `h-7 w-7` visual size with padding maintaining the 44px touch target.
+Optionally add a `maxWidth` (e.g., `calculatedWidth * 1.8`) to prevent a single item on the last row from stretching absurdly wide across the whole container.
 
 ### What stays the same
 
-- Flex-wrap layout with natural aspect ratios
-- Crop boundary overlays on thumbnails
-- Hero badges and index numbers
+- Flex-wrap container (no grid change)
+- Natural aspect ratio determines each card's base width
+- Card styling (border, rounded corners, toolbar)
+- Crop overlays, hero badges, index numbers
+- All button logic and interaction behavior
+- `THUMBNAIL_HEIGHT` fixed at 85px
 - Progressive loading
-- All button logic (smartCropAttempted hiding, Sparkles+Crop dual icon, Undo2, Maximize2)
-- All existing interaction behavior
 
 ### Files changed
 
 | File | Change |
 |------|--------|
-| `src/components/ThumbnailNavigator.tsx` | Add card wrapper with border/bg around each photo+buttons unit, style button row as attached toolbar |
+| `src/components/ThumbnailNavigator.tsx` | Change card `style` from fixed `width` to `flex: 1 1 <width>px` with optional `maxWidth` cap |
 

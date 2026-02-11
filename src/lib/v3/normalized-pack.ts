@@ -178,15 +178,23 @@ export function packToFillHeightAtTargetWidth(
   let bestResult: NormalizedPackResult | null = null;
   let bestDeviation = Infinity;
 
-  for (const delta of [0, -1, 1, -2, 2]) {
-    const rc = Math.max(1, Math.min(maxRC, estimate + delta));
-    const result = packToFillHeight(photos, targetHeight, normalizedGap, rc, tuning, randomize);
-    if (result.cells.length === 0) continue;
-    const deviation = Math.abs(result.width - targetWidth) / targetWidth;
-    if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
-      bestDeviation = deviation;
-      bestResult = result;
+  // Expanding-radius search: try row counts outward from estimate
+  // This ensures we find the optimal row count even when estimate is far off
+  const maxRadius = Math.max(estimate - 1, maxRC - estimate);
+  for (let radius = 0; radius <= maxRadius; radius++) {
+    for (const sign of (radius === 0 ? [0] : [-1, 1])) {
+      const rc = estimate + sign * radius;
+      if (rc < 1 || rc > maxRC) continue;
+      const result = packToFillHeight(photos, targetHeight, normalizedGap, rc, tuning, randomize);
+      if (result.cells.length === 0) continue;
+      const deviation = Math.abs(result.width - targetWidth) / targetWidth;
+      if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
+        bestDeviation = deviation;
+        bestResult = result;
+      }
     }
+    // Early termination: good enough fit found
+    if (bestDeviation < 0.05) break;
   }
 
   return bestResult ?? { cells: [], width: 0, height: 0, rowCount: 0 };
@@ -226,15 +234,22 @@ export function packToFillWidthAtTargetHeight(
   let bestResult: NormalizedPackResult | null = null;
   let bestDeviation = Infinity;
 
-  for (const delta of [0, -1, 1, -2, 2]) {
-    const rc = Math.max(1, Math.min(maxRC, estimate + delta));
-    const result = packToFillWidth(photos, targetWidth, normalizedGap, rc, tuning, randomize);
-    if (result.cells.length === 0) continue;
-    const deviation = Math.abs(result.height - targetHeight) / targetHeight;
-    if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
-      bestDeviation = deviation;
-      bestResult = result;
+  // Expanding-radius search: try row counts outward from estimate
+  const maxRadius = Math.max(estimate - 1, maxRC - estimate);
+  for (let radius = 0; radius <= maxRadius; radius++) {
+    for (const sign of (radius === 0 ? [0] : [-1, 1])) {
+      const rc = estimate + sign * radius;
+      if (rc < 1 || rc > maxRC) continue;
+      const result = packToFillWidth(photos, targetWidth, normalizedGap, rc, tuning, randomize);
+      if (result.cells.length === 0) continue;
+      const deviation = Math.abs(result.height - targetHeight) / targetHeight;
+      if (deviation < bestDeviation || (deviation === bestDeviation && rc <= (bestResult?.rowCount ?? Infinity))) {
+        bestDeviation = deviation;
+        bestResult = result;
+      }
     }
+    // Early termination: good enough fit found
+    if (bestDeviation < 0.05) break;
   }
 
   return bestResult ?? { cells: [], width: 0, height: 0, rowCount: 0 };

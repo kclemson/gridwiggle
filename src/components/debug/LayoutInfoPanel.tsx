@@ -20,13 +20,13 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
   if (meta) {
     const {
       template, targetCanvasAR, actualCanvasAR, arDeviation,
-      areaFrac, heroAR, prominenceRatio, score, corner,
+      areaFrac, heroCoverage, heroAR, prominenceRatio, score, corner,
       candidateCount, regionSizes, regionTargetRows, regionActualRows,
       besideWidth, belowHeight,
     } = meta as {
       template: string; targetCanvasAR: number; actualCanvasAR: number;
-      arDeviation: number; areaFrac: number; heroAR: number;
-      prominenceRatio: number; score: number; corner: string;
+      arDeviation: number; areaFrac: number; heroCoverage: number;
+      heroAR: number; prominenceRatio: number; score: number; corner: string;
       candidateCount: number; regionSizes: number[];
       regionTargetRows: number[]; regionActualRows: number[];
       besideWidth: number; belowHeight: number;
@@ -40,6 +40,11 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
         </div>
         <div className="text-xs text-muted-foreground/80 font-mono space-y-0.5">
           <div>template: {template} ({corner})</div>
+          {heroCoverage != null && (
+            <div className="text-primary font-semibold">
+              hero coverage: {(heroCoverage * 100).toFixed(1)}% of canvas
+            </div>
+          )}
           <div>
             target AR: {targetCanvasAR.toFixed(2)} → actual: {actualCanvasAR.toFixed(2)}
             <span className="text-muted-foreground/60 ml-1">
@@ -47,10 +52,19 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
             </span>
           </div>
           <div>
-            area fraction: {areaFrac.toFixed(3)} | hero prominence: {prominenceRatio.toFixed(2)}x
+            area fraction: {areaFrac.toFixed(3)}
+            <span className="text-muted-foreground/50 ml-1">
+              [target hero % for photo split planning]
+            </span>
           </div>
           <div>
-            hero AR: {heroAR.toFixed(2)} | score: {score.toFixed(3)} | candidates: {candidateCount}
+            hero AR: {heroAR.toFixed(2)} | prominence: {prominenceRatio.toFixed(2)}x
+            <span className="text-muted-foreground/50 ml-1">
+              [hero is {prominenceRatio.toFixed(1)}x the largest content photo]
+            </span>
+          </div>
+          <div>
+            score: {score.toFixed(3)} | candidates: {candidateCount}
           </div>
           {regionSizes?.[0] > 0 && (
             <div>

@@ -1,32 +1,20 @@
 
 
-# Tighten Icon-Text Spacing in PhotoStrip Buttons
+# Replace Hero Checkbox with Toggle Switch
 
-## Problem
+## What Changes
 
-The buttons beneath the photo strip ("Adjust Crops", "Add Photos", "Generate", "Clear All") have too much space between their icon and label text, making it hard to tell which icon belongs to which button.
+Replace the Checkbox + Label for "Hero" with a Switch toggle in the CropEditor footer. A switch is the standard UI pattern for binary on/off states and will feel more intuitive than the current checkbox (which visually resembles a radio button).
 
-## Cause
+## Technical Details
 
-Two sources of gap are stacking:
-1. The `Button` component's CVA base class includes `gap-2` (8px) between children
-2. Each icon also has `mr-1.5` (6px) margin-right
+**File:** `src/components/CropEditor.tsx`
 
-Together that's ~14px of separation -- too much.
+| Change | Detail |
+|--------|--------|
+| Import | Replace `Checkbox` import with `Switch` from `@/components/ui/switch` |
+| Lines 386-395 | Replace the `Checkbox` + `Label` div with a `Switch` + `Label` using the same state binding |
 
-## Fix
+The Switch component is already installed (`@radix-ui/react-switch`) and available at `@/components/ui/switch`.
 
-**File:** `src/components/PhotoStrip.tsx`
-
-Remove the `mr-1.5` class from every icon in the action buttons. The Button's built-in `gap-2` already provides spacing; the extra margin is redundant and creates the visual disconnect.
-
-| Line | Current | New |
-|------|---------|-----|
-| ~68 | `<Crop className="h-4 w-4 mr-1.5" />` | `<Crop className="h-4 w-4" />` |
-| ~72 | `<Plus className="h-4 w-4 mr-1.5" />` | `<Plus className="h-4 w-4" />` |
-| ~77 | `<Loader2 className="h-4 w-4 mr-1.5 animate-spin" />` | `<Loader2 className="h-4 w-4 animate-spin" />` |
-| ~79 | `<Wand2 className="h-4 w-4 mr-1.5" />` | `<Wand2 className="h-4 w-4" />` |
-| ~86 | `<Trash2 className="h-4 w-4 mr-1.5" />` | `<Trash2 className="h-4 w-4" />` |
-
-No other files changed.
-
+The state logic stays identical — `isHero` / `setIsHero` — just the visual control changes.

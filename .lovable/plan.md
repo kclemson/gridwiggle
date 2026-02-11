@@ -1,21 +1,32 @@
 
 
-# Remove Rounded Corners from Photo Thumbnails
+# Tighten Icon-Text Spacing in PhotoStrip Buttons
 
-## Change
+## Problem
 
-The photo thumbnail `button` inside each card currently has `rounded` in its className. Remove it so the photo has square corners, matching the crop overlay which we already fixed to have square corners.
+The buttons beneath the photo strip ("Adjust Crops", "Add Photos", "Generate", "Clear All") have too much space between their icon and label text, making it hard to tell which icon belongs to which button.
 
-## Technical Details
+## Cause
 
-**File:** `src/components/ThumbnailNavigator.tsx`
+Two sources of gap are stacking:
+1. The `Button` component's CVA base class includes `gap-2` (8px) between children
+2. Each icon also has `mr-1.5` (6px) margin-right
 
-The `button` element wrapping each photo (around line 131) has className containing `rounded`. Remove that class. Also remove `rounded` from the Skeleton fallback (around line 178).
+Together that's ~14px of separation -- too much.
 
-The outer card wrapper keeps its `rounded-lg` since that's the card border, not the photo itself.
+## Fix
 
-| Location | Change |
-|----------|--------|
-| ~line 135 | Remove `rounded` from the photo button className |
-| ~line 178 | Remove `rounded` from the Skeleton className |
+**File:** `src/components/PhotoStrip.tsx`
+
+Remove the `mr-1.5` class from every icon in the action buttons. The Button's built-in `gap-2` already provides spacing; the extra margin is redundant and creates the visual disconnect.
+
+| Line | Current | New |
+|------|---------|-----|
+| ~68 | `<Crop className="h-4 w-4 mr-1.5" />` | `<Crop className="h-4 w-4" />` |
+| ~72 | `<Plus className="h-4 w-4 mr-1.5" />` | `<Plus className="h-4 w-4" />` |
+| ~77 | `<Loader2 className="h-4 w-4 mr-1.5 animate-spin" />` | `<Loader2 className="h-4 w-4 animate-spin" />` |
+| ~79 | `<Wand2 className="h-4 w-4 mr-1.5" />` | `<Wand2 className="h-4 w-4" />` |
+| ~86 | `<Trash2 className="h-4 w-4 mr-1.5" />` | `<Trash2 className="h-4 w-4" />` |
+
+No other files changed.
 

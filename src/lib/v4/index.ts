@@ -2,29 +2,25 @@
  * V4 Layout Orchestrator
  * 
  * Simplified orchestrator that calls proven math functions.
- * No arbitrary caps, simple constraints, maximum variety.
+ * Uses generic PackableRegion abstraction for future multi-region support.
  */
 
 import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
+import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING, PackableRegion } from '@/lib/v3/types';
 import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
-import { shuffleArray, deriveRegionCounts, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger } from '@/lib/devLogger';
 
 // Virtual canvas base unit for final pixel values
 const VIRTUAL_CANVAS_BASE = 1000;
 
 // ============================================================================
-// Candidate Interface
+// Candidate Interface (region-generic)
 // ============================================================================
 
 interface LayoutCandidate {
-  besideCount: number;
-  besideRowCount: number;
-  belowRowCount: number;
-  besideCells: NormalizedCell[];
-  belowCells: NormalizedCell[];
+  regions: PackableRegion[];
   heroCell: NormalizedCell;
   canvasWidth: number;
   canvasHeight: number;
@@ -57,21 +53,6 @@ function extractPhotoDimensions(
 // Cell Balance Scoring (F-ratio + Spread Constraint)
 // ============================================================================
 
-/**
- * Score a set of cell areas for visual balance.
- * 
- * This is a GENERAL-PURPOSE function that works on ANY set of cells.
- * It has no knowledge of hero/beside/below - just evaluates the geometry.
- * 
- * Two components:
- * 1. COHERENCE (F-ratio): Do cells cluster into distinct size tiers?
- * 2. SPREAD PENALTY: Is the largest/smallest ratio reasonable?
- * 
- * @param areas - All cell areas to evaluate
- * @param photoCount - Total photos for adaptive spread limit
- * @param tuning - V3Tuning for baseSpreadLimit
- * @param tierCount - Number of tiers to detect (default 3)
- */
 function scoreCellBalance(
   areas: number[],
   photoCount: number,
@@ -86,7 +67,6 @@ function scoreCellBalance(
   const largest = sorted[0];
   const smallest = sorted[sorted.length - 1];
   
-  // === Component 1: Tier Coherence (F-ratio) ===
   let coherence = 0.5;
   if (areas.length >= tierCount * 2) {
     const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
@@ -119,14 +99,9 @@ function scoreCellBalance(
     coherence = Math.min(1.0, fRatio / 5);
   }
   
-  // === Component 2: Spread Penalty ===
-  // Adaptive limit: scales with sqrt(photoCount / 10)
-  // 10 photos → 15:1, 40 photos → 30:1, 90 photos → 45:1
   const adaptiveLimit = tuning.tier_baseSpreadLimit * Math.sqrt(photoCount / 10);
   const spreadRatio = smallest > 0 ? largest / smallest : Infinity;
   
-  // Penalty ramps up when spreadRatio exceeds adaptiveLimit
-  // At 2x the limit, penalty = 0.3 (significant but not fatal)
   const spreadPenalty = spreadRatio <= adaptiveLimit 
     ? 0 
     : Math.min(0.4, (spreadRatio - adaptiveLimit) / adaptiveLimit * 0.3);
@@ -166,13 +141,46 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 }
 
 // ============================================================================
-// Candidate Generation
+// Region Packing
 // ============================================================================
 
-// Corner-anchor template parameters (will move to registry later)
 const CORNER_ANCHOR_TEMPLATE = {
   areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
 };
+
+const AR_COHERENCE_THRESHOLD = 0.4;
+
+function packRegion(
+  region: PackableRegion,
+  normalizedGap: number,
+  tuning: V3Tuning,
+  randomize: boolean
+): PackableRegion {
+  if (region.photos.length === 0) {
+    return { ...region, result: { cells: [], width: 0, height: 0, rowCount: 0 } };
+  }
+  
+  const result = region.constraint === 'height'
+    ? packToFillHeight(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize)
+    : packToFillWidth(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize);
+  
+  return { ...region, result: result.cells.length > 0 ? result : null };
+}
+
+function rowCountVariants(targetRowCount: number, photoCount: number): number[] {
+  if (photoCount <= 0) return [0];
+  const max = Math.max(1, Math.ceil(photoCount / 2));
+  const variants = new Set<number>();
+  for (const delta of [0, -1, 1]) {
+    const rc = targetRowCount + delta;
+    if (rc >= 1 && rc <= max) variants.add(rc);
+  }
+  return [...variants];
+}
+
+// ============================================================================
+// Candidate Generation (region-generic)
+// ============================================================================
 
 function generateCandidates(
   heroPhoto: PhotoDimension,
@@ -184,7 +192,6 @@ function generateCandidates(
   const heroAR = heroPhoto.aspectRatio;
   const candidates: LayoutCandidate[] = [];
   
-  // Order content: shuffle for variety OR sort for determinism
   const ordered = randomize 
     ? shuffleArray(contentPhotos)
     : [...contentPhotos].sort((a, b) => a.aspectRatio - b.aspectRatio);
@@ -192,12 +199,10 @@ function generateCandidates(
   const corners: Array<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'> = 
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
-  // Sample canvas AR values from tuning range
   const canvasARSamples = sampleCanvasARValues(tuning.canvas_minAR, tuning.canvas_maxAR, 6, randomize);
   const { areaFraction } = CORNER_ANCHOR_TEMPLATE;
   
-  // Track unique besideCount values to avoid duplicate packing work
-  const triedSplits = new Set<string>();
+  const triedConfigs = new Set<string>();
   
   for (const targetCanvasAR of canvasARSamples) {
     const areaSamples = sampleAreaFractions(
@@ -206,59 +211,93 @@ function generateCandidates(
     
     for (const areaFrac of areaSamples) {
       const { besideCount } = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
+      const belowCount = ordered.length - besideCount;
       
-      const beside = ordered.slice(0, besideCount);
-      const below = ordered.slice(besideCount);
+      let hHero = Math.sqrt(areaFrac * targetCanvasAR / heroAR);
+      hHero = Math.max(0.1, Math.min(0.95, hHero));
+      const wHero = heroAR * hHero;
       
-      // Row count ranges
-      const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
-      const minBesideRows = besideCount > 0 ? 1 : 0;
+      const targetBesideWidth = targetCanvasAR - wHero;
+      const targetBelowHeight = 1.0 - hHero;
       
-      for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
-        const splitKey = `${besideCount}-${besideRowCount}`;
-        if (triedSplits.has(splitKey)) continue;
-        triedSplits.add(splitKey);
-        
-        const besideResult = besideCount > 0 
-          ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
-          : { cells: [], width: 0, height: 1.0, rowCount: 0 };
-        
-        if (besideCount > 0 && besideResult.cells.length === 0) continue;
-        
-        const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
-        
-        const maxBelowRows = below.length > 0 
-          ? Math.max(1, Math.ceil(below.length / 2))
-          : 0;
-        
-        const belowRowCounts = below.length > 0
-          ? (randomize 
-              ? [1 + Math.floor(Math.random() * maxBelowRows)]
-              : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
-          : [0];
-        
-        for (const belowRowCount of belowRowCounts) {
-          const belowResult = below.length > 0 && belowRowCount > 0
-            ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
-            : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+      const besidePhotos = ordered.slice(0, besideCount);
+      const belowPhotos = ordered.slice(besideCount);
+      
+      const besideMeanAR = besidePhotos.length > 0 ? mean(besidePhotos.map(p => p.aspectRatio)) : 1;
+      const belowMeanAR = belowPhotos.length > 0 ? mean(belowPhotos.map(p => p.aspectRatio)) : 1;
+      
+      const baseBesideRows = besideCount > 0
+        ? deriveTargetRowCount(besideCount, besideMeanAR, Math.max(0.01, targetBesideWidth), hHero)
+        : 0;
+      const baseBelowRows = belowCount > 0
+        ? deriveTargetRowCount(belowCount, belowMeanAR, targetCanvasAR, Math.max(0.01, targetBelowHeight))
+        : 0;
+      
+      const besideRowVariants = rowCountVariants(baseBesideRows, besideCount);
+      const belowRowVariants = rowCountVariants(baseBelowRows, belowCount);
+      
+      for (const besideRowCount of besideRowVariants) {
+        for (const belowRowCount of belowRowVariants) {
+          const configKey = `${besideCount}-${besideRowCount}-${belowRowCount}`;
+          if (triedConfigs.has(configKey)) continue;
+          triedConfigs.add(configKey);
           
-          if (below.length > 0 && belowResult.cells.length === 0) continue;
+          const regions: PackableRegion[] = [
+            {
+              constraint: 'height',
+              targetDimension: 1.0,
+              photos: besidePhotos,
+              targetRowCount: besideRowCount,
+              offset: { x: normalizedGap + heroAR + normalizedGap, y: normalizedGap },
+              result: null,
+            },
+            {
+              constraint: 'width',
+              targetDimension: 0,
+              photos: belowPhotos,
+              targetRowCount: belowRowCount,
+              offset: { x: normalizedGap, y: normalizedGap + 1.0 + normalizedGap },
+              result: null,
+            },
+          ];
           
-          const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
+          regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);
+          if (besideCount > 0 && !regions[0].result) continue;
+          
+          const besideWidth = regions[0].result?.width ?? 0;
+          const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideWidth : 0);
+          regions[1] = { ...regions[1], targetDimension: heroRowWidth };
+          
+          regions[1] = packRegion(regions[1], normalizedGap, tuning, randomize);
+          if (belowCount > 0 && !regions[1].result) continue;
+          
+          const belowHeight = regions[1].result?.height ?? 0;
+          const totalHeight = 1.0 + (belowCount > 0 ? normalizedGap + belowHeight : 0);
           const canvasWidth = heroRowWidth + 2 * normalizedGap;
           const canvasHeight = totalHeight + 2 * normalizedGap;
           const canvasAR = canvasWidth / canvasHeight;
           
           if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
           
-          const besideAreas = besideResult.cells.map(c => c.width * c.height);
+          const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
+          if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
+          
+          const allContentAreas: number[] = [];
+          for (const region of regions) {
+            if (region.result) {
+              for (const cell of region.result.cells) {
+                allContentAreas.push(cell.width * cell.height);
+              }
+            }
+          }
+          
           const heroArea = heroAR * 1.0;
-          const maxBesideArea = Math.max(...besideAreas, 0);
-          const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
+          const maxContentArea = Math.max(...allContentAreas, 0);
+          const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
           
           if (prominenceRatio < tuning.hero_minProminence) continue;
           
-          const allAreas = [heroArea, ...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
+          const allAreas = [heroArea, ...allContentAreas];
           const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
           const presenceScore = besideCount > 0 ? 1.0 : 0.4;
           const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
@@ -276,11 +315,7 @@ function generateCandidates(
           };
           
           candidates.push({
-            besideCount,
-            besideRowCount,
-            belowRowCount,
-            besideCells: besideResult.cells,
-            belowCells: belowResult.cells,
+            regions,
             heroCell,
             canvasWidth,
             canvasHeight,
@@ -296,7 +331,7 @@ function generateCandidates(
   devLogger.log('layout', `V4 generated ${candidates.length} candidates (template-sampled)`, {
     photoCount: contentPhotos.length + 1,
     heroAR: heroAR.toFixed(2),
-    sampledSplits: triedSplits.size,
+    sampledConfigs: triedConfigs.size,
     arRange: candidates.length > 0 
       ? `${Math.min(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)} - ${Math.max(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)}`
       : 'none',
@@ -321,14 +356,13 @@ function selectCandidate(
 }
 
 // ============================================================================
-// Convert to Layout
+// Convert to Layout (region-generic)
 // ============================================================================
 
 function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): CollageLayout {
   const cells: CollageCell[] = [];
-  const { corner, canvasWidth, canvasHeight, heroCell, besideCells, belowCells } = candidate;
+  const { corner, canvasWidth, canvasHeight, heroCell } = candidate;
   
-  // Helper to transform coordinates based on corner
   const transform = (x: number, y: number, w: number, h: number): { x: number; y: number } => {
     switch (corner) {
       case 'top-left':
@@ -352,30 +386,24 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     height: Math.round(heroCell.height * VIRTUAL_CANVAS_BASE),
   });
   
-  // Add beside cells (offset from hero)
-  const besideOffsetX = normalizedGap + candidate.heroCell.width + normalizedGap;
-  for (const cell of besideCells) {
-    const pos = transform(besideOffsetX + cell.x, normalizedGap + cell.y, cell.width, cell.height);
-    cells.push({
-      photoId: cell.photoId,
-      x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
-      y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
-      width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
-      height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
-    });
-  }
-  
-  // Add below cells (offset from hero row)
-  const belowOffsetY = normalizedGap + 1.0 + normalizedGap;
-  for (const cell of belowCells) {
-    const pos = transform(normalizedGap + cell.x, belowOffsetY + cell.y, cell.width, cell.height);
-    cells.push({
-      photoId: cell.photoId,
-      x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
-      y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
-      width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
-      height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
-    });
+  // Add all region cells (generic loop)
+  for (const region of candidate.regions) {
+    if (!region.result) continue;
+    for (const cell of region.result.cells) {
+      const pos = transform(
+        region.offset.x + cell.x,
+        region.offset.y + cell.y,
+        cell.width,
+        cell.height
+      );
+      cells.push({
+        photoId: cell.photoId,
+        x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
+        y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
+        width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
+        height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
+      });
+    }
   }
   
   return {
@@ -395,17 +423,6 @@ export interface GenerateLayoutV4Options {
   randomize?: boolean;
 }
 
-/**
- * Generate a collage layout using the V4 algorithm.
- * 
- * V4 is a simplified orchestrator that:
- * - Explores ALL besideCount values (no cap)
- * - Uses simple row count ranges
- * - Enforces only canvas AR + prominence
- * - Scores with F-ratio
- * 
- * @returns CollageLayout or null if generation fails
- */
 export function generateCollageLayoutV4(
   photos: PhotoItem[],
   settings: CollageSettings,
@@ -421,7 +438,6 @@ export function generateCollageLayoutV4(
   
   const tuning: V3Tuning = { ...DEFAULT_V3_TUNING, ...tuningOverrides };
   
-  // Map slider (0-100) to normalized gap (0 to 0.04)
   const normalizedGap = (settings.gapSize / 100) * 0.04;
   
   devLogger.log('layout', 'Starting V4 layout generation', {
@@ -434,10 +450,8 @@ export function generateCollageLayoutV4(
     },
   });
   
-  // Extract dimensions with weights
   const dimensions = extractPhotoDimensions(photos, photoWeights);
   
-  // Find hero (highest weight)
   const heroPhoto = dimensions.reduce((h, d) => d.weight > h.weight ? d : h);
   const contentPhotos = dimensions.filter(d => d.id !== heroPhoto.id);
   
@@ -448,7 +462,6 @@ export function generateCollageLayoutV4(
     avgContentAR: (contentPhotos.reduce((s, d) => s + d.aspectRatio, 0) / contentPhotos.length).toFixed(2),
   });
   
-  // Generate all valid candidates
   const candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
   
   if (candidates.length === 0) {
@@ -456,16 +469,19 @@ export function generateCollageLayoutV4(
     return null;
   }
   
-  // Select best/random candidate
   const selected = selectCandidate(candidates, randomize);
   
   if (!selected) {
     return null;
   }
   
+  const totalContentCells = selected.regions.reduce((sum, r) => sum + (r.result?.cells.length ?? 0), 0);
+  
   devLogger.log('layout', 'V4 selected candidate', {
-    besideCount: selected.besideCount,
-    belowCount: selected.belowCells.length,
+    regionCount: selected.regions.length,
+    regionSizes: selected.regions.map(r => r.photos.length),
+    regionRows: selected.regions.map(r => r.targetRowCount),
+    contentCells: totalContentCells,
     corner: selected.corner,
     canvasAR: (selected.canvasWidth / selected.canvasHeight).toFixed(2),
     score: selected.score.toFixed(3),

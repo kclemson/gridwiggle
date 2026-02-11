@@ -5,12 +5,13 @@
  * and spinners can animate during computation.
  * 
  * V4 is a simplified orchestrator that calls proven V3 math functions.
+ * Uses generic PackableRegion abstraction for future multi-region support.
  */
 
-import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING, NormalizedCell } from '@/lib/v3/types';
+import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING, NormalizedCell, PackableRegion } from '@/lib/v3/types';
 import { CollageLayout, CollageCell } from '@/types/collage';
 import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
-import { shuffleArray, deriveRegionCounts, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
@@ -54,15 +55,11 @@ export interface LayoutResponse {
 }
 
 // ============================================================================
-// V4 Layout Candidate
+// V4 Layout Candidate (region-generic)
 // ============================================================================
 
 interface LayoutCandidate {
-  besideCount: number;
-  besideRowCount: number;
-  belowRowCount: number;
-  besideCells: NormalizedCell[];
-  belowCells: NormalizedCell[];
+  regions: PackableRegion[];
   heroCell: NormalizedCell;
   canvasWidth: number;
   canvasHeight: number;
@@ -146,6 +143,53 @@ const CORNER_ANCHOR_TEMPLATE = {
   areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
 };
 
+// AR coherence threshold: reject candidates where actual AR deviates > 40% from target
+const AR_COHERENCE_THRESHOLD = 0.4;
+
+// ============================================================================
+// Region Packing
+// ============================================================================
+
+/**
+ * Pack a single region according to its constraint type.
+ * Returns the packed result or null if packing failed.
+ */
+function packRegion(
+  region: PackableRegion,
+  normalizedGap: number,
+  tuning: V3Tuning,
+  randomize: boolean
+): PackableRegion {
+  if (region.photos.length === 0) {
+    return { ...region, result: { cells: [], width: 0, height: 0, rowCount: 0 } };
+  }
+  
+  const result = region.constraint === 'height'
+    ? packToFillHeight(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize)
+    : packToFillWidth(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize);
+  
+  return { ...region, result: result.cells.length > 0 ? result : null };
+}
+
+/**
+ * Generate row count variants for a region: target +/- 1.
+ * Returns unique, valid row counts.
+ */
+function rowCountVariants(targetRowCount: number, photoCount: number): number[] {
+  if (photoCount <= 0) return [0];
+  const max = Math.max(1, Math.ceil(photoCount / 2));
+  const variants = new Set<number>();
+  for (const delta of [0, -1, 1]) {
+    const rc = targetRowCount + delta;
+    if (rc >= 1 && rc <= max) variants.add(rc);
+  }
+  return [...variants];
+}
+
+// ============================================================================
+// Candidate Generation (region-generic)
+// ============================================================================
+
 function generateCandidates(
   heroPhoto: PhotoDimension,
   contentPhotos: PhotoDimension[],
@@ -163,12 +207,11 @@ function generateCandidates(
   const corners: Array<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'> = 
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
-  // Sample canvas AR values from tuning range
   const canvasARSamples = sampleCanvasARValues(tuning.canvas_minAR, tuning.canvas_maxAR, 6, randomize);
   const { areaFraction } = CORNER_ANCHOR_TEMPLATE;
   
-  // Track unique splits to avoid duplicate packing work
-  const triedSplits = new Set<string>();
+  // Track unique configurations to avoid duplicate packing work
+  const triedConfigs = new Set<string>();
   
   for (const targetCanvasAR of canvasARSamples) {
     const areaSamples = sampleAreaFractions(
@@ -177,59 +220,106 @@ function generateCandidates(
     
     for (const areaFrac of areaSamples) {
       const { besideCount } = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
+      const belowCount = ordered.length - besideCount;
       
-      const beside = ordered.slice(0, besideCount);
-      const below = ordered.slice(besideCount);
+      // Derive hero dimensions from area fraction (normalized space: hero height = 1)
+      let hHero = Math.sqrt(areaFrac * targetCanvasAR / heroAR);
+      hHero = Math.max(0.1, Math.min(0.95, hHero));
+      const wHero = heroAR * hHero;
       
-      const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
-      const minBesideRows = besideCount > 0 ? 1 : 0;
+      // Compute target region dimensions
+      const targetBesideWidth = targetCanvasAR - wHero;
+      const targetBelowHeight = 1.0 - hHero;
       
-      for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
-        const splitKey = `${besideCount}-${besideRowCount}`;
-        if (triedSplits.has(splitKey)) continue;
-        triedSplits.add(splitKey);
-        
-        const besideResult = besideCount > 0 
-          ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
-          : { cells: [], width: 0, height: 1.0, rowCount: 0 };
-        
-        if (besideCount > 0 && besideResult.cells.length === 0) continue;
-        
-        const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
-        
-        const maxBelowRows = below.length > 0 
-          ? Math.max(1, Math.ceil(below.length / 2))
-          : 0;
-        
-        const belowRowCounts = below.length > 0
-          ? (randomize 
-              ? [1 + Math.floor(Math.random() * maxBelowRows)]
-              : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
-          : [0];
-        
-        for (const belowRowCount of belowRowCounts) {
-          const belowResult = below.length > 0 && belowRowCount > 0
-            ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
-            : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+      // Derive AR-aware row counts for each region
+      const besidePhotos = ordered.slice(0, besideCount);
+      const belowPhotos = ordered.slice(besideCount);
+      
+      const besideMeanAR = besidePhotos.length > 0 ? mean(besidePhotos.map(p => p.aspectRatio)) : 1;
+      const belowMeanAR = belowPhotos.length > 0 ? mean(belowPhotos.map(p => p.aspectRatio)) : 1;
+      
+      const baseBesideRows = besideCount > 0
+        ? deriveTargetRowCount(besideCount, besideMeanAR, Math.max(0.01, targetBesideWidth), hHero)
+        : 0;
+      const baseBelowRows = belowCount > 0
+        ? deriveTargetRowCount(belowCount, belowMeanAR, targetCanvasAR, Math.max(0.01, targetBelowHeight))
+        : 0;
+      
+      // Try target row count +/- 1 for each region
+      const besideRowVariants = rowCountVariants(baseBesideRows, besideCount);
+      const belowRowVariants = rowCountVariants(baseBelowRows, belowCount);
+      
+      for (const besideRowCount of besideRowVariants) {
+        for (const belowRowCount of belowRowVariants) {
+          const configKey = `${besideCount}-${besideRowCount}-${belowRowCount}`;
+          if (triedConfigs.has(configKey)) continue;
+          triedConfigs.add(configKey);
           
-          if (below.length > 0 && belowResult.cells.length === 0) continue;
+          // Build regions array (corner-anchor template: 2 regions)
+          const regions: PackableRegion[] = [
+            {
+              constraint: 'height',
+              targetDimension: 1.0, // normalized hero height
+              photos: besidePhotos,
+              targetRowCount: besideRowCount,
+              offset: { x: normalizedGap + heroAR + normalizedGap, y: normalizedGap },
+              result: null,
+            },
+            {
+              constraint: 'width',
+              targetDimension: 0, // will be filled after packing region 0
+              photos: belowPhotos,
+              targetRowCount: belowRowCount,
+              offset: { x: normalizedGap, y: normalizedGap + 1.0 + normalizedGap },
+              result: null,
+            },
+          ];
           
-          const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
+          // Pack region 0 (beside hero)
+          regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);
+          if (besideCount > 0 && !regions[0].result) continue;
+          
+          // Compute hero row width and set region 1's target dimension
+          const besideWidth = regions[0].result?.width ?? 0;
+          const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideWidth : 0);
+          regions[1] = { ...regions[1], targetDimension: heroRowWidth };
+          
+          // Pack region 1 (below hero row)
+          regions[1] = packRegion(regions[1], normalizedGap, tuning, randomize);
+          if (belowCount > 0 && !regions[1].result) continue;
+          
+          // Compute canvas dimensions
+          const belowHeight = regions[1].result?.height ?? 0;
+          const totalHeight = 1.0 + (belowCount > 0 ? normalizedGap + belowHeight : 0);
           const canvasWidth = heroRowWidth + 2 * normalizedGap;
           const canvasHeight = totalHeight + 2 * normalizedGap;
           const canvasAR = canvasWidth / canvasHeight;
           
+          // AR bounds check
           if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
           
-          const besideAreas = besideResult.cells.map(c => c.width * c.height);
+          // AR coherence filter: reject if actual AR deviates > 40% from target
+          const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
+          if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
+          
+          // Prominence check
+          const allContentAreas: number[] = [];
+          for (const region of regions) {
+            if (region.result) {
+              for (const cell of region.result.cells) {
+                allContentAreas.push(cell.width * cell.height);
+              }
+            }
+          }
+          
           const heroArea = heroAR * 1.0;
-          const maxBesideArea = Math.max(...besideAreas, 0);
-          const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
+          const maxContentArea = Math.max(...allContentAreas, 0);
+          const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
           
           if (prominenceRatio < tuning.hero_minProminence) continue;
           
-          const allAreas = [...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
-          const coherenceScore = tierCoherenceScore(allAreas);
+          // Score
+          const coherenceScore = tierCoherenceScore(allContentAreas);
           const presenceScore = besideCount > 0 ? 1.0 : 0.4;
           const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
           
@@ -246,11 +336,7 @@ function generateCandidates(
           };
           
           candidates.push({
-            besideCount,
-            besideRowCount,
-            belowRowCount,
-            besideCells: besideResult.cells,
-            belowCells: belowResult.cells,
+            regions,
             heroCell,
             canvasWidth,
             canvasHeight,
@@ -267,12 +353,12 @@ function generateCandidates(
 }
 
 // ============================================================================
-// Convert Candidate to Layout
+// Convert Candidate to Layout (region-generic)
 // ============================================================================
 
 function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): CollageLayout {
   const cells: CollageCell[] = [];
-  const { corner, canvasWidth, canvasHeight, heroCell, besideCells, belowCells } = candidate;
+  const { corner, canvasWidth, canvasHeight, heroCell } = candidate;
   
   const transform = (x: number, y: number, w: number, h: number): { x: number; y: number } => {
     switch (corner) {
@@ -287,6 +373,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     }
   };
   
+  // Add hero cell
   const heroPos = transform(heroCell.x, heroCell.y, heroCell.width, heroCell.height);
   cells.push({
     photoId: heroCell.photoId,
@@ -296,28 +383,24 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     height: Math.round(heroCell.height * VIRTUAL_CANVAS_BASE),
   });
   
-  const besideOffsetX = normalizedGap + candidate.heroCell.width + normalizedGap;
-  for (const cell of besideCells) {
-    const pos = transform(besideOffsetX + cell.x, normalizedGap + cell.y, cell.width, cell.height);
-    cells.push({
-      photoId: cell.photoId,
-      x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
-      y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
-      width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
-      height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
-    });
-  }
-  
-  const belowOffsetY = normalizedGap + 1.0 + normalizedGap;
-  for (const cell of belowCells) {
-    const pos = transform(normalizedGap + cell.x, belowOffsetY + cell.y, cell.width, cell.height);
-    cells.push({
-      photoId: cell.photoId,
-      x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
-      y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
-      width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
-      height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
-    });
+  // Add all region cells (generic loop - works for 2, 3, or N regions)
+  for (const region of candidate.regions) {
+    if (!region.result) continue;
+    for (const cell of region.result.cells) {
+      const pos = transform(
+        region.offset.x + cell.x,
+        region.offset.y + cell.y,
+        cell.width,
+        cell.height
+      );
+      cells.push({
+        photoId: cell.photoId,
+        x: Math.round(pos.x * VIRTUAL_CANVAS_BASE),
+        y: Math.round(pos.y * VIRTUAL_CANVAS_BASE),
+        width: Math.round(cell.width * VIRTUAL_CANVAS_BASE),
+        height: Math.round(cell.height * VIRTUAL_CANVAS_BASE),
+      });
+    }
   }
   
   return {
@@ -388,7 +471,6 @@ function generateLayout(
   
   if (candidates.length === 0) {
     devLogger.warn('v4', 'No valid candidates found, using fallback');
-    // Fallback: simple 2-row layout
     const fallbackLayout: CollageLayout = {
       width: 1000,
       height: 1000,
@@ -411,9 +493,13 @@ function generateLayout(
     ? weightedRandomSelect(candidates)
     : candidates.reduce((best, c) => c.score > best.score ? c : best);
   
+  const totalContentCells = selected.regions.reduce((sum, r) => sum + (r.result?.cells.length ?? 0), 0);
+  
   devLogger.log('v4', 'Selected candidate', {
-    besideCount: selected.besideCount,
-    belowCount: selected.belowCells.length,
+    regionCount: selected.regions.length,
+    regionSizes: selected.regions.map(r => r.photos.length),
+    regionRows: selected.regions.map(r => r.targetRowCount),
+    contentCells: totalContentCells,
     corner: selected.corner,
     canvasAR: (selected.canvasWidth / selected.canvasHeight).toFixed(2),
     score: selected.score.toFixed(3),
@@ -438,11 +524,9 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
   const startTime = performance.now();
   
   try {
-    // generateLayout clears workerLogs at start
     const result = generateLayout(dimensions, normalizedGap, tuning, randomize);
     const durationMs = performance.now() - startTime;
     
-    // Layout is now always non-null (soft rejections instead of hard)
     const response: LayoutResponse = {
       type: 'result',
       requestId,
@@ -454,14 +538,12 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
     
     self.postMessage(response);
   } catch (error) {
-    // For true errors (crashes), create a minimal empty layout
-    // This should be extremely rare - log for debugging
     console.error('Layout worker error:', error);
     const durationMs = performance.now() - startTime;
     const response: LayoutResponse = {
       type: 'result',
       requestId,
-      layout: { width: 1000, height: 1000, cells: [] },  // Empty fallback layout
+      layout: { width: 1000, height: 1000, cells: [] },
       durationMs,
       logs: isDev ? workerLogs : undefined,
       softRejection: {

@@ -293,11 +293,11 @@ export function deriveRegionCountsThreeWay(
   const halfFrac = areaFraction / 2;
 
   let hH1 = Math.sqrt(halfFrac * canvasAR / hero1AR);
-  hH1 = Math.max(0.1, Math.min(0.45, hH1));
+  hH1 = Math.max(0.1, Math.min(0.40, hH1));
   const wH1 = hero1AR * hH1;
 
   let hH2 = Math.sqrt(halfFrac * canvasAR / hero2AR);
-  hH2 = Math.max(0.1, Math.min(0.45, hH2));
+  hH2 = Math.max(0.1, Math.min(0.40, hH2));
   const wH2 = hero2AR * hH2;
 
   const a0 = Math.max(0, canvasAR - wH1) * hH1;

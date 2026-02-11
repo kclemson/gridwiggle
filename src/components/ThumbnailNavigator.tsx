@@ -125,7 +125,7 @@ export function ThumbnailNavigator({
               return (
                 <div 
                   key={photo.id}
-                  className="flex flex-col items-center gap-1"
+                  className="rounded-lg border border-border/50 bg-surface-elevated/30 overflow-hidden"
                   style={{ width: calculatedWidth }}
                 >
                   {/* Photo thumbnail */}
@@ -184,7 +184,7 @@ export function ThumbnailNavigator({
                   
                   {/* Per-photo action buttons */}
                   {isLoaded && (
-                    <div className="flex items-center gap-0.5">
+                    <div className="flex items-center justify-center gap-1 px-1 py-0.5 border-t border-border/30">
                       {/* Smart crop / undo button */}
                       {onSmartCrop && onUndoSmartCrop && (() => {
                         const smartCropAttempted = photo.smartCropAttempted ?? false;
@@ -195,7 +195,7 @@ export function ThumbnailNavigator({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                            className="h-7 w-7"
                             disabled={isProcessing}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -224,7 +224,7 @@ export function ThumbnailNavigator({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                        className="h-7 w-7"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleSelect(photo.id);

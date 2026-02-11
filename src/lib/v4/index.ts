@@ -541,42 +541,39 @@ function generateDualHeroCandidates(
         
         const middleHeight = region1.result?.height ?? 0;
         
-        // Region 2: beside Hero 2 (height = hH2)
-        // Target width = heroRow1Width - wH2 - gap (so bottom row matches top row width)
-        const targetBesideH2Width = heroRow1Width - wH2 - (r2Count > 0 ? normalizedGap : 0);
+        // Region 2: beside Hero 2 (width-constrained, pinned to match top row)
+        const region2TargetWidth = heroRow1Width - wH2 - (r2Count > 0 ? normalizedGap : 0);
         const r2OffsetY = tH1.y + hH1 + normalizedGap + middleHeight + (r1Count > 0 ? normalizedGap : 0);
         const r2TargetRows = r2Count > 0
-          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, targetBesideH2Width), hH2)
+          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, region2TargetWidth), hH2)
           : 0;
         let region2: PackableRegion = {
-          constraint: 'height', targetDimension: hH2,
-          targetSoftDimension: targetBesideH2Width > 0.01 ? targetBesideH2Width : undefined,
+          constraint: 'width', targetDimension: region2TargetWidth,
+          targetSoftDimension: hH2 > 0.01 ? hH2 : undefined,
           photos: r2Photos, targetRowCount: r2TargetRows,
           offset: { x: normalizedGap, y: r2OffsetY }, result: null,
         };
         region2 = packRegion(region2, normalizedGap, tuning, randomize);
         if (r2Count > 0 && !region2.result) continue;
         
-        // Hero row 2 width
-        const besideWidth2 = region2.result?.width ?? 0;
-        const heroRow2Width = (r2Count > 0 ? besideWidth2 + normalizedGap : 0) + wH2;
+        // Hero 2 height discovered from packing (not formula-derived)
+        const actualH2Height = r2Count > 0 && region2.result ? region2.result.height : hH2;
         
-        // Canvas dimensions
-        const canvasContentWidth = Math.max(heroRow1Width, heroRow2Width);
-        const canvasWidth = canvasContentWidth + 2 * normalizedGap;
+        // Canvas dimensions (both rows same width by construction)
+        const canvasWidth = heroRow1Width + 2 * normalizedGap;
         const totalHeight = hH1
           + (r1Count > 0 ? normalizedGap + middleHeight : 0)
-          + normalizedGap + hH2;
+          + normalizedGap + actualH2Height;
         const canvasHeight = totalHeight + 2 * normalizedGap;
         const canvasAR = canvasWidth / canvasHeight;
         
         // Hero 2 final position (bottom-right in canonical TL+BR)
-        const hero2X = normalizedGap + canvasContentWidth - wH2;
+        const hero2X = normalizedGap + heroRow1Width - wH2;
         const hero2Y = r2OffsetY;
         
         // Combined hero coverage
         const hero1Area = wH1 * hH1;
-        const hero2Area = wH2 * hH2;
+        const hero2Area = wH2 * actualH2Height;
         const canvasArea = canvasWidth * canvasHeight;
         const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
         
@@ -614,7 +611,7 @@ function generateDualHeroCandidates(
           photoId: hero1.id, x: tH1.x, y: tH1.y, width: wH1, height: hH1,
         };
         const heroCell2: NormalizedCell = {
-          photoId: hero2.id, x: hero2X, y: hero2Y, width: wH2, height: hH2,
+          photoId: hero2.id, x: hero2X, y: hero2Y, width: wH2, height: actualH2Height,
         };
         
         const regions = [region0, region1, region2];

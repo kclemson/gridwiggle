@@ -280,8 +280,19 @@ function generateCandidates(
         const wHero = topologyHero.width;
         const hHero = topologyHero.height;
         
-        const { besideCount } = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
-        const belowCount = ordered.length - besideCount;
+        const isSingleRegion = topology.regions.length === 1;
+        
+        // For single-region templates, all content goes to region 0
+        let besideCount: number;
+        let belowCount: number;
+        if (isSingleRegion) {
+          besideCount = ordered.length;
+          belowCount = 0;
+        } else {
+          const derived = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
+          besideCount = derived.besideCount;
+          belowCount = derived.belowCount;
+        }
         
         const besidePhotos = ordered.slice(0, besideCount);
         const belowPhotos = ordered.slice(besideCount);
@@ -289,13 +300,20 @@ function generateCandidates(
         const besideMeanAR = besidePhotos.length > 0 ? mean(besidePhotos.map(p => p.aspectRatio)) : 1;
         const belowMeanAR = belowPhotos.length > 0 ? mean(belowPhotos.map(p => p.aspectRatio)) : 1;
         
-        const targetBesideWidth = topology.regions[0]?.softDimension ?? 0;
-        const targetBelowHeight = topology.regions[1]?.softDimension ?? 0;
+        const region0Spec = topology.regions[0];
+        const region1Spec = topology.regions[1];
+        const targetBesideWidth = region0Spec?.softDimension ?? 0;
+        const targetBelowHeight = region1Spec?.softDimension ?? 0;
         
+        // For single-region: use the region's hard/soft dims for row count
         const baseBesideRows = besideCount > 0
-          ? deriveTargetRowCount(besideCount, besideMeanAR, Math.max(0.01, targetBesideWidth), hHero)
+          ? deriveTargetRowCount(
+              besideCount, besideMeanAR,
+              region0Spec.constraint === 'width' ? region0Spec.hardDimension : Math.max(0.01, targetBesideWidth),
+              region0Spec.constraint === 'width' ? Math.max(0.01, targetBesideWidth) : hHero
+            )
           : 0;
-        const baseBelowRows = belowCount > 0
+        const baseBelowRows = !isSingleRegion && belowCount > 0
           ? deriveTargetRowCount(belowCount, belowMeanAR, targetCanvasAR, Math.max(0.01, targetBelowHeight))
           : 0;
         
@@ -313,6 +331,99 @@ function generateCandidates(
           offset: spec.offset,
           result: null,
         }));
+        
+        if (isSingleRegion) {
+          // Single-region path: pack the one region, derive canvas from it
+          regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);
+          if (!regions[0].result) continue;
+          
+          const regionResult = regions[0].result;
+          let canvasWidth: number, canvasHeight: number;
+          let besideWidth = 0, belowHeight = 0;
+          
+          if (region0Spec.constraint === 'width') {
+            // Content is width-constrained (hero-column: content beside; hero-row: content below)
+            const contentHeight = regionResult.height;
+            if (template.id === 'hero-column') {
+              // Hero + content side by side, full height
+              const totalHeight = Math.max(hHero, contentHeight);
+              canvasWidth = wHero + normalizedGap + region0Spec.hardDimension + 2 * normalizedGap;
+              canvasHeight = totalHeight + 2 * normalizedGap;
+              besideWidth = region0Spec.hardDimension;
+            } else {
+              // hero-row: hero on top, content below
+              canvasWidth = wHero + 2 * normalizedGap;
+              canvasHeight = hHero + normalizedGap + contentHeight + 2 * normalizedGap;
+              belowHeight = contentHeight;
+            }
+          } else {
+            // Height-constrained single region (not currently used, but safe fallback)
+            const contentWidth = regionResult.width;
+            canvasWidth = wHero + normalizedGap + contentWidth + 2 * normalizedGap;
+            canvasHeight = hHero + 2 * normalizedGap;
+            besideWidth = contentWidth;
+          }
+          
+          const canvasAR = canvasWidth / canvasHeight;
+          const heroArea = wHero * hHero;
+          const canvasArea = canvasWidth * canvasHeight;
+          const heroCoverage = heroArea / canvasArea;
+          
+          if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
+            const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
+            devLogger.warn('v4-reject', 'Canvas AR out of bounds', {
+              template: template.id, canvasAR: +canvasAR.toFixed(3),
+              min: tuning.canvas_minAR, max: tuning.canvas_maxAR,
+            }, geometry);
+            continue;
+          }
+          
+          const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
+          const arPenalty = arDeviation > AR_COHERENCE_THRESHOLD
+            ? Math.min(0.3, (arDeviation - AR_COHERENCE_THRESHOLD) * 1.2) : 0;
+          const coveragePenalty = heroCoverage > HERO_COVERAGE_CEILING
+            ? Math.min(0.3, (heroCoverage - HERO_COVERAGE_CEILING) * 1.5) : 0;
+          
+          const allContentAreas = regions[0].result.cells.map(c => c.width * c.height);
+          const maxContentArea = Math.max(...allContentAreas, 0);
+          const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+          const prominencePenalty = prominenceRatio < tuning.hero_minProminence
+            ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0) : 0;
+          
+          const allAreas = [heroArea, ...allContentAreas];
+          const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
+          const rawScore = balanceResult.score;
+          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
+          
+          const corner = randomize
+            ? corners[Math.floor(Math.random() * 4)]
+            : 'top-left';
+          
+          const heroCell: NormalizedCell = {
+            photoId: heroPhoto.id,
+            x: topologyHero.x, y: topologyHero.y,
+            width: wHero, height: hHero,
+          };
+          
+          const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty };
+          
+          candidates.push({
+            regions, heroCell,
+            canvasWidth, canvasHeight,
+            prominenceRatio, score, corner,
+            meta: {
+              template: template.id, targetCanvasAR, areaFrac, arDeviation, heroCoverage,
+              regionSizes: [besideCount],
+              regionTargetRows: [baseBesideRows],
+              regionActualRows: regions.map(r => r.result?.rowCount ?? 0),
+              besideWidth, belowHeight,
+              candidateCount: 0, penalties,
+            },
+          });
+          continue; // skip the two-region path below
+        }
+        
+        // --- Two-region path (corner-anchor etc.) ---
         
         // Pack region 0 (beside hero)
         regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);

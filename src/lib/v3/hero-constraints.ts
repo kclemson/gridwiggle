@@ -4,7 +4,7 @@
  * Derived from 4 rounds of visual rating (~120 trials).
  *
  * SINGLE HERO:
- * - General area range: 0.15 - 0.60
+ * - General area range: 0.15 - 0.40
  * - Square canvas (AR 0.85-1.15) ceiling: 0.35
  *
  * DUAL HERO:
@@ -65,7 +65,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     id: 'corner-anchor',
     heroCount: 1,
     canvasAR: { min: 0.50, max: 2.25 },
-    heroAreaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
+    heroAreaFraction: { min: 0.15, max: 0.40, squareMax: 0.35 },
     heroAR: { min: 0.4, max: 3.0 },
     positions: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
     description: 'Universal corner placement; tighter area ceiling on square canvases',

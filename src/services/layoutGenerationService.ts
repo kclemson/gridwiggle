@@ -31,6 +31,8 @@ export interface LayoutGenerationResult {
     reason: string;
     details: Record<string, unknown>;
   };
+  /** V4 layout metadata for debug info panel */
+  layoutMeta?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -170,6 +172,7 @@ export async function generateLayoutInWorker(
         logs: e.data.logs,
         usedWorker: true,
         softRejection: e.data.softRejection,
+        layoutMeta: e.data.layoutMeta,
       });
     };
     

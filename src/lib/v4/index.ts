@@ -145,10 +145,10 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 // ============================================================================
 
 const CORNER_ANCHOR_TEMPLATE = {
-  areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
+  areaFraction: { min: 0.15, max: 0.40, squareMax: 0.35 },
 };
 
-const AR_COHERENCE_THRESHOLD = 0.4;
+const AR_COHERENCE_THRESHOLD = 0.25;
 
 function packRegion(
   region: PackableRegion,

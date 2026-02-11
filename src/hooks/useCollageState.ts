@@ -77,6 +77,7 @@ function saveMetadataToStorage(state: CollageState) {
         smartCrop: p.smartCrop,
         manualCrop: p.manualCrop,
         priority: p.priority,
+        smartCropAttempted: p.smartCropAttempted || undefined,
       })),
       settings: state.settings,
       layout: state.layout,
@@ -115,6 +116,7 @@ function hydratePhotos(
         isProcessing: false,
         error: null,
         priority: meta.priority ?? 3,
+        smartCropAttempted: meta.smartCropAttempted ?? false,
       });
     } else {
       orphanedIds.push(meta.id);

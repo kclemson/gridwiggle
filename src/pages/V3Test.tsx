@@ -78,6 +78,7 @@ function toPhotoItem(photo: SyntheticPhoto): PhotoItem {
     originalWidth: photo.originalWidth,
     originalHeight: photo.originalHeight,
     smartCrop: null,
+    smartCropAttempted: false,
     manualCrop: null,
     isProcessing: false,
     error: null,

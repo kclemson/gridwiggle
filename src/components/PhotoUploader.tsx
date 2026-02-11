@@ -33,6 +33,7 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
         isProcessing: true,
         error: null,
         priority: 3, // Default: standard
+        smartCropAttempted: false,
         previewUrl: objectUrl,  // Use original URL as temporary preview
         previewBlob: file,
       };

@@ -75,6 +75,7 @@ export default function Index() {
     reason: string;
     details: Record<string, unknown>;
   } | null>(null);
+  const [layoutMeta, setLayoutMeta] = useState<Record<string, unknown> | null>(null);
   
   // Carousel and navigator state
   const [navigatorOpen, setNavigatorOpen] = useState(false);
@@ -249,6 +250,7 @@ export default function Index() {
       setLayout(layout);
       setLayoutError(null);
       setSoftRejection(result.softRejection ?? null);
+      setLayoutMeta(result.layoutMeta ?? null);
       remoteLogger.info('layout', 'Layout generated', { 
         cells: layout.cells.length,
         durationMs: result.durationMs,
@@ -769,10 +771,11 @@ export default function Index() {
                     </div>
                     
                     {/* Dev-only layout info panel */}
-                    {import.meta.env.DEV && softRejection && (
+                    {import.meta.env.DEV && (layoutMeta || softRejection) && (
                       <LayoutInfoPanel 
-                        reason={softRejection.reason} 
-                        details={softRejection.details} 
+                        meta={layoutMeta ?? undefined}
+                        reason={softRejection?.reason} 
+                        details={softRejection?.details} 
                       />
                     )}
                     

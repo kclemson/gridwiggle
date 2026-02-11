@@ -52,11 +52,24 @@ export interface LayoutResponse {
     reason: string;
     details: Record<string, unknown>;
   };
+  layoutMeta?: Record<string, unknown>;
 }
 
 // ============================================================================
 // V4 Layout Candidate (region-generic)
 // ============================================================================
+
+interface LayoutCandidateMeta {
+  targetCanvasAR: number;
+  areaFrac: number;
+  arDeviation: number;
+  regionSizes: number[];
+  regionTargetRows: number[];
+  regionActualRows: number[];
+  besideWidth: number;
+  belowHeight: number;
+  candidateCount: number;
+}
 
 interface LayoutCandidate {
   regions: PackableRegion[];
@@ -66,6 +79,7 @@ interface LayoutCandidate {
   prominenceRatio: number;
   score: number;
   corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  meta: LayoutCandidateMeta;
 }
 
 // ============================================================================
@@ -140,11 +154,11 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 
 // Corner-anchor template parameters (will move to registry later)
 const CORNER_ANCHOR_TEMPLATE = {
-  areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
+  areaFraction: { min: 0.15, max: 0.40, squareMax: 0.35 },
 };
 
-// AR coherence threshold: reject candidates where actual AR deviates > 40% from target
-const AR_COHERENCE_THRESHOLD = 0.4;
+// AR coherence threshold: reject candidates where actual AR deviates > 25% from target
+const AR_COHERENCE_THRESHOLD = 0.25;
 
 // ============================================================================
 // Region Packing
@@ -327,8 +341,24 @@ function generateCandidates(
         prominenceRatio,
         score,
         corner,
+        meta: {
+          targetCanvasAR,
+          areaFrac,
+          arDeviation,
+          regionSizes: regions.map(r => r.photos.length),
+          regionTargetRows: [baseBesideRows, baseBelowRows],
+          regionActualRows: regions.map(r => r.result?.rowCount ?? 0),
+          besideWidth,
+          belowHeight,
+          candidateCount: 0, // filled after all candidates generated
+        },
       });
     }
+  }
+  
+  // Backfill candidateCount
+  for (const c of candidates) {
+    c.meta.candidateCount = candidates.length;
   }
   
   return candidates;
@@ -399,6 +429,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
 interface GenerationResult {
   layout: CollageLayout | null;
   softRejection?: { reason: string; details: Record<string, unknown> };
+  layoutMeta?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -487,8 +518,27 @@ function generateLayout(
     score: selected.score.toFixed(3),
   });
   
+  const heroAR = dimensions.reduce((h, d) => d.weight > h.weight ? d : h).aspectRatio;
+  
   return {
     layout: convertToLayout(selected, normalizedGap),
+    layoutMeta: {
+      template: 'corner-anchor',
+      targetCanvasAR: selected.meta.targetCanvasAR,
+      actualCanvasAR: +(selected.canvasWidth / selected.canvasHeight).toFixed(3),
+      arDeviation: selected.meta.arDeviation,
+      areaFrac: selected.meta.areaFrac,
+      heroAR,
+      prominenceRatio: selected.prominenceRatio,
+      score: selected.score,
+      corner: selected.corner,
+      candidateCount: selected.meta.candidateCount,
+      regionSizes: selected.meta.regionSizes,
+      regionTargetRows: selected.meta.regionTargetRows,
+      regionActualRows: selected.meta.regionActualRows,
+      besideWidth: selected.meta.besideWidth,
+      belowHeight: selected.meta.belowHeight,
+    },
   };
 }
 
@@ -516,6 +566,7 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
       durationMs,
       logs: isDev ? workerLogs : undefined,
       softRejection: result.softRejection,
+      layoutMeta: result.layoutMeta,
     };
     
     self.postMessage(response);

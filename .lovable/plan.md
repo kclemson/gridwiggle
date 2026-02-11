@@ -1,109 +1,214 @@
 
 
-# Area-Proportional Photo-to-Region Assignment
+# AR-Aware Row Selection with Generic Region Abstraction
 
 ## What Problem Are We Solving
 
-Today, the layout worker uses a brute-force loop (`for besideCount = 0 to N`) trying every possible split of photos between the "beside" and "below" regions. This is wasteful -- once we know the hero template, hero AR, target canvas AR, and area fraction, the relative sizes of those two regions are mathematically determined. We can derive the right photo count split directly.
+Two issues in one change:
+
+1. **Row counts ignore the target canvas AR.** `deriveRegionCounts` picks a photo split for a specific target AR (e.g., 2.0), but the row-count selection brute-forces all options, producing actual canvas ARs that can diverge wildly (e.g., 0.83). The photo split looks nonsensical because it was designed for a completely different shape.
+
+2. **The code is hardwired to "beside" and "below."** Every type, interface, variable, and function is named for a 2-region corner-anchor topology. Adding a third region (for two heroes or edge placement) would mean duplicating all of this rather than extending it.
 
 ## What Users Experience
 
-No visible change yet -- this is an internal refactoring that replaces guessing with geometric reasoning. It sets the foundation for template-driven layouts by making the photo assignment step deterministic and topology-aware.
+More coherent layouts -- the hero prominence and photo distribution will match what the geometry intended. Fewer "weird" splits like 12 beside / 11 below on a portrait canvas with a landscape hero.
 
-## The Formula (Corner-Anchor)
+## Design Intent: Generic Packable Regions
 
-Given normalized canvas (H=1, W=canvasAR), hero area fraction `f`, and hero aspect ratio `heroAR`:
+Instead of `besideCells`, `belowCells`, `besideRowCount`, `belowRowCount`, the system works with an array of **`PackableRegion`** objects. Each region knows:
 
-```text
-h_hero = sqrt(f * canvasAR / heroAR)
-w_hero = heroAR * h_hero
+- Its **constraint type**: height-constrained (pack to fill a known height, derive width) or width-constrained (pack to fill a known width, derive height)
+- Its **target dimension**: the height or width it should fill
+- Its **assigned photos**
+- Its **target row count** (derived from geometry, not brute-forced)
+- Its **packed result** (cells after packing)
 
-beside_area = (W - w_hero) * h_hero
-below_area  = W * (1 - h_hero)
-
-beside_fraction = beside_area / (beside_area + below_area)
-besideCount = round(contentCount * beside_fraction)
-```
-
-## Expected Outcomes (f=0.20, 20 content photos)
+A corner-anchor template produces 2 regions. A future edge-anchor or dual-hero template produces 3. The candidate generation loop, scoring, and layout assembly all operate on `regions[]` without knowing how many there are or what they're called.
 
 ```text
-                Canvas AR
-Hero AR    0.7     1.0     1.5
-────────────────────────────────
-0.5        8/11    10/9    14/5
-1.0        4/15     6/13    8/11
-1.5        3/16     4/15    6/13
-2.0        2/17     3/16    4/15
+Current:                          Proposed:
+                                  
+LayoutCandidate {                 LayoutCandidate {
+  besideCount                       regions: PackableRegion[]
+  besideRowCount                    heroCell
+  belowRowCount                     canvasWidth, canvasHeight
+  besideCells                       score, corner
+  belowCells                      }
+  heroCell                        
+  canvasWidth, canvasHeight       PackableRegion {
+  score, corner                     constraint: 'height' | 'width'
+}                                   targetDimension: number
+                                    photos: PhotoDimension[]
+                                    targetRowCount: number
+                                    cells: NormalizedCell[]
+                                    offset: { x, y }
+                                  }
 ```
 
-Portrait heroes create large beside regions (narrow hero = wide neighbor space).
-Landscape heroes push nearly everything below (wide hero = little neighbor space).
-The split shifts with canvas AR: wider canvases give more room beside.
+## AR-Aware Row Count Derivation
+
+Once we know the target canvas AR, hero AR, and area fraction, the target dimensions for each region are geometrically fixed:
+
+```text
+hHero = sqrt(areaFrac * targetCanvasAR / heroAR)
+wHero = heroAR * hHero
+
+Region 0 (height-constrained, beside hero):
+  targetHeight = hHero  (= 1.0 in normalized space)
+  targetWidth  = targetCanvasAR - wHero
+  
+Region 1 (width-constrained, below hero row):
+  targetWidth  = targetCanvasAR  (full canvas width)
+  targetHeight = 1.0 - hHero     (remaining vertical space)
+```
+
+From target dimensions, derive optimal row count:
+
+```text
+Height-constrained (region 0):
+  rowCount = round(photoCount * meanAR * targetHeight / targetWidth)
+  
+Width-constrained (region 1):
+  rowCount = round(photoCount * meanAR * targetHeight / targetWidth)
+```
+
+Both formulas are the same equation -- "how many rows make cells whose aspect ratio matches the region's shape?" Try the derived value and +/- 1 for robustness (3 candidates instead of N).
+
+### Test Matrix: heroAR=1.5, f=0.20, 23 content photos
+
+```text
+targetCanvasAR    besideCount    targetBesideW    besideRows(derived)    targetBelowH    belowRows(derived)
+──────────────────────────────────────────────────────────────────────────────────────────────────────────
+0.70              3              0.15             2                      0.63            2
+1.00              4              0.36             1                      0.63            3
+1.50              6              0.73             1                      0.63            4
+2.00              8              1.10             1                      0.63            5
+2.25              9              1.28             1                      0.63            5
+```
+
+Notice how the row counts track the region shape: a narrow beside region (0.15 wide) needs 2 rows to avoid extreme landscape cells, while a wide beside region (1.10) fits everything in 1 row. Below rows increase with canvas width because more photos go below and the region gets wider.
 
 ## What Changes
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/utils.ts` | Add `deriveRegionCounts(heroAR, canvasAR, areaFraction, contentCount)` function |
-| `src/workers/layoutWorker.ts` | Replace the `for besideCount` brute-force loop with a call to `deriveRegionCounts`, sampling a small set of (canvasAR, areaFraction) combinations from the hero template's valid ranges |
+| `src/lib/v3/utils.ts` | Add `deriveTargetRowCount(photoCount, meanAR, targetWidth, targetHeight)` utility |
+| `src/lib/v3/types.ts` | Add `PackableRegion` interface |
+| `src/workers/layoutWorker.ts` | Refactor `LayoutCandidate` to use `regions[]`, derive row counts from target dimensions, replace beside/below-specific code with region-generic loops |
+| `src/lib/v4/index.ts` | Same refactor (sync fallback path) |
+| `src/test/layout/deriveRegionCounts.test.ts` | Add tests for `deriveTargetRowCount` |
 
 ## Technical Details
 
-### New function: `deriveRegionCounts`
+### New type: `PackableRegion`
+
+Location: `src/lib/v3/types.ts`
+
+```text
+interface PackableRegion {
+  /** 'height' = packToFillHeight, 'width' = packToFillWidth */
+  constraint: 'height' | 'width';
+  /** The fixed dimension (height for height-constrained, width for width-constrained) */
+  targetDimension: number;
+  /** Photos assigned to this region */
+  photos: PhotoDimension[];
+  /** Geometrically-derived row count */
+  targetRowCount: number;
+  /** Offset for positioning in canvas space */
+  offset: { x: number; y: number };
+  /** Packed result (filled after packing) */
+  result: NormalizedPackResult | null;
+}
+```
+
+### New function: `deriveTargetRowCount`
 
 Location: `src/lib/v3/utils.ts`
 
 ```text
-deriveRegionCounts(
-  heroAR: number,
-  canvasAR: number,
-  areaFraction: number,
-  contentCount: number
-): { besideCount: number; belowCount: number }
+deriveTargetRowCount(
+  photoCount: number,
+  meanAR: number,
+  targetWidth: number,
+  targetHeight: number
+): number
 ```
 
-Steps:
-1. Compute `h_hero = sqrt(areaFraction * canvasAR / heroAR)`
-2. Clamp `h_hero` to (0.1, 0.95) to avoid degenerate layouts
-3. Compute `w_hero = heroAR * h_hero`
-4. If `w_hero >= canvasAR * 0.95`, return `{ besideCount: 0, belowCount: contentCount }` (hero fills the width)
-5. Compute beside and below areas, derive `besideCount`
-6. Clamp `besideCount` to `[0, contentCount]`
+The formula: `round(photoCount * meanAR * targetHeight / targetWidth)`, clamped to `[1, ceil(photoCount / 2)]`.
 
-### Changes to `generateCandidates` in layoutWorker.ts
+This works for both constraint types -- it answers "how many rows make cells whose shape fits this rectangle?"
 
-Instead of:
+### Refactored `generateCandidates` flow
+
 ```text
-for (let besideCount = 0; besideCount <= ordered.length; besideCount++) {
+for each targetCanvasAR:
+  for each areaFrac:
+    1. deriveRegionCounts -> besideCount, belowCount
+    2. Compute hHero, wHero from the formula
+    3. Build regions array:
+       region[0] = {
+         constraint: 'height',
+         targetDimension: 1.0,           // normalized hero height
+         photos: ordered.slice(0, besideCount),
+         targetRowCount: deriveTargetRowCount(besideCount, meanAR, targetCanvasAR - wHero, hHero),
+         offset: { x: gap + heroAR + gap, y: gap }
+       }
+       region[1] = {
+         constraint: 'width', 
+         targetDimension: heroRowWidth,   // filled after packing region 0
+         photos: ordered.slice(besideCount),
+         targetRowCount: deriveTargetRowCount(belowCount, meanAR, targetCanvasAR, 1 - hHero),
+         offset: { x: gap, y: gap + 1.0 + gap }
+       }
+    4. For each region, try targetRowCount and +/- 1 (3 values max)
+    5. Pack each combination, assemble candidate
+    6. AR coherence filter: reject if actual AR deviates > 40% from targetCanvasAR
 ```
 
-The new flow:
-1. Query `findCandidateTemplates(1, [heroAR])` to get valid templates
-2. For each template, sample canvas AR values within its `canvasAR.min` to `canvasAR.max` range (e.g., 5-7 evenly spaced values; when randomizing, add jitter)
-3. Sample area fractions within the template's `heroAreaFraction` range (e.g., 3 values: min, mid, max; respecting `squareMax` when canvas AR is 0.85-1.15)
-4. For each (template, canvasAR, areaFraction) triple, call `deriveRegionCounts` to get the besideCount
-5. Proceed with existing packing logic (`packToFillHeight` for beside, `packToFillWidth` for below)
+### Candidate count impact
 
-This replaces N iterations (one per possible besideCount) with roughly `templates * canvasARSamples * areaSamples` candidates (e.g., 1 template * 6 AR samples * 3 area samples = 18 candidates for single-hero corner-anchor). Much more focused than the current brute-force.
+Current: 6 canvasAR x 3 areaFrac x ~N besideRows x ~N belowRows (hundreds, many incoherent)
+Proposed: 6 canvasAR x 3 areaFrac x 3 besideRows x 3 belowRows = ~162 max, most coherent
 
-### Candidate count estimate
+With dedup of identical besideCount values across samples, likely 60-80 actual candidates.
 
-For corner-anchor only (current single template):
-- 6 canvas AR samples * 3 area fraction samples = ~18 candidates
-- With randomization jitter: still ~18 but with noise on samples
-- Compare to current: up to 30+ iterations for 30 photos
+### `convertToLayout` becomes region-generic
 
-When more templates are added later, each adds its own set of samples, but the total remains bounded and intentional.
+Instead of separate loops for `besideCells` and `belowCells`, iterate `candidate.regions` and apply each region's offset:
+
+```text
+for (const region of candidate.regions) {
+  for (const cell of region.result.cells) {
+    const pos = transform(
+      region.offset.x + cell.x,
+      region.offset.y + cell.y,
+      cell.width, cell.height
+    );
+    cells.push({ ... });
+  }
+}
+```
+
+This loop works for 2 regions today and 3+ regions tomorrow with zero changes.
+
+### AR coherence filter
+
+After packing all regions and computing actual canvas AR, reject candidates where `|actualAR - targetAR| / targetAR > 0.4`. This catches the case from the screenshot (target 2.0, actual 0.83 = 59% deviation). The threshold is generous (40%) to allow natural variation while preventing the extreme mismatches.
 
 ### Edge cases
 
-- **Hero wider than canvas**: `w_hero >= canvasAR` means besideCount = 0, all photos go below. This naturally handles very landscape heroes on portrait canvases.
-- **Hero nearly full height**: `h_hero > 0.95` is clamped, preventing a degenerate below region with near-zero height.
-- **Very few photos (2-3)**: `deriveRegionCounts` may return besideCount = 0 or 1, which is correct -- small photo sets shouldn't split across regions.
-- **squareMax area ceiling**: When canvas AR is 0.85-1.15, use the template's `squareMax` (0.35) instead of `max` (0.60) as the upper area sample.
+- **Region with 0 photos**: Skip packing, result is empty. The offset and dimensions are still valid for canvas assembly.
+- **deriveTargetRowCount returns 0**: Clamped to 1.
+- **targetWidth <= 0 for beside region**: Hero wider than canvas. besideCount already 0 from `deriveRegionCounts`; region[0] has empty photos array.
+- **All 3 row-count variants fail packing**: No candidate produced for that (canvasAR, areaFrac) pair. Other samples will cover.
 
-### Mix-aware interleaving (deferred)
+### Future extensibility
 
-The proportional orientation mixing (ensuring each region has a blend of portrait and landscape photos) discussed earlier will be implemented as a follow-up. This plan focuses on getting the count assignment right first. The interleaving logic is independent and can layer on top.
+When adding edge-anchor (hero centered on top edge), the template produces 3 regions:
+- Region 0: left of hero (height-constrained)
+- Region 1: right of hero (height-constrained) 
+- Region 2: below hero row (width-constrained)
+
+The only changes needed: the template's region-building code produces 3 entries instead of 2, and `deriveRegionCounts` returns a 3-way split. The packing loop, scoring, and layout assembly work unchanged.
 

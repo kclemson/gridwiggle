@@ -209,6 +209,117 @@ export function distributeByARBudget(
 }
 
 // ============================================================================
+// Area-Proportional Region Count Derivation
+// ============================================================================
+
+/**
+ * Derive how many content photos go "beside" vs "below" the hero,
+ * based on the geometric areas of those two regions.
+ * 
+ * For a corner-anchor template on a normalized canvas (H=1, W=canvasAR):
+ *   h_hero = sqrt(areaFraction * canvasAR / heroAR)
+ *   w_hero = heroAR * h_hero
+ *   beside_area = (W - w_hero) * h_hero
+ *   below_area  = W * (1 - h_hero)
+ *   besideCount = round(contentCount * beside_area / (beside_area + below_area))
+ * 
+ * Portrait heroes leave wide beside regions → more photos beside.
+ * Landscape heroes consume width → most photos go below.
+ */
+export function deriveRegionCounts(
+  heroAR: number,
+  canvasAR: number,
+  areaFraction: number,
+  contentCount: number
+): { besideCount: number; belowCount: number } {
+  if (contentCount <= 0) return { besideCount: 0, belowCount: 0 };
+  
+  // Step 1: Derive hero dimensions from area fraction
+  let hHero = Math.sqrt(areaFraction * canvasAR / heroAR);
+  
+  // Step 2: Clamp to avoid degenerate layouts
+  hHero = Math.max(0.1, Math.min(0.95, hHero));
+  
+  const wHero = heroAR * hHero;
+  
+  // Step 3: If hero fills the width, everything goes below
+  if (wHero >= canvasAR * 0.95) {
+    return { besideCount: 0, belowCount: contentCount };
+  }
+  
+  // Step 4: Compute region areas
+  const besideArea = (canvasAR - wHero) * hHero;
+  const belowArea = canvasAR * (1 - hHero);
+  const totalArea = besideArea + belowArea;
+  
+  if (totalArea <= 0) {
+    return { besideCount: 0, belowCount: contentCount };
+  }
+  
+  // Step 5: Proportional split
+  const besideFraction = besideArea / totalArea;
+  let besideCount = Math.round(contentCount * besideFraction);
+  
+  // Step 6: Clamp
+  besideCount = Math.max(0, Math.min(contentCount, besideCount));
+  
+  return { besideCount, belowCount: contentCount - besideCount };
+}
+
+/**
+ * Sample canvas AR values within a range, with optional jitter.
+ * Returns evenly spaced values between min and max.
+ */
+export function sampleCanvasARValues(
+  minAR: number,
+  maxAR: number,
+  count: number,
+  randomize: boolean
+): number[] {
+  if (count <= 1) return [(minAR + maxAR) / 2];
+  
+  const values: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1); // 0 to 1
+    let value = minAR + t * (maxAR - minAR);
+    if (randomize) {
+      // Add jitter: ±10% of step size
+      const step = (maxAR - minAR) / (count - 1);
+      value += (Math.random() * 2 - 1) * step * 0.1;
+      value = Math.max(minAR, Math.min(maxAR, value));
+    }
+    values.push(value);
+  }
+  return values;
+}
+
+/**
+ * Sample hero area fraction values, respecting squareMax ceiling
+ * when the canvas AR is near-square (0.85-1.15).
+ */
+export function sampleAreaFractions(
+  min: number,
+  max: number,
+  squareMax: number,
+  canvasAR: number,
+  count: number
+): number[] {
+  // Apply squareMax ceiling for near-square canvases
+  const effectiveMax = (canvasAR >= 0.85 && canvasAR <= 1.15)
+    ? Math.min(max, squareMax)
+    : max;
+  
+  if (count <= 1) return [(min + effectiveMax) / 2];
+  
+  const values: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    values.push(min + t * (effectiveMax - min));
+  }
+  return values;
+}
+
+// ============================================================================
 // Simplified Distribution (replaced stratified sampling)
 // ============================================================================
 

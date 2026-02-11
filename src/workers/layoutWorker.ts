@@ -10,7 +10,7 @@
 import { PhotoDimension, V3Tuning, DEFAULT_V3_TUNING, NormalizedCell } from '@/lib/v3/types';
 import { CollageLayout, CollageCell } from '@/types/collage';
 import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
-import { shuffleArray } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
@@ -141,9 +141,10 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
   return candidates[selectedIndex >= 0 ? selectedIndex : candidates.length - 1];
 }
 
-// ============================================================================
-// V4 Candidate Generation
-// ============================================================================
+// Corner-anchor template parameters (will move to registry later)
+const CORNER_ANCHOR_TEMPLATE = {
+  areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
+};
 
 function generateCandidates(
   heroPhoto: PhotoDimension,
@@ -162,91 +163,102 @@ function generateCandidates(
   const corners: Array<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'> = 
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
-  // NO CAP on besideCount - explore full range
-  for (let besideCount = 0; besideCount <= ordered.length; besideCount++) {
-    const beside = ordered.slice(0, besideCount);
-    const below = ordered.slice(besideCount);
+  // Sample canvas AR values from tuning range
+  const canvasARSamples = sampleCanvasARValues(tuning.canvas_minAR, tuning.canvas_maxAR, 6, randomize);
+  const { areaFraction } = CORNER_ANCHOR_TEMPLATE;
+  
+  // Track unique splits to avoid duplicate packing work
+  const triedSplits = new Set<string>();
+  
+  for (const targetCanvasAR of canvasARSamples) {
+    const areaSamples = sampleAreaFractions(
+      areaFraction.min, areaFraction.max, areaFraction.squareMax, targetCanvasAR, 3
+    );
     
-    const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
-    const minBesideRows = besideCount > 0 ? 1 : 0;
-    
-    for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
-      const besideResult = besideCount > 0 
-        ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
-        : { cells: [], width: 0, height: 1.0, rowCount: 0 };
+    for (const areaFrac of areaSamples) {
+      const { besideCount } = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
       
-      if (besideCount > 0 && besideResult.cells.length === 0) continue;
+      const beside = ordered.slice(0, besideCount);
+      const below = ordered.slice(besideCount);
       
-      const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
+      const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
+      const minBesideRows = besideCount > 0 ? 1 : 0;
       
-      const maxBelowRows = below.length > 0 
-        ? Math.max(1, Math.ceil(below.length / 2))
-        : 0;
-      
-      const belowRowCounts = below.length > 0
-        ? (randomize 
-            ? [1 + Math.floor(Math.random() * maxBelowRows)]
-            : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
-        : [0];
-      
-      for (const belowRowCount of belowRowCounts) {
-        const belowResult = below.length > 0 && belowRowCount > 0
-          ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
-          : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+      for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
+        const splitKey = `${besideCount}-${besideRowCount}`;
+        if (triedSplits.has(splitKey)) continue;
+        triedSplits.add(splitKey);
         
-        if (below.length > 0 && belowResult.cells.length === 0) continue;
+        const besideResult = besideCount > 0 
+          ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
+          : { cells: [], width: 0, height: 1.0, rowCount: 0 };
         
-        const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
-        const canvasWidth = heroRowWidth + 2 * normalizedGap;
-        const canvasHeight = totalHeight + 2 * normalizedGap;
-        const canvasAR = canvasWidth / canvasHeight;
+        if (besideCount > 0 && besideResult.cells.length === 0) continue;
         
-        // HARD BOUNDS: Canvas AR
-        if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
-          continue;
+        const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
+        
+        const maxBelowRows = below.length > 0 
+          ? Math.max(1, Math.ceil(below.length / 2))
+          : 0;
+        
+        const belowRowCounts = below.length > 0
+          ? (randomize 
+              ? [1 + Math.floor(Math.random() * maxBelowRows)]
+              : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
+          : [0];
+        
+        for (const belowRowCount of belowRowCounts) {
+          const belowResult = below.length > 0 && belowRowCount > 0
+            ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
+            : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+          
+          if (below.length > 0 && belowResult.cells.length === 0) continue;
+          
+          const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
+          const canvasWidth = heroRowWidth + 2 * normalizedGap;
+          const canvasHeight = totalHeight + 2 * normalizedGap;
+          const canvasAR = canvasWidth / canvasHeight;
+          
+          if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
+          
+          const besideAreas = besideResult.cells.map(c => c.width * c.height);
+          const heroArea = heroAR * 1.0;
+          const maxBesideArea = Math.max(...besideAreas, 0);
+          const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
+          
+          if (prominenceRatio < tuning.hero_minProminence) continue;
+          
+          const allAreas = [...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
+          const coherenceScore = tierCoherenceScore(allAreas);
+          const presenceScore = besideCount > 0 ? 1.0 : 0.4;
+          const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
+          
+          const corner = randomize 
+            ? corners[Math.floor(Math.random() * 4)]
+            : 'top-left';
+          
+          const heroCell: NormalizedCell = {
+            photoId: heroPhoto.id,
+            x: normalizedGap,
+            y: normalizedGap,
+            width: heroAR,
+            height: 1.0,
+          };
+          
+          candidates.push({
+            besideCount,
+            besideRowCount,
+            belowRowCount,
+            besideCells: besideResult.cells,
+            belowCells: belowResult.cells,
+            heroCell,
+            canvasWidth,
+            canvasHeight,
+            prominenceRatio,
+            score,
+            corner,
+          });
         }
-        
-        // Prominence check
-        const besideAreas = besideResult.cells.map(c => c.width * c.height);
-        const heroArea = heroAR * 1.0;
-        const maxBesideArea = Math.max(...besideAreas, 0);
-        const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
-        
-        if (prominenceRatio < tuning.hero_minProminence) {
-          continue;
-        }
-        
-        // Score
-        const allAreas = [...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
-        const coherenceScore = tierCoherenceScore(allAreas);
-        const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-        const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
-        
-        const corner = randomize 
-          ? corners[Math.floor(Math.random() * 4)]
-          : 'top-left';
-        
-        const heroCell: NormalizedCell = {
-          photoId: heroPhoto.id,
-          x: normalizedGap,
-          y: normalizedGap,
-          width: heroAR,
-          height: 1.0,
-        };
-        
-        candidates.push({
-          besideCount,
-          besideRowCount,
-          belowRowCount,
-          besideCells: besideResult.cells,
-          belowCells: belowResult.cells,
-          heroCell,
-          canvasWidth,
-          canvasHeight,
-          prominenceRatio,
-          score,
-          corner,
-        });
       }
     }
   }

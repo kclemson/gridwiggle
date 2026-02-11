@@ -9,7 +9,7 @@ import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
-import { distributeByARBudget, shuffleArray } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger } from '@/lib/devLogger';
 
 // Virtual canvas base unit for final pixel values
@@ -169,6 +169,11 @@ function weightedRandomSelect<T extends { score: number }>(candidates: T[]): T {
 // Candidate Generation
 // ============================================================================
 
+// Corner-anchor template parameters (will move to registry later)
+const CORNER_ANCHOR_TEMPLATE = {
+  areaFraction: { min: 0.15, max: 0.60, squareMax: 0.35 },
+};
+
 function generateCandidates(
   heroPhoto: PhotoDimension,
   contentPhotos: PhotoDimension[],
@@ -184,112 +189,114 @@ function generateCandidates(
     ? shuffleArray(contentPhotos)
     : [...contentPhotos].sort((a, b) => a.aspectRatio - b.aspectRatio);
   
-  // Corners for variety
   const corners: Array<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'> = 
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
-  // Key change: NO CAP on besideCount
-  for (let besideCount = 0; besideCount <= ordered.length; besideCount++) {
-    const beside = ordered.slice(0, besideCount);
-    const below = ordered.slice(besideCount);
+  // Sample canvas AR values from tuning range
+  const canvasARSamples = sampleCanvasARValues(tuning.canvas_minAR, tuning.canvas_maxAR, 6, randomize);
+  const { areaFraction } = CORNER_ANCHOR_TEMPLATE;
+  
+  // Track unique besideCount values to avoid duplicate packing work
+  const triedSplits = new Set<string>();
+  
+  for (const targetCanvasAR of canvasARSamples) {
+    const areaSamples = sampleAreaFractions(
+      areaFraction.min, areaFraction.max, areaFraction.squareMax, targetCanvasAR, 3
+    );
     
-    // Simple row count range for beside: 1 to ceil(besideCount/2)
-    const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
-    const minBesideRows = besideCount > 0 ? 1 : 0;
-    
-    for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
-      // Pack beside (if any)
-      const besideResult = besideCount > 0 
-        ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
-        : { cells: [], width: 0, height: 1.0, rowCount: 0 };
+    for (const areaFrac of areaSamples) {
+      const { besideCount } = deriveRegionCounts(heroAR, targetCanvasAR, areaFrac, ordered.length);
       
-      if (besideCount > 0 && besideResult.cells.length === 0) continue;
+      const beside = ordered.slice(0, besideCount);
+      const below = ordered.slice(besideCount);
       
-      // Hero row width
-      const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
+      // Row count ranges
+      const maxBesideRows = Math.max(1, Math.ceil(besideCount / 2));
+      const minBesideRows = besideCount > 0 ? 1 : 0;
       
-      // Simple row count range for below
-      const maxBelowRows = below.length > 0 
-        ? Math.max(1, Math.ceil(below.length / 2))
-        : 0;
-      
-      // Iterate over below row counts for variety
-      const belowRowCounts = below.length > 0
-        ? (randomize 
-            ? [1 + Math.floor(Math.random() * maxBelowRows)]
-            : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
-        : [0];
-      
-      for (const belowRowCount of belowRowCounts) {
-        // Pack below
-        const belowResult = below.length > 0 && belowRowCount > 0
-          ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
-          : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+      for (let besideRowCount = minBesideRows; besideRowCount <= maxBesideRows; besideRowCount++) {
+        const splitKey = `${besideCount}-${besideRowCount}`;
+        if (triedSplits.has(splitKey)) continue;
+        triedSplits.add(splitKey);
         
-        if (below.length > 0 && belowResult.cells.length === 0) continue;
+        const besideResult = besideCount > 0 
+          ? packToFillHeight(beside, 1.0, normalizedGap, besideRowCount, tuning, randomize)
+          : { cells: [], width: 0, height: 1.0, rowCount: 0 };
         
-        // Canvas dimensions (with border gap)
-        const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
-        const canvasWidth = heroRowWidth + 2 * normalizedGap;
-        const canvasHeight = totalHeight + 2 * normalizedGap;
-        const canvasAR = canvasWidth / canvasHeight;
+        if (besideCount > 0 && besideResult.cells.length === 0) continue;
         
-        // HARD BOUNDS: Canvas AR
-        if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
-          continue;
+        const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideResult.width : 0);
+        
+        const maxBelowRows = below.length > 0 
+          ? Math.max(1, Math.ceil(below.length / 2))
+          : 0;
+        
+        const belowRowCounts = below.length > 0
+          ? (randomize 
+              ? [1 + Math.floor(Math.random() * maxBelowRows)]
+              : Array.from({ length: maxBelowRows }, (_, i) => i + 1))
+          : [0];
+        
+        for (const belowRowCount of belowRowCounts) {
+          const belowResult = below.length > 0 && belowRowCount > 0
+            ? packToFillWidth(below, heroRowWidth, normalizedGap, belowRowCount, tuning, randomize)
+            : { cells: [], width: heroRowWidth, height: 0, rowCount: 0 };
+          
+          if (below.length > 0 && belowResult.cells.length === 0) continue;
+          
+          const totalHeight = 1.0 + (below.length > 0 ? normalizedGap + belowResult.height : 0);
+          const canvasWidth = heroRowWidth + 2 * normalizedGap;
+          const canvasHeight = totalHeight + 2 * normalizedGap;
+          const canvasAR = canvasWidth / canvasHeight;
+          
+          if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
+          
+          const besideAreas = besideResult.cells.map(c => c.width * c.height);
+          const heroArea = heroAR * 1.0;
+          const maxBesideArea = Math.max(...besideAreas, 0);
+          const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
+          
+          if (prominenceRatio < tuning.hero_minProminence) continue;
+          
+          const allAreas = [heroArea, ...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
+          const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
+          const presenceScore = besideCount > 0 ? 1.0 : 0.4;
+          const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+          
+          const corner = randomize 
+            ? corners[Math.floor(Math.random() * 4)]
+            : 'top-left';
+          
+          const heroCell: NormalizedCell = {
+            photoId: heroPhoto.id,
+            x: normalizedGap,
+            y: normalizedGap,
+            width: heroAR,
+            height: 1.0,
+          };
+          
+          candidates.push({
+            besideCount,
+            besideRowCount,
+            belowRowCount,
+            besideCells: besideResult.cells,
+            belowCells: belowResult.cells,
+            heroCell,
+            canvasWidth,
+            canvasHeight,
+            prominenceRatio,
+            score,
+            corner,
+          });
         }
-        
-        // Prominence check (hero vs largest beside)
-        const besideAreas = besideResult.cells.map(c => c.width * c.height);
-        const heroArea = heroAR * 1.0;
-        const maxBesideArea = Math.max(...besideAreas, 0);
-        const prominenceRatio = maxBesideArea > 0 ? heroArea / maxBesideArea : Infinity;
-        
-        if (prominenceRatio < tuning.hero_minProminence) {
-          continue;
-        }
-        
-        // Score using F-ratio + spread constraint + presence bonus
-        // Include hero in balance scoring - this is the key fix!
-        const allAreas = [heroArea, ...besideAreas, ...belowResult.cells.map(c => c.width * c.height)];
-        const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
-        const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-        const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        
-        // Pick corner (random for variety, top-left for determinism)
-        const corner = randomize 
-          ? corners[Math.floor(Math.random() * 4)]
-          : 'top-left';
-        
-        // Create hero cell in normalized space (positioned at corner)
-        const heroCell: NormalizedCell = {
-          photoId: heroPhoto.id,
-          x: normalizedGap,  // Will be transformed based on corner
-          y: normalizedGap,
-          width: heroAR,
-          height: 1.0,
-        };
-        
-        candidates.push({
-          besideCount,
-          besideRowCount,
-          belowRowCount,
-          besideCells: besideResult.cells,
-          belowCells: belowResult.cells,
-          heroCell,
-          canvasWidth,
-          canvasHeight,
-          prominenceRatio,
-          score,
-          corner,
-        });
       }
     }
   }
   
-  devLogger.log('layout', `V4 generated ${candidates.length} candidates`, {
+  devLogger.log('layout', `V4 generated ${candidates.length} candidates (template-sampled)`, {
     photoCount: contentPhotos.length + 1,
     heroAR: heroAR.toFixed(2),
+    sampledSplits: triedSplits.size,
     arRange: candidates.length > 0 
       ? `${Math.min(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)} - ${Math.max(...candidates.map(c => c.canvasWidth / c.canvasHeight)).toFixed(2)}`
       : 'none',

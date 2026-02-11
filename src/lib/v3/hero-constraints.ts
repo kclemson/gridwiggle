@@ -160,3 +160,97 @@ export function findCandidateTemplates(
     return heroARs.every((ar) => ar >= t.heroAR.min && ar <= t.heroAR.max);
   });
 }
+
+// ============================================================================
+// Topology Functions
+// ============================================================================
+
+/**
+ * A topology region specification returned by template topology functions.
+ * Describes one content region's constraints and position.
+ */
+export interface TopologyRegionSpec {
+  constraint: 'height' | 'width';
+  /** Hard dimension: the fixed dimension for packing (height or width depending on constraint) */
+  hardDimension: number;
+  /** Soft dimension: the target for the other dimension (packer searches for best row count) */
+  softDimension: number;
+  /** Region offset in normalized canvas space */
+  offset: { x: number; y: number };
+}
+
+/**
+ * Result of a topology function: hero cell placement + content region specs.
+ * The engine uses this to build PackableRegions and pack content photos.
+ */
+export interface TopologyResult {
+  heroCell: { x: number; y: number; width: number; height: number };
+  regions: TopologyRegionSpec[];
+}
+
+/**
+ * Corner-anchor topology: hero in one corner, content beside + below.
+ * 
+ * Canvas: width = canvasAR, height = 1.0 (normalized)
+ * Hero sized so heroArea / canvasArea = areaFrac
+ *   hHero = sqrt(areaFrac * canvasAR / heroAR)
+ *   wHero = heroAR * hHero
+ * 
+ * Two content regions:
+ *   beside: height-constrained at hHero, target width = canvasW - wHero - gaps
+ *   below:  width-constrained (set after packing beside), target height = 1.0 - hHero - gaps
+ */
+export function cornerAnchorTopology(
+  heroAR: number,
+  areaFrac: number,
+  canvasAR: number,
+  gap: number
+): TopologyResult {
+  // Hero dimensions from area fraction
+  let hHero = Math.sqrt(areaFrac * canvasAR / heroAR);
+  hHero = Math.max(0.1, Math.min(0.95, hHero));
+  const wHero = heroAR * hHero;
+
+  const targetBesideWidth = canvasAR - wHero - 3 * gap;
+  const targetBelowHeight = 1.0 - hHero - 3 * gap;
+
+  return {
+    heroCell: { x: gap, y: gap, width: wHero, height: hHero },
+    regions: [
+      {
+        // Beside hero: height-constrained at hHero
+        constraint: 'height',
+        hardDimension: hHero,
+        softDimension: Math.max(0.01, targetBesideWidth),
+        offset: { x: gap + wHero + gap, y: gap },
+      },
+      {
+        // Below hero row: width-constrained (hardDimension set by engine after packing beside)
+        constraint: 'width',
+        hardDimension: 0,
+        softDimension: Math.max(0.01, targetBelowHeight),
+        offset: { x: gap, y: gap + hHero + gap },
+      },
+    ],
+  };
+}
+
+/**
+ * Look up the topology function for a template ID and compute the layout.
+ * Returns null for templates not yet implemented.
+ */
+export function getTemplateTopology(
+  templateId: string,
+  heroAR: number,
+  areaFrac: number,
+  canvasAR: number,
+  gap: number
+): TopologyResult | null {
+  switch (templateId) {
+    case 'corner-anchor':
+      return cornerAnchorTopology(heroAR, areaFrac, canvasAR, gap);
+    // Band templates (top-band, bottom-band, left-band, right-band) to be added incrementally
+    default:
+      return null;
+  }
+}

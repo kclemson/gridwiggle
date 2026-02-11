@@ -1,57 +1,42 @@
 
 
-# ThumbnailNavigator: Even Row Distribution
+# ThumbnailNavigator: Four Fixes
 
-## Problem
+## 1. Remove index numbers
 
-The current flex-wrap layout leaves ragged gaps at the end of rows. Items have fixed pixel widths, so leftover space just pools at the right edge.
+Delete the index number badge (lines 175-178) from each thumbnail. It adds clutter without much utility.
 
-## Solution
+## 2. Square corners on crop overlay border
 
-Add `flex: 1 1 <calculatedWidth>px` to each card. This tells flexbox: "start at your natural width, but grow to share any leftover space on this row equally." The photo inside already uses `object-cover`, so a bit of extra width just reveals more of the image -- no distortion.
+The crop boundary border currently uses `rounded-sm` (line 164). Change it to no rounding since real crop rectangles have square corners.
 
-```text
-Before (fixed widths, gap pools at right):
-[portrait][landscape---][square-]
-[wide---------][portrait]              <- ragged right edge
+**Line 164:** Change `rounded-sm` to remove it entirely.
 
-After (flex-grow distributes space):
-[portrait-][landscape------][square--]
-[wide-----------][portrait-----]       <- fills the row
-```
+## 3. Fix hover state on smart crop button not covering icons
+
+The button uses a `span` wrapper with `gap-0.5` around the Sparkles+Crop icons. The hover background from the ghost Button only covers the button's own box, but the icons inside the span may poke out visually. Fix by removing the gap and ensuring the icons are tightly contained, or by adding explicit padding/sizing to the span so it stays within the button's hover area.
+
+Specifically: the `[&_svg]:size-4` rule in `buttonVariants` forces all SVGs to 16px, but the Sparkles icon is set to `h-3 w-3` (12px) and Crop to `h-3.5 w-3.5` (14px). The CVA override wins, making both icons 16px and pushing them outside the 28px (h-7 w-7) button. Fix by overriding the SVG size rule on this specific button: add `[&_svg]:size-3` to the button className so the icons fit comfortably.
+
+## 4. Make cards more distinguishable from background
+
+The current card uses `bg-surface-elevated/30` at 30% opacity, which barely registers against the dark background. Two changes:
+
+- Increase opacity: `bg-surface-elevated/60` 
+- Slightly stronger border: `border-border/70` instead of `border-border/50`
+
+This keeps the subtle look but makes the card boundary clearly visible.
 
 ## Technical Details
 
 **File:** `src/components/ThumbnailNavigator.tsx`
 
-### Single change: flex-grow on each card
+| Line(s) | Change |
+|---------|--------|
+| 128 | Card classes: `border-border/50` -> `border-border/70`, `bg-surface-elevated/30` -> `bg-surface-elevated/60` |
+| 164 | Crop border: remove `rounded-sm` |
+| 175-178 | Delete the index number div entirely |
+| 198 | Smart crop button: add `[&_svg]:size-3` to className to keep icons within hover bounds |
 
-Replace the explicit `style={{ width: calculatedWidth }}` on each card div with:
-
-```
-style={{ flex: `1 1 ${calculatedWidth}px` }}
-```
-
-This sets:
-- `flex-grow: 1` -- take a share of leftover space
-- `flex-shrink: 1` -- can shrink slightly if needed
-- `flex-basis: ${calculatedWidth}px` -- start at the natural aspect-ratio width
-
-Optionally add a `maxWidth` (e.g., `calculatedWidth * 1.8`) to prevent a single item on the last row from stretching absurdly wide across the whole container.
-
-### What stays the same
-
-- Flex-wrap container (no grid change)
-- Natural aspect ratio determines each card's base width
-- Card styling (border, rounded corners, toolbar)
-- Crop overlays, hero badges, index numbers
-- All button logic and interaction behavior
-- `THUMBNAIL_HEIGHT` fixed at 85px
-- Progressive loading
-
-### Files changed
-
-| File | Change |
-|------|--------|
-| `src/components/ThumbnailNavigator.tsx` | Change card `style` from fixed `width` to `flex: 1 1 <width>px` with optional `maxWidth` cap |
+No other files changed. All layout, interaction, and progressive loading logic stays the same.
 

@@ -1,78 +1,64 @@
 
 
-# Show Crop Boundaries in Thumbnail Navigator
+# ThumbnailNavigator: Card-Based Photo+Action Grouping
 
 ## Problem
 
-Right now, each thumbnail in the "Adjust Crops" gallery shows only the cropped portion of the photo. Users can't see what the smart crop actually did -- they'd have to tap into the editor to discover it. This is especially important on mobile where smart crop doesn't run automatically on upload.
+The buttons beneath each thumbnail float in space with no visual boundary connecting them to their photo. With 30+ photos of varying widths, this creates a chaotic layout where it's unclear which buttons belong to which photo.
 
-## User Outcome
+## Solution
 
-Every thumbnail shows the **full original image** with the crop region highlighted -- bright inside the crop, dimmed outside (just like the crop editor). Users can instantly see:
-- What part of the photo the AI chose to keep
-- How much of the original image is being cropped away
-- Which photos have no crop applied (shown fully bright, no overlay)
+Wrap each photo and its action buttons in a **card container** with a subtle border and rounded corners. This creates a clear visual unit: one card = one photo + its actions. Buttons stay always visible, but the card boundary eliminates ambiguity.
 
 ```text
-Current:                        New:
-+----------+                    +----------------+
-|  cropped |                    |░░░░░░░░░░░░░░░░|
-|  portion |                    |░░+----------+░░|
-|  only    |                    |░░| bright   |░░|
-+----------+                    |░░| crop     |░░|
-                                |░░+----------+░░|
-                                |░░░░░░░░░░░░░░░░|
-                                +----------------+
-                                (░ = dimmed area)
+Current:                          Proposed:
++-------+ +----------+           +----------+ +-------------+
+| photo | | photo    |           || photo  || || photo      ||
++-------+ +----------+           ||        || ||            ||
+ [*C][E]   [Undo][E]             |+--------+| |+-----------+||
+                                 | [*C] [E] | |  [Undo] [E] |
+                                 +----------+ +-------------+
+                                 (subtle border around each card)
 ```
 
 ## Technical Details
 
 **File:** `src/components/ThumbnailNavigator.tsx`
 
-### Change 1: Thumbnail width uses full-image aspect ratio
+### Change 1: Card wrapper around each photo unit
 
-Currently the aspect ratio switches between crop and original. Change to always use original:
+Replace the outer `div` per photo (currently `flex flex-col items-center gap-1`) with a styled container:
 
-```typescript
-// Before
-const aspectRatio = crop 
-  ? crop.width / crop.height 
-  : photo.originalWidth / photo.originalHeight || 1;
-
-// After
-const aspectRatio = photo.originalWidth / photo.originalHeight || 1;
+```
+rounded-lg border border-border/50 bg-surface-elevated/30 overflow-hidden
 ```
 
-### Change 2: Replace CroppedImage with full image + crop overlay
+This gives each photo+buttons group a subtle dark card background with a faint border, visually binding the thumbnail to its actions.
 
-Replace the `CroppedImage` / `img` conditional block with:
+### Change 2: Button row styling
 
-1. Always render the full image using a simple `img` tag (still using `photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl` -- the smallest available preview, not the full-res file)
-2. When a crop exists, render 4 absolutely-positioned semi-transparent divs covering the regions outside the crop:
+Give the button row a slight top border or background tint so it reads as a "toolbar" attached to its photo:
 
-```typescript
-const topPct = (crop.y / photo.originalHeight) * 100;
-const leftPct = (crop.x / photo.originalWidth) * 100;
-const widthPct = (crop.width / photo.originalWidth) * 100;
-const heightPct = (crop.height / photo.originalHeight) * 100;
+```
+flex items-center justify-center gap-1 px-1 py-0.5 border-t border-border/30
 ```
 
-These percentages position 4 overlay divs (top strip, bottom strip, left strip, right strip) to darken everything outside the crop region.
+### Change 3: Remove min-h/min-w overrides on buttons
 
-3. Add a thin white/semi-transparent border around the crop region for clarity at small sizes.
+The current `min-h-[44px] min-w-[44px]` on ghost buttons makes them oversized relative to the thumbnails. Inside a card, we can use slightly smaller visual size while keeping adequate touch targets via padding. Change to `h-7 w-7` visual size with padding maintaining the 44px touch target.
 
-### Change 3: Remove the crop icon badge
+### What stays the same
 
-Remove the small crop icon badge (lines 169-174) since the visual overlay now communicates the same information more effectively.
+- Flex-wrap layout with natural aspect ratios
+- Crop boundary overlays on thumbnails
+- Hero badges and index numbers
+- Progressive loading
+- All button logic (smartCropAttempted hiding, Sparkles+Crop dual icon, Undo2, Maximize2)
+- All existing interaction behavior
 
-### Change 4: Remove CroppedImage import
+### Files changed
 
-The `CroppedImage` import can be removed from this file since we no longer use it here (it's still used elsewhere in the app).
-
-### Summary
-
-- 1 file changed: `src/components/ThumbnailNavigator.tsx`
-- No new components or files needed
-- All existing functionality preserved (hero badge, index number, progressive loading, smart crop/undo buttons)
+| File | Change |
+|------|--------|
+| `src/components/ThumbnailNavigator.tsx` | Add card wrapper with border/bg around each photo+buttons unit, style button row as attached toolbar |
 

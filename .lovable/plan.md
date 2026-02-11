@@ -1,76 +1,114 @@
 
-# Add LayoutInfoPanel to V3 Test Page + Fix Low-Photo-Count Failures
 
-## Two Changes
+# Implement Diagonal-Corners (Dual Hero) Template
 
-### 1. Add LayoutInfoPanel below the CSS layout visualization
+## What We're Building
 
-The `LayoutInfoPanel` component already exists and is shown below the collage in the main app (`Index.tsx`). Adding it to V3Test requires making the layout metadata available from the sync `generateCollageLayoutV4` call.
+A layout where two hero photos sit in opposite corners of the canvas (e.g., top-left and bottom-right), with content photos filling three remaining regions: beside hero 1, a middle band, and beside hero 2.
 
-**Problem**: `generateCollageLayoutV4` returns `CollageLayout | null` -- no metadata. The worker path constructs `layoutMeta` separately. V3Test uses the sync path.
+## Canvas Topology
 
-**Solution**: Change `generateCollageLayoutV4` to return `{ layout, layoutMeta }` instead of just `CollageLayout | null`. This is a small API change affecting:
-- `src/lib/v4/index.ts` -- return type becomes `{ layout: CollageLayout; layoutMeta: Record<string, unknown> } | null`
-- `src/pages/V3Test.tsx` -- destructure the new return, store `layoutMeta` in state, render `LayoutInfoPanel` below the canvas visualization
-- No change to `layoutGenerationService.ts` or `Index.tsx` since the production path uses the worker, not the sync function
-
-### 2. Eliminate null layouts via "best available" fallback
-
-Instead of returning null when all candidates are rejected, keep the least-bad candidate and select it as a soft rejection. This follows the existing "always generate" policy.
-
-**Changes**:
-- `src/workers/layoutWorker.ts` -- track the best-rejected candidate (lowest AR deviation). If no candidates pass all checks, use the best-rejected with a `softRejection` marker.
-- `src/lib/v4/index.ts` -- same change in the sync path.
-
-This means the 5 failure cases above would instead produce a layout (possibly with a visible soft rejection indicator in dev mode) rather than a red "Layout generation failed" panel.
-
-## Technical Details
-
-### File: `src/lib/v4/index.ts`
-
-1. Define a return type:
-   ```typescript
-   interface V4LayoutResult {
-     layout: CollageLayout;
-     layoutMeta: Record<string, unknown>;
-   }
-   ```
-2. Change `generateCollageLayoutV4` return type from `CollageLayout | null` to `V4LayoutResult | null`
-3. After selecting a candidate, construct `layoutMeta` (same fields as the worker: template, targetCanvasAR, actualCanvasAR, arDeviation, areaFrac, heroCoverage, heroAR, prominenceRatio, score, corner, candidateCount, regionSizes, regionTargetRows, regionActualRows, besideWidth, belowHeight)
-4. In `generateCandidates`, track `bestRejected` -- the candidate with the lowest AR deviation that was rejected. If no passing candidates exist, return `bestRejected` in a separate field.
-5. If using bestRejected, attach a `softRejection` to the metadata.
-
-### File: `src/workers/layoutWorker.ts`
-
-1. Same "best rejected" tracking in `generateCandidates`
-2. If no passing candidates, use bestRejected and set `softRejection` in the response
-
-### File: `src/pages/V3Test.tsx`
-
-1. Update `generateLayoutResult` to destructure `{ layout, layoutMeta }` from the new return type
-2. Add `layoutMeta` to `TestState`
-3. Render `<LayoutInfoPanel meta={layoutMeta} />` below the `LayoutVisualization` component (and below the canvas dimensions text), inside the right-column canvas card
-4. Import `LayoutInfoPanel` from `@/components/debug`
-
-### File: `src/lib/v4/index.ts` -- generateCandidates changes
-
-Add a `bestRejected` tracker alongside the candidates array:
 ```text
-let bestRejected: { candidate: LayoutCandidate; deviation: number } | null = null;
-
-// In each rejection point (ar_coherence, coverage, prominence):
-if (!bestRejected || arDeviation < bestRejected.deviation) {
-  bestRejected = { candidate: built_candidate, deviation: arDeviation };
-}
-
-// Return { candidates, bestRejected }
++------------------+------------------+
+|                  |                  |
+|   Hero 1 (TL)    |  Region 0       |
+|                  |  (beside H1)    |
+|                  |  height-constr. |
++------------------+------------------+
+|                                     |
+|   Region 1 (middle band)           |
+|   width-constrained                |
+|                                     |
++------------------+------------------+
+|                  |                  |
+|  Region 2        |   Hero 2 (BR)   |
+|  (beside H2)     |                  |
+|  height-constr.  |                  |
++------------------+------------------+
 ```
 
-Then in the main function:
+Three content regions:
+- **Region 0** (beside hero 1): height-constrained at hero 1's height
+- **Region 1** (middle band): width-constrained at full canvas width
+- **Region 2** (beside hero 2): height-constrained at hero 2's height
+
+This is a natural extension of corner-anchor -- it's essentially two corner-anchors mirrored, with a shared middle band.
+
+## What Changes for Users
+
+- Photos with two heroes (weight > 1) will produce visually balanced layouts with both heroes prominent in opposite corners
+- Content photos distribute across 3 zones instead of 2, giving more layout variety
+- Works across all canvas shapes (portrait, square, landscape) per the existing `diagonal-corners` template definition
+
+## Technical Changes
+
+### 1. Topology function: `diagonalCornersTopology` in `hero-constraints.ts`
+
+Computes positions for both heroes and 3 content regions:
+
+- Each hero gets **half** the combined area fraction (so if areaFrac = 0.30, each hero targets 0.15)
+- Hero 1 at top-left, Hero 2 at bottom-right (canonical -- mirror applied later)
+- Hero dimensions: `hHero = sqrt(halfFrac * canvasAR / heroAR)`, same formula as corner-anchor but with half the budget
+- Region 0: beside Hero 1, height = hHero1
+- Region 1: middle band, width = canvas width, height = remaining vertical space
+- Region 2: beside Hero 2, height = hHero2
+
+Returns a new `TopologyResult` variant with two hero cells:
+
 ```text
-if (candidates.length === 0 && bestRejected) {
-  // Use best rejected as fallback
-  selected = bestRejected.candidate;
-  softRejection = { reason: 'best_available', details: { ... } };
+interface DualTopologyResult extends TopologyResult {
+  heroCells: [HeroCell, HeroCell];  // replaces single heroCell
+  regions: TopologyRegionSpec[];     // 3 regions
 }
 ```
+
+Wire into `getTemplateTopology` for `'diagonal-corners'`.
+
+### 2. Candidate generation: `generateDualHeroCandidates` in `v4/index.ts` and `layoutWorker.ts`
+
+New function parallel to `generateCandidates` but for 2 heroes:
+
+- Detect all heroes (weight > 1), pick top 2 by weight
+- Call `findCandidateTemplates(2, [hero1AR, hero2AR])`
+- For each template x canvasAR x areaFrac: get topology, derive region counts (3-way proportional split based on region areas), pack all 3 regions, validate AR coherence + combined hero coverage + prominence
+- Combined hero coverage ceiling: sum of both hero areas / canvas area (use existing 0.50 ceiling)
+- Prominence: each hero must individually exceed `hero_minProminence` vs content
+
+### 3. Photo split: 3-way `deriveRegionCounts` in `utils.ts`
+
+New function `deriveRegionCountsThreeWay` that splits content photos proportionally across 3 regions by geometric area, same approach as the existing 2-way split but extended.
+
+### 4. Main entry points: `generateCollageLayoutV4` and worker's `generateLayout`
+
+- After extracting dimensions, count heroes (weight > 1)
+- If heroCount >= 2: call `generateDualHeroCandidates`
+- If heroCount == 1: call existing `generateCandidates` (unchanged)
+- `LayoutCandidate` gains optional `heroCell2` field (or `heroCells: NormalizedCell[]` to generalize)
+- `convertToLayout` already loops over `regions[]` generically -- just needs to emit both hero cells
+- Corner mirroring: pick from `['top-left+bottom-right', 'top-right+bottom-left']` randomly
+
+### 5. Meta and LayoutInfoPanel
+
+- `LayoutCandidateMeta` gains `hero2AR`, `hero2Coverage` fields
+- `LayoutInfoPanel` shows both heroes when present
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/lib/v3/hero-constraints.ts` | Add `diagonalCornersTopology`, wire into `getTemplateTopology` |
+| `src/lib/v3/utils.ts` | Add `deriveRegionCountsThreeWay` |
+| `src/lib/v4/index.ts` | Add `generateDualHeroCandidates`, update `LayoutCandidate` to support multiple hero cells, update main entry point |
+| `src/workers/layoutWorker.ts` | Mirror same dual-hero changes |
+| `src/components/debug/LayoutInfoPanel.tsx` | Show both heroes in info panel |
+
+### Minimum Photo Count
+
+The `diagonal-corners` template works on all canvas shapes (AR 0.50-2.25). Dual hero requires enough content to fill 3 regions, so a practical minimum is ~8-10 content photos (matching `decomp_edgeMinPhotos`). Below that, the engine falls back to single-hero corner-anchor.
+
+### Scope Boundaries
+
+- Only `diagonal-corners` template implemented (not `side-by-side` or `top-bottom`)
+- V3Test page already works generically with the V4 API -- no changes needed there
+- No changes to photo weight UI (users already set weights via existing UI)
+

@@ -267,6 +267,64 @@ export function deriveRegionCounts(
 }
 
 /**
+ * Derive content photo counts for a 3-region diagonal-corners layout.
+ *
+ * Splits proportionally by geometric area of each region:
+ *   Region 0 (beside H1): (canvasAR - wH1) * hH1
+ *   Region 1 (middle band): canvasAR * (1 - hH1 - hH2)
+ *   Region 2 (beside H2): (canvasAR - wH2) * hH2
+ *
+ * Ensures at least 1 photo per region when contentCount >= 3.
+ */
+export function deriveRegionCountsThreeWay(
+  hero1AR: number,
+  hero2AR: number,
+  canvasAR: number,
+  areaFraction: number,
+  contentCount: number
+): [number, number, number] {
+  if (contentCount <= 0) return [0, 0, 0];
+
+  const halfFrac = areaFraction / 2;
+
+  let hH1 = Math.sqrt(halfFrac * canvasAR / hero1AR);
+  hH1 = Math.max(0.1, Math.min(0.45, hH1));
+  const wH1 = hero1AR * hH1;
+
+  let hH2 = Math.sqrt(halfFrac * canvasAR / hero2AR);
+  hH2 = Math.max(0.1, Math.min(0.45, hH2));
+  const wH2 = hero2AR * hH2;
+
+  const a0 = Math.max(0, canvasAR - wH1) * hH1;
+  const a1 = canvasAR * Math.max(0, 1.0 - hH1 - hH2);
+  const a2 = Math.max(0, canvasAR - wH2) * hH2;
+  const total = a0 + a1 + a2;
+
+  if (total <= 0) return [0, 0, contentCount];
+
+  let r0 = Math.round(contentCount * a0 / total);
+  let r2 = Math.round(contentCount * a2 / total);
+  let r1 = contentCount - r0 - r2;
+
+  // Fix rounding overshoot
+  if (r1 < 0) {
+    const s = r0 + r2;
+    r0 = Math.round(contentCount * r0 / s);
+    r2 = contentCount - r0;
+    r1 = 0;
+  }
+
+  // Ensure at least 1 per region when we have enough photos
+  if (contentCount >= 3) {
+    if (r0 < 1) { r0 = 1; r1 = contentCount - r0 - r2; if (r1 < 1) { r1 = 1; r2 = contentCount - r0 - r1; } }
+    if (r2 < 1) { r2 = 1; r1 = contentCount - r0 - r2; if (r1 < 1) { r1 = 1; r0 = contentCount - r1 - r2; } }
+    if (r1 < 1) { r1 = 1; const rem = contentCount - 1; r0 = Math.round(rem * a0 / (a0 + a2)); r2 = rem - r0; }
+  }
+
+  return [Math.max(0, r0), Math.max(0, r1), Math.max(0, r2)];
+}
+
+/**
  * Sample canvas AR values within a range, with optional jitter.
  * Returns evenly spaced values between min and max.
  */

@@ -20,13 +20,13 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
   if (meta) {
     const {
       template, targetCanvasAR, actualCanvasAR, arDeviation,
-      areaFrac, heroCoverage, heroAR, prominenceRatio, score, corner,
+      areaFrac, heroCoverage, heroAR, hero2AR, prominenceRatio, score, corner,
       candidateCount, regionSizes, regionTargetRows, regionActualRows,
       besideWidth, belowHeight,
     } = meta as {
       template: string; targetCanvasAR: number; actualCanvasAR: number;
       arDeviation: number; areaFrac: number; heroCoverage: number;
-      heroAR: number; prominenceRatio: number; score: number; corner: string;
+      heroAR: number; hero2AR?: number; prominenceRatio: number; score: number; corner: string;
       candidateCount: number; regionSizes: number[];
       regionTargetRows: number[]; regionActualRows: number[];
       besideWidth: number; belowHeight: number;
@@ -59,17 +59,22 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
             </span>
           </div>
           <div className="mt-1">
-            actual hero AR: {heroAR.toFixed(2)} | actual prominence: {prominenceRatio.toFixed(2)}x
+            hero 1 AR: {heroAR.toFixed(2)} | prominence: {prominenceRatio.toFixed(2)}x
             <span className="text-muted-foreground/50 ml-1">
               [hero is {prominenceRatio.toFixed(1)}x the largest content photo]
             </span>
           </div>
+          {hero2AR != null && (
+            <div>
+              hero 2 AR: {hero2AR.toFixed(2)}
+            </div>
+          )}
           <div className="mt-1">
             score: {score.toFixed(3)} | candidates: {candidateCount}
           </div>
           {regionSizes?.[0] > 0 && (
             <div className="mt-1">
-              region 0 (beside): {regionSizes[0]} photos, w={besideWidth.toFixed(2)}
+              region 0 (beside {hero2AR != null ? 'H1' : 'hero'}): {regionSizes[0]} photos, w={besideWidth.toFixed(2)}
               <div className="ml-2 text-muted-foreground/60">
                 target rows: {regionTargetRows[0]} | actual rows: {regionActualRows[0]}
               </div>
@@ -77,9 +82,17 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
           )}
           {regionSizes?.[1] > 0 && (
             <div className="mt-1">
-              region 1 (below): {regionSizes[1]} photos, h={belowHeight.toFixed(2)}
+              region 1 ({hero2AR != null ? 'middle band' : 'below'}): {regionSizes[1]} photos{hero2AR == null && `, h=${belowHeight.toFixed(2)}`}
               <div className="ml-2 text-muted-foreground/60">
                 target rows: {regionTargetRows[1]} | actual rows: {regionActualRows[1]}
+              </div>
+            </div>
+          )}
+          {regionSizes?.[2] != null && regionSizes[2] > 0 && (
+            <div className="mt-1">
+              region 2 (beside H2): {regionSizes[2]} photos
+              <div className="ml-2 text-muted-foreground/60">
+                target rows: {regionTargetRows[2]} | actual rows: {regionActualRows[2]}
               </div>
             </div>
           )}

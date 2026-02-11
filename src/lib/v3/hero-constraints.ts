@@ -210,6 +210,7 @@ export interface TopologyRegionSpec {
  */
 export interface TopologyResult {
   heroCell: { x: number; y: number; width: number; height: number };
+  heroCell2?: { x: number; y: number; width: number; height: number };
   regions: TopologyRegionSpec[];
 }
 
@@ -261,6 +262,72 @@ export function cornerAnchorTopology(
 }
 
 /**
+ * Diagonal-corners topology: two heroes in opposite corners, three content regions.
+ *
+ * Canvas: width = canvasAR, height = 1.0 (normalized)
+ * Each hero targets half the area fraction.
+ *
+ * Canonical layout (Hero1=TL, Hero2=BR):
+ *   Region 0 (beside H1): height-constrained at hH1
+ *   Region 1 (middle band): width-constrained (hardDim set by engine)
+ *   Region 2 (beside H2): height-constrained at hH2
+ *
+ * Hero2 position is approximate; the engine adjusts after packing.
+ */
+export function diagonalCornersTopology(
+  hero1AR: number,
+  hero2AR: number,
+  areaFrac: number,
+  canvasAR: number,
+  gap: number
+): TopologyResult {
+  const halfFrac = areaFrac / 2;
+
+  // Hero 1 (top-left)
+  let hH1 = Math.sqrt(halfFrac * canvasAR / hero1AR);
+  hH1 = Math.max(0.1, Math.min(0.45, hH1));
+  const wH1 = hero1AR * hH1;
+
+  // Hero 2 (bottom-right)
+  let hH2 = Math.sqrt(halfFrac * canvasAR / hero2AR);
+  hH2 = Math.max(0.1, Math.min(0.45, hH2));
+  const wH2 = hero2AR * hH2;
+
+  const targetBesideH1Width = canvasAR - wH1 - 3 * gap;
+  const targetMiddleHeight = Math.max(0.01, 1.0 - hH1 - hH2 - 4 * gap);
+  const targetBesideH2Width = canvasAR - wH2 - 3 * gap;
+
+  return {
+    heroCell: { x: gap, y: gap, width: wH1, height: hH1 },
+    // Approximate position; engine adjusts y after packing middle band
+    heroCell2: { x: canvasAR - gap - wH2, y: 1.0 - gap - hH2, width: wH2, height: hH2 },
+    regions: [
+      {
+        // Region 0: beside Hero 1, height-constrained
+        constraint: 'height',
+        hardDimension: hH1,
+        softDimension: Math.max(0.01, targetBesideH1Width),
+        offset: { x: gap + wH1 + gap, y: gap },
+      },
+      {
+        // Region 1: middle band, width-constrained (hardDimension set by engine)
+        constraint: 'width',
+        hardDimension: 0,
+        softDimension: targetMiddleHeight,
+        offset: { x: gap, y: gap + hH1 + gap },
+      },
+      {
+        // Region 2: beside Hero 2, height-constrained
+        constraint: 'height',
+        hardDimension: hH2,
+        softDimension: Math.max(0.01, targetBesideH2Width),
+        offset: { x: gap, y: 0 }, // y set by engine after packing middle
+      },
+    ],
+  };
+}
+
+/**
  * Look up the topology function for a template ID and compute the layout.
  * Returns null for templates not yet implemented.
  */
@@ -269,12 +336,15 @@ export function getTemplateTopology(
   heroAR: number,
   areaFrac: number,
   canvasAR: number,
-  gap: number
+  gap: number,
+  hero2AR?: number
 ): TopologyResult | null {
   switch (templateId) {
     case 'corner-anchor':
       return cornerAnchorTopology(heroAR, areaFrac, canvasAR, gap);
-    // Band templates (top-band, bottom-band, left-band, right-band) to be added incrementally
+    case 'diagonal-corners':
+      if (hero2AR == null) return null;
+      return diagonalCornersTopology(heroAR, hero2AR, areaFrac, canvasAR, gap);
     default:
       return null;
   }

@@ -28,6 +28,7 @@ export function syntheticToPhotoItem(photo: SyntheticPhoto): PhotoItem {
     blob: new Blob(), // Not needed for layout calculation
     originalWidth: photo.originalWidth,
     originalHeight: photo.originalHeight,
+    smartCropAttempted: false,
     smartCrop: null,
     manualCrop: null,
     isProcessing: false,

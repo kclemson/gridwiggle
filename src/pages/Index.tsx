@@ -355,6 +355,7 @@ export default function Index() {
         
         updatePhoto(photo.id, {
           smartCrop: smartCropToApply,
+          smartCropAttempted: true,
           isProcessing: false,
         });
       } catch (error) {
@@ -521,6 +522,7 @@ export default function Index() {
         isProcessing: true,
         error: null,
         priority: 3,
+        smartCropAttempted: false,
         previewUrl: objectUrl,
         previewBlob: file,
       };
@@ -550,7 +552,7 @@ export default function Index() {
       
       const smartCropToApply = result.skipCrop ? null : result.crop;
       
-      updatePhoto(photoId, { smartCrop: smartCropToApply });
+      updatePhoto(photoId, { smartCrop: smartCropToApply, smartCropAttempted: true });
       
       // Regenerate layout with new crop
       if (state.layout) {
@@ -566,7 +568,7 @@ export default function Index() {
 
   // Undo smart crop for a single photo (remove AI crop)
   const handleUndoSmartCrop = useCallback((photoId: string) => {
-    updatePhoto(photoId, { smartCrop: null });
+    updatePhoto(photoId, { smartCrop: null, smartCropAttempted: false });
     
     if (state.layout) {
       regenerateCollage();

@@ -4,7 +4,7 @@ import { getDisplayCrop } from '@/lib/cropUtils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Star, Crop, Undo2, Loader2 } from 'lucide-react';
+import { X, Star, Crop, Undo2, Loader2, Sparkles, Maximize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
@@ -182,30 +182,57 @@ export function ThumbnailNavigator({
                     )}
                   </button>
                   
-                  {/* Per-photo action button */}
-                  {isLoaded && onSmartCrop && onUndoSmartCrop && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 min-h-[44px] min-w-[44px]"
-                      disabled={isProcessing}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (hasSmartCrop) {
-                          onUndoSmartCrop(photo.id);
-                        } else {
-                          onSmartCrop(photo.id);
-                        }
-                      }}
-                    >
-                      {isProcessing ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : hasSmartCrop ? (
-                        <Undo2 className="h-4 w-4" />
-                      ) : (
-                        <Crop className="h-4 w-4" />
-                      )}
-                    </Button>
+                  {/* Per-photo action buttons */}
+                  {isLoaded && (
+                    <div className="flex items-center gap-0.5">
+                      {/* Smart crop / undo button */}
+                      {onSmartCrop && onUndoSmartCrop && (() => {
+                        const smartCropAttempted = photo.smartCropAttempted ?? false;
+                        // Hide entirely if DETR ran but found no person
+                        if (smartCropAttempted && !hasSmartCrop) return null;
+                        
+                        return (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                            disabled={isProcessing}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (hasSmartCrop) {
+                                onUndoSmartCrop(photo.id);
+                              } else {
+                                onSmartCrop(photo.id);
+                              }
+                            }}
+                          >
+                            {isProcessing ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : hasSmartCrop ? (
+                              <Undo2 className="h-4 w-4" />
+                            ) : (
+                              <span className="flex items-center gap-0.5">
+                                <Sparkles className="h-3 w-3" />
+                                <Crop className="h-3.5 w-3.5" />
+                              </span>
+                            )}
+                          </Button>
+                        );
+                      })()}
+                      
+                      {/* Open editor button */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelect(photo.id);
+                        }}
+                      >
+                        <Maximize2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               );

@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Trash2, Loader2 } from 'lucide-react';
+import { Trash2, Loader2, Sparkles } from 'lucide-react';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getEditorInitialCrop } from '@/lib/cropUtils';
 
@@ -180,6 +180,23 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     onSave(photo.id, crop, priority);
   };
   
+  const handleApplySmartCrop = useCallback(() => {
+    if (photo.smartCrop) {
+      setCrop({ ...photo.smartCrop });
+    }
+  }, [photo.smartCrop]);
+  
+  // Check if current crop matches smart crop
+  const isSmartCropActive = useMemo(() => {
+    if (!photo.smartCrop) return false;
+    return (
+      crop.x === photo.smartCrop.x &&
+      crop.y === photo.smartCrop.y &&
+      crop.width === photo.smartCrop.width &&
+      crop.height === photo.smartCrop.height
+    );
+  }, [crop, photo.smartCrop]);
+
   const handleDelete = () => {
     onDelete(photo.id);
   };
@@ -356,6 +373,16 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             <Trash2 className="h-4 w-4 mr-1.5" />
             Delete Photo
           </Button>
+          {photo.smartCrop && (
+            <Button 
+              variant="ghost" 
+              onClick={handleApplySmartCrop}
+              disabled={isSmartCropActive}
+            >
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              Smart Crop
+            </Button>
+          )}
           <div className="flex items-center gap-3">
             <Checkbox 
               id="hero-toggle"

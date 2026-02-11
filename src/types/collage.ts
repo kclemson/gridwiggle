@@ -30,6 +30,7 @@ export interface PhotoItem {
   isProcessing: boolean;
   error: string | null;
   priority: PhotoPriority;    // Default: 3 (standard)
+  smartCropAttempted: boolean; // True after DETR ran (even if no person found)
   previewUrl?: string;        // Scaled-down preview for crop editor (~1200px max)
   previewBlob?: Blob;         // Preview blob for memory management
   thumbnailUrl?: string;      // Smaller preview for collage canvas (~480px max)
@@ -47,6 +48,7 @@ export interface PhotoMetadata {
   smartCrop: CropRegion | null;
   manualCrop: CropRegion | null;
   priority: PhotoPriority;
+  smartCropAttempted?: boolean; // Optional for backwards compatibility with old data
 }
 
 export interface CollageSettings {

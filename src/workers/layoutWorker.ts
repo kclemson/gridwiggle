@@ -13,7 +13,7 @@ import { CollageLayout, CollageCell } from '@/types/collage';
 import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
 import { shuffleArray, deriveRegionCounts, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger, LogEntry, RejectedLayoutGeometry } from '@/lib/devLogger';
-import { findCandidateTemplates, getTemplateTopology } from '@/lib/v3/hero-constraints';
+import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax } from '@/lib/v3/hero-constraints';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
 const VIRTUAL_CANVAS_BASE = 1000;
@@ -266,10 +266,9 @@ function generateCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
       const areaSamples = sampleAreaFractions(
-        heroAreaFraction.min, heroAreaFraction.max,
-        heroAreaFraction.squareMax ?? heroAreaFraction.max,
-        targetCanvasAR, 3
+        heroAreaFraction.min, maxFrac, 3
       );
       
       for (const areaFrac of areaSamples) {

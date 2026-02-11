@@ -125,13 +125,15 @@ describe('sampleCanvasARValues', () => {
 });
 
 describe('sampleAreaFractions', () => {
-  it('applies squareMax for near-square canvas', () => {
-    const values = sampleAreaFractions(0.15, 0.60, 0.35, 1.0, 3);
-    expect(values[values.length - 1]).toBeLessThanOrEqual(0.35);
+  it('caps area fraction for wide canvas via effectiveMax', () => {
+    // effectiveMax for canvasAR 2.0: 0.60 * clamp(1/2, 0.5, 1.0) = 0.30
+    const values = sampleAreaFractions(0.15, 0.30, 3);
+    expect(values[values.length - 1]).toBeCloseTo(0.30);
   });
 
-  it('uses full max for non-square canvas', () => {
-    const values = sampleAreaFractions(0.15, 0.60, 0.35, 1.5, 3);
+  it('uses full max for square canvas', () => {
+    // effectiveMax for canvasAR 1.0: 0.60 * 1.0 = 0.60
+    const values = sampleAreaFractions(0.15, 0.60, 3);
     expect(values[values.length - 1]).toBeCloseTo(0.60);
   });
 });

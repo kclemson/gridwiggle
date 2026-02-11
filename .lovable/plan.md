@@ -1,89 +1,68 @@
 
 
-# Wire Topology Constraints Through to Dual-Hero Packing
+# Add Configurable Hero Count Mix to V3 Test Tool
 
-## The Problem
+## What Changes for You
 
-The constraint type (`height` vs `width`) is already declared on each `TopologyRegionSpec` in `hero-constraints.ts`, and the single-hero path already reads it generically. But the dual-hero path in `generateDualHeroCandidates` ignores the topology specs and hardcodes `constraint: 'height'` for all 3 regions. This causes Region 2 to float its width, creating the blank space.
-
-## The Fix (Two Parts)
-
-### Part 1: Fix the topology declaration
-
-In `diagonalCornersTopology` (`hero-constraints.ts`), change Region 2's constraint from `'height'` to `'width'`. This makes the topology the single source of truth:
-
-- Region 0 (beside H1): `constraint: 'height'`, `hardDimension: hH1`
-- Region 1 (middle band): `constraint: 'width'`, `hardDimension: 0` (set by engine after packing Region 0)
-- Region 2 (beside H2): `constraint: 'width'`, `hardDimension: 0` (set by engine after packing Region 0)
-
-Region 2's hard dimension (width) will be computed by the engine as `heroRow1Width - wH2 - gap`, and Hero 2's height will be matched to the packed result.
-
-### Part 2: Make dual-hero packing read from topology
-
-In `generateDualHeroCandidates` (both `v4/index.ts` and `layoutWorker.ts`), replace the 3 manually-constructed `PackableRegion` blocks with a loop that reads `constraint` from `topology.regions[i]`, mirroring how the single-hero path already works at line 306:
-
-```typescript
-// Single-hero path already does this correctly:
-const regions: PackableRegion[] = topology.regions.map((spec, i) => ({
-  constraint: spec.constraint,        // <-- reads from topology
-  targetDimension: spec.hardDimension,
-  ...
-}));
-```
-
-The dual-hero path will do the same, then apply staged packing logic (pack Region 0 first to determine widths for Regions 1 and 2).
+The test tool will generate dual-hero layouts ~50% of the time (up from 0%), giving much better coverage of the diagonal-corners algorithm. The hero mix percentages will be defined as a simple config object at the top of the file, making it easy to adjust ratios or add 3-hero support later.
 
 ## Technical Details
 
-### File: `src/lib/v3/hero-constraints.ts`
+### 1. Update `generatePhotoSet` signature (`src/test/layout/photoGenerator.ts`)
 
-In `diagonalCornersTopology`, change Region 2:
+Change `hasHero: boolean` to `heroCount: number` (0, 1, or 2+):
 
 ```typescript
-// BEFORE
-{
-  constraint: 'height',
-  hardDimension: hH2,
-  softDimension: Math.max(0.01, targetBesideH2Width),
-  offset: { x: gap, y: 0 },
-}
-
-// AFTER
-{
-  constraint: 'width',
-  hardDimension: 0,  // set by engine after packing Region 0
-  softDimension: hH2, // height hint (soft target)
-  offset: { x: gap, y: 0 },
-}
+export function generatePhotoSet(
+  count: number,
+  orientationBias: number,
+  heroCount: number  // was: hasHero: boolean
+): SyntheticPhoto[]
 ```
 
-### File: `src/lib/v4/index.ts`
+- When `heroCount >= 2`, the first N photos each get `priority: 1` with independent `sampleHeroAspectRatio()` calls
+- Minimum photo count for dual hero: 8 (matching engine gate)
 
-In `generateDualHeroCandidates` (~lines 515-558), replace the three manual `PackableRegion` constructions with a generic build from topology, then apply staged dimension assignment:
+### 2. Add hero mix config and update `generateRandomSet` (`src/pages/V3Test.tsx`)
 
-1. Build all 3 regions from `topology.regions` reading `spec.constraint`
-2. Pack Region 0 (height-constrained at hH1) -- unchanged
-3. Compute `heroRow1Width` -- unchanged
-4. Set Region 1's `targetDimension = heroRow1Width` (it's width-constrained) -- unchanged
-5. Pack Region 1 -- unchanged
-6. Set Region 2's `targetDimension = heroRow1Width - wH2 - gap` (now width-constrained, pinned to match top row)
-7. Pack Region 2
-8. Set Hero 2's height to `region2.result.height` (discovered, not formula-derived)
-9. Remove `heroRow2Width` calc -- canvas width is just `heroRow1Width` by construction
+Add a config constant at the top:
 
-### File: `src/workers/layoutWorker.ts`
+```typescript
+const HERO_MIX = {
+  0: 0.05,  // 5% no-hero
+  1: 0.45,  // 45% single-hero
+  2: 0.50,  // 50% dual-hero
+} as const;
+```
 
-Mirror the same changes as `v4/index.ts`.
+Update `generateRandomSet` to sample from this distribution, falling back to single-hero when photo count < 8 (dual-hero minimum).
 
-### No other files need changes
+### 3. Update stats display (`src/pages/V3Test.tsx`)
 
-- `TopologyRegionSpec` and `PackableRegion` types already have the `constraint` field
-- `convertToLayout`, scoring, and `LayoutInfoPanel` all work generically
+Change the hero stats section to show all heroes when multiple exist:
 
-## Why This Architecture Is Resilient
+- "2 Heroes: AR 1.33, AR 0.75" instead of just one
+- Update `buildCapture` to set correct `heroCount` and capture all hero ARs
 
-With this change, adding a new template (e.g., edge-band with 4 regions) only requires:
-1. Define the topology function with N regions, each declaring its own constraint
-2. The engine's generic loop reads those constraints and packs accordingly
-3. No index-based `if` logic needed in the packing code
+### 4. Update `LayoutTestCase` type and `generateTestBatch` (`src/test/layout/types.ts`, `src/test/layout/layoutAdapter.ts`)
+
+- Change `hasHero: boolean` to `heroCount: number` in `LayoutTestCase`
+- Update `generateTestBatch` to use matching distribution (5/45/50)
+- Update `RatedLayout` similarly
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/test/layout/photoGenerator.ts` | `heroCount` param, loop for N heroes |
+| `src/pages/V3Test.tsx` | `HERO_MIX` config, updated stats display, `buildCapture` |
+| `src/test/layout/types.ts` | `heroCount: number` replaces `hasHero: boolean` |
+| `src/test/layout/layoutAdapter.ts` | `generateTestBatch` uses new distribution |
+
+### Forward-Looking for 3-Hero
+
+Adding 3-hero support later is just:
+1. Add `3: 0.XX` to `HERO_MIX` (rebalance others)
+2. The `generatePhotoSet` loop already handles any heroCount
+3. Engine changes (separate task) to support 3-hero topologies
 

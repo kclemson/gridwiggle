@@ -9,7 +9,7 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { DebugLogPanel } from '@/components/debug/DebugLogPanel';
-import { CaptureControls, RejectionBadge } from '@/components/debug';
+import { CaptureControls, RejectionBadge, LayoutInfoPanel } from '@/components/debug';
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { 
   generatePhotoSet, 
@@ -91,6 +91,7 @@ function generateRandomSet(): { photos: SyntheticPhoto[]; seed: number; orientat
  */
 interface LayoutResult {
   layout: CollageLayout | null;
+  layoutMeta: Record<string, unknown> | null;
   logs: LogEntry[];
   durationMs: number;
   rejectedLayout: RejectedLayout | null;
@@ -119,12 +120,18 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     }
   });
   
-  const layout = generateCollageLayoutV4(photoItems, settings, { photoWeights, randomize: true });
+  const result = generateCollageLayoutV4(photoItems, settings, { photoWeights, randomize: true });
   const durationMs = performance.now() - startTime;
   const logs = devLogger.getLogs();
   const rejectedLayout = getLastRejectedLayout();
   
-  return { layout, logs, durationMs, rejectedLayout };
+  return { 
+    layout: result?.layout ?? null, 
+    layoutMeta: result?.layoutMeta ?? null,
+    logs, 
+    durationMs, 
+    rejectedLayout,
+  };
 }
 
 /**
@@ -189,6 +196,7 @@ function buildCapture(
 interface TestState {
   photoSet: { photos: SyntheticPhoto[]; seed: number; orientationBias: number };
   layout: CollageLayout | null;
+  layoutMeta: Record<string, unknown> | null;
   logs: LogEntry[];
   durationMs: number;
   rejectedLayout: RejectedLayout | null;
@@ -354,7 +362,7 @@ export default function V3Test() {
   }, []);
   
   // Destructure state for rendering
-  const { photoSet, layout, logs, durationMs, rejectedLayout } = state;
+  const { photoSet, layout, layoutMeta, logs, durationMs, rejectedLayout } = state;
   
   // Stats
   const heroPhoto = photoSet.photos.find(p => p.priority === 1);
@@ -506,6 +514,7 @@ export default function V3Test() {
                 <div className="mt-3 text-base font-medium text-foreground text-center">
                   Canvas: {layout.width}×{layout.height}px ({(layout.width / layout.height).toFixed(2)} AR, 1:{(layout.height / layout.width).toFixed(2)})
                 </div>
+                {layoutMeta && <LayoutInfoPanel meta={layoutMeta} />}
               </>
             ) : showRejected && scaledRejectedLayout ? (
               <div className="relative">

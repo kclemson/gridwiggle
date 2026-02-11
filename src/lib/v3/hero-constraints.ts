@@ -317,10 +317,10 @@ export function diagonalCornersTopology(
         offset: { x: gap, y: gap + hH1 + gap },
       },
       {
-        // Region 2: beside Hero 2, height-constrained
-        constraint: 'height',
-        hardDimension: hH2,
-        softDimension: Math.max(0.01, targetBesideH2Width),
+        // Region 2: beside Hero 2, width-constrained (width set by engine after packing Region 0)
+        constraint: 'width',
+        hardDimension: 0,
+        softDimension: hH2, // height hint (soft target)
         offset: { x: gap, y: 0 }, // y set by engine after packing middle
       },
     ],

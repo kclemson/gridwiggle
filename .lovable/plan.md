@@ -1,20 +1,20 @@
 
 
-# Replace Hero Checkbox with Toggle Switch
+# Fix Invisible Hero Toggle in Unchecked State
 
-## What Changes
+## Problem
 
-Replace the Checkbox + Label for "Hero" with a Switch toggle in the CropEditor footer. A switch is the standard UI pattern for binary on/off states and will feel more intuitive than the current checkbox (which visually resembles a radio button).
+The Switch component's unchecked (off) state uses `bg-input` which maps to the same dark tone as the dialog footer background, making it completely invisible when toggled off.
 
-## Technical Details
+## Fix
 
-**File:** `src/components/CropEditor.tsx`
+**File:** `src/components/ui/switch.tsx`
 
-| Change | Detail |
-|--------|--------|
-| Import | Replace `Checkbox` import with `Switch` from `@/components/ui/switch` |
-| Lines 386-395 | Replace the `Checkbox` + `Label` div with a `Switch` + `Label` using the same state binding |
+Add a visible border to the switch track so it's always distinguishable from the background, even in the unchecked state. Change `border-2 border-transparent` to `border-2 border-muted-foreground/30` in the Root className. This adds a subtle border that provides contrast in both light and dark themes without changing the checked appearance.
 
-The Switch component is already installed (`@radix-ui/react-switch`) and available at `@/components/ui/switch`.
+| Current | New |
+|---------|-----|
+| `border-2 border-transparent` | `border-2 border-muted-foreground/30` |
 
-The state logic stays identical — `isHero` / `setIsHero` — just the visual control changes.
+Single line change in the Switch component (~line 13).
+

@@ -126,7 +126,7 @@ export function ThumbnailNavigator({
                 <div 
                   key={photo.id}
                   className="rounded-lg border border-border/50 bg-surface-elevated/30 overflow-hidden"
-                  style={{ width: calculatedWidth }}
+                  style={{ flex: `1 1 ${calculatedWidth}px`, maxWidth: calculatedWidth * 1.8 }}
                 >
                   {/* Photo thumbnail */}
                   <button

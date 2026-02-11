@@ -1,6 +1,6 @@
 import { PhotoItem } from '@/types/collage';
 import { Button } from '@/components/ui/button';
-import { Grid3X3, Loader2, Wand2, Plus, Trash2 } from 'lucide-react';
+import { Crop, Loader2, Wand2, Plus, Trash2 } from 'lucide-react';
 
 interface PhotoStripProps {
   photos: PhotoItem[];
@@ -59,8 +59,8 @@ export function PhotoStrip({
       {/* Actions - unified row */}
       <div className="flex justify-center items-center gap-2">
         <Button variant="outline" size="sm" onClick={onViewAll}>
-          <Grid3X3 className="h-4 w-4 mr-1.5" />
-          View All
+          <Crop className="h-4 w-4 mr-1.5" />
+          Adjust Crops
         </Button>
         <Button variant="outline" size="sm" onClick={onAddPhotos}>
           <Plus className="h-4 w-4 mr-1.5" />

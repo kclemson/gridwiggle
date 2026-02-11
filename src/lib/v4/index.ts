@@ -826,11 +826,23 @@ export function generateCollageLayoutV4(
   let candidates: LayoutCandidate[];
   if (isDualHero && hero2Photo) {
     candidates = generateDualHeroCandidates(heroPhoto, hero2Photo, contentPhotos, normalizedGap, tuning, randomize);
-    // Fall back to single hero if no dual candidates
-    if (candidates.length === 0) {
-      devLogger.log('layout', 'No dual-hero candidates, falling back to single hero');
+    // Fall back to single hero if dual candidates are absent or all near floor score
+    const bestDualScore = candidates.length > 0
+      ? Math.max(...candidates.map(c => c.score))
+      : 0;
+    if (bestDualScore <= 0.10) {
       const allContent = dimensions.filter(d => d.id !== heroPhoto.id);
-      candidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize);
+      const singleCandidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize);
+      if (singleCandidates.length > 0) {
+        const bestSingle = Math.max(...singleCandidates.map(c => c.score));
+        if (bestSingle > bestDualScore) {
+          candidates = singleCandidates;
+          devLogger.log('layout', 'Single-hero beats dual-hero', {
+            bestDual: bestDualScore.toFixed(3),
+            bestSingle: bestSingle.toFixed(3),
+          });
+        }
+      }
     }
   } else {
     candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);

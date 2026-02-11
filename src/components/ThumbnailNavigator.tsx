@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PhotoItem } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { CroppedImage } from './common/CroppedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -110,15 +109,19 @@ export function ThumbnailNavigator({
               const hasSmartCrop = photo.smartCrop !== null;
               const isProcessing = smartCroppingPhotoId === photo.id;
               
-              // Calculate width based on aspect ratio (natural shape)
-              const aspectRatio = crop 
-                ? crop.width / crop.height 
-                : photo.originalWidth / photo.originalHeight || 1;
+              // Always use full-image aspect ratio (we show the whole photo now)
+              const aspectRatio = photo.originalWidth / photo.originalHeight || 1;
               const calculatedWidth = Math.max(
                 MIN_THUMBNAIL_WIDTH, 
                 Math.round(THUMBNAIL_HEIGHT * aspectRatio)
               );
-              
+
+              // Crop overlay percentages
+              const topPct = crop ? (crop.y / photo.originalHeight) * 100 : 0;
+              const leftPct = crop ? (crop.x / photo.originalWidth) * 100 : 0;
+              const widthPct = crop ? (crop.width / photo.originalWidth) * 100 : 100;
+              const heightPct = crop ? (crop.height / photo.originalHeight) * 100 : 100;
+
               return (
                 <div 
                   key={photo.id}
@@ -139,26 +142,29 @@ export function ThumbnailNavigator({
                   >
                     {isLoaded ? (
                       <>
-                        <div className="w-full h-full">
-                          {crop ? (
-                            <CroppedImage
-                              src={photo.objectUrl}
-                              previewSrc={photo.previewUrl}
-                              thumbnailSrc={photo.thumbnailUrl}
-                              crop={crop}
-                              originalWidth={photo.originalWidth}
-                              originalHeight={photo.originalHeight}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <img
-                              src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                          )}
-                        </div>
-                        
+                        <img
+                          src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          draggable={false}
+                        />
+
+                        {/* Crop boundary overlay - dims area outside crop */}
+                        {crop && (
+                          <>
+                            {/* Top strip */}
+                            <div className="absolute left-0 right-0 top-0 bg-black/50" style={{ height: `${topPct}%` }} />
+                            {/* Bottom strip */}
+                            <div className="absolute left-0 right-0 bottom-0 bg-black/50" style={{ height: `${100 - topPct - heightPct}%` }} />
+                            {/* Left strip */}
+                            <div className="absolute bg-black/50" style={{ top: `${topPct}%`, left: 0, width: `${leftPct}%`, height: `${heightPct}%` }} />
+                            {/* Right strip */}
+                            <div className="absolute bg-black/50" style={{ top: `${topPct}%`, right: 0, width: `${100 - leftPct - widthPct}%`, height: `${heightPct}%` }} />
+                            {/* Crop border */}
+                            <div className="absolute border border-white/60 rounded-sm pointer-events-none" style={{ top: `${topPct}%`, left: `${leftPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }} />
+                          </>
+                        )}
+
                         {/* Hero badge */}
                         {isHero && (
                           <div className="absolute top-0.5 left-0.5 bg-yellow-500 rounded-full p-0.5">
@@ -166,13 +172,6 @@ export function ThumbnailNavigator({
                           </div>
                         )}
 
-                        {/* Crop indicator - shows if photo has any cropping applied */}
-                        {(photo.smartCrop || photo.manualCrop) && (
-                          <div className="absolute bottom-0.5 left-0.5 p-0.5 rounded bg-primary/80 text-white shadow-sm">
-                            <Crop className="h-2 w-2" />
-                          </div>
-                        )}
-                        
                         {/* Index number */}
                         <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[10px] px-1 rounded">
                           {index + 1}

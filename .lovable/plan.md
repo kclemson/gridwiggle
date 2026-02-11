@@ -1,62 +1,62 @@
 
 
-# Lower Hero Height Clamp in Dual-Hero Layouts
+# Fix Dual-Hero Fallback After Soft-Reject
 
 ## Problem
-When two heroes both hit the 0.45 height clamp, the middle band gets squeezed to ~10% of canvas height, resulting in 2 photos stretched across the full width with extreme aspect ratios (AR 7+).
+
+The soft-reject change (replacing hard rejects with score penalties) inadvertently broke the dual-hero to single-hero fallback path. Previously, broken dual-hero layouts were hard-rejected, producing 0 candidates, which triggered a fallback to single-hero. Now they survive at the 0.05 floor score, so the fallback never fires.
 
 ## User Outcome
-Middle band gets twice the vertical space (20% instead of 10%), receives more photos (e.g., 4 instead of 2), and those photos have natural aspect ratios (~1.9 instead of ~7.5). Heroes shrink ~11% in height -- a minor visual trade-off for significantly more balanced layouts.
+
+When dual-hero layouts are geometrically broken (all candidates at floor score), the system automatically tries single-hero instead of showing a broken layout with 4% hero coverage and 63%-area content photos.
 
 ## Change
 
-**File:** `src/lib/v3/utils.ts`, function `deriveRegionCountsThreeWay`
+**File:** `src/lib/v4/index.ts`, lines ~827-834
 
-Lower the hero height clamp from `0.45` to `0.40` on two lines:
-
+Current logic:
 ```
-// Before
-hH1 = Math.max(0.1, Math.min(0.45, hH1));
-hH2 = Math.max(0.1, Math.min(0.45, hH2));
-
-// After
-hH1 = Math.max(0.1, Math.min(0.40, hH1));
-hH2 = Math.max(0.1, Math.min(0.40, hH2));
+candidates = generateDualHeroCandidates(...);
+if (candidates.length === 0) {
+  // fall back to single hero
+}
 ```
 
-That's it -- two constant changes, same function, same logic.
+New logic:
+```
+candidates = generateDualHeroCandidates(...);
+const bestDualScore = candidates.length > 0
+  ? Math.max(...candidates.map(c => c.score))
+  : 0;
+if (bestDualScore <= 0.10) {
+  // Dual candidates are absent or all near floor -- try single hero
+  const allContent = dimensions.filter(d => d.id !== heroPhoto.id);
+  const singleCandidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize);
+  if (singleCandidates.length > 0) {
+    const bestSingle = Math.max(...singleCandidates.map(c => c.score));
+    if (bestSingle > bestDualScore) {
+      candidates = singleCandidates;
+      devLogger.log('layout', 'Single-hero beats dual-hero', {
+        bestDual: bestDualScore.toFixed(3),
+        bestSingle: bestSingle.toFixed(3),
+      });
+    }
+  }
+}
+```
 
-## Test Matrix: Before vs After
+Key design decisions:
+- Threshold of 0.10 catches all floor-scored candidates (0.05) plus anything only marginally better
+- Does not discard dual candidates outright -- compares best scores from both paths and picks the winner
+- Zero risk to good dual-hero layouts (those score well above 0.10)
+- Adds one log line for debug visibility when the fallback fires
 
-Canvas AR 1.5, area fraction 0.25, 14 content photos, both heroes portrait (AR 0.67):
+## Test Matrix
 
-| Metric | Clamp 0.45 | Clamp 0.40 |
-|--------|-----------|-----------|
-| Hero height | 0.45 (clamped) | 0.40 (clamped) |
-| Middle band height | 0.10 | 0.20 |
-| Middle band area share | ~15% | ~27% |
-| Photos in middle | 2 | 4 |
-| Middle cell AR | ~7.5 (extreme) | ~1.9 (natural) |
-| Hero prominence | Large | Slightly smaller (-11%) |
-
-Canvas AR 1.0, area fraction 0.25, 14 content, both heroes square (AR 1.0):
-
-| Metric | Clamp 0.45 | Clamp 0.40 |
-|--------|-----------|-----------|
-| Hero height | 0.354 (unclamped) | 0.354 (unclamped) |
-| Middle band height | 0.29 | 0.29 |
-| Photos in middle | 4-5 | 4-5 |
-
-No change -- clamp doesn't trigger for square heroes on square canvases.
-
-Canvas AR 1.5, area fraction 0.25, 14 content, both heroes landscape (AR 1.5):
-
-| Metric | Clamp 0.45 | Clamp 0.40 |
-|--------|-----------|-----------|
-| Hero height | 0.354 (unclamped) | 0.354 (unclamped) |
-| Middle band height | 0.29 | 0.29 |
-
-No change -- landscape heroes don't hit the clamp.
-
-The fix only activates for the cases that need it (portrait/square heroes on wide canvases) and has zero effect on layouts where the clamp wasn't triggered.
+| Photos | Heroes | Hero ARs | Best dual score | Best single score | Outcome |
+|--------|--------|----------|-----------------|-------------------|---------|
+| 9 | 2 | 0.73, 0.56 (both portrait) | 0.05 (floor) | ~0.4-0.6 | Single wins -- fixes this bug |
+| 16 | 2 | 1.2, 0.8 (mixed) | ~0.5 | not attempted | Dual kept -- threshold not hit |
+| 12 | 2 | 0.5, 0.5 (both tall portrait) | 0.05-0.08 | ~0.3-0.5 | Single wins -- appropriate |
+| 20 | 2 | 1.5, 1.3 (both landscape) | ~0.6 | not attempted | Dual kept -- no change |
 

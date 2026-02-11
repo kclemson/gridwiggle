@@ -1,48 +1,80 @@
 
 
-# Document Hero Placement Rules (No Enforcement)
+# Hero Template Registry
 
 ## Goal
 
-Capture the validated rules from Rounds 1-4 in a single reference file. No engine changes, no validation logic, no tuning parameter additions. Just a well-organized document so the rules don't get lost while we continue discussing other changes.
+Transform `src/lib/v3/hero-constraints.ts` from documentation-only comments into an exported TypeScript data structure: a lookup table of valid hero placement topologies. Given known hero count and hero ARs, the engine can query "what templates work here?" and get back a narrowed candidate list.
 
-## What Changes
+No engine integration yet -- this is the data layer only.
 
-### New file: `src/lib/v3/hero-constraints.ts`
+## Design Decisions
 
-A documentation-only file containing the complete validated rule set:
+- **One corner-anchor entry** with the full canvas AR range (0.50-2.25). The tighter area ceiling on square canvases (0.35 vs 0.60) is expressed as a conditional within the template's area budget, not as a separate registry entry.
+- **Hero AR affinity ranges** are included per template. For example, a top-band template works poorly with very tall portrait heroes, so it specifies a hero AR range like 0.6-3.0.
+- **Canvas AR variety** is handled upstream by the engine's randomization/enumeration logic, not by the registry itself. The registry just says what's valid.
 
-```typescript
-/**
- * Hero Placement Constraints
- * 
- * Derived from 4 rounds of visual rating (~120 trials).
- * These are NOT enforced in the engine yet — this file serves
- * as the single source of truth for when we're ready to encode them.
- *
- * SINGLE HERO:
- * - General area range: 0.15 - 0.60
- * - Square canvas (AR 0.85-1.15) ceiling: 0.35
- * - Floor TBD (not yet stress-tested below 0.20)
- *
- * DUAL HERO:
- * - Combined area range: 0.22 - 0.42
- *
- * TEMPLATE RESTRICTIONS:
- * - Band templates (top/bottom/left/right-band): 
- *     only on square-ish canvases (AR 0.85-1.15)
- * - side-by-side: banned on portrait canvases
- * - top-bottom: banned on landscape canvases
- *
- * RELIABLE TEMPLATES:
- * - corner-anchor: works on all canvas shapes
- * - diagonal-corners: works on all canvas shapes (dual hero)
- */
+## Data Model
+
+```text
+HeroTemplate {
+  id: string                    -- e.g. "corner-anchor", "diagonal-corners"
+  heroCount: 1 | 2
+  canvasAR: { min, max }        -- what canvas shapes this works on
+  heroAreaFraction: { min, max, squareMax? }  -- area budget (squareMax applied when canvas AR 0.85-1.15)
+  heroAR: { min, max }          -- what hero aspect ratios work well
+  positions: string[]           -- valid hero positions (e.g. ["top-left","top-right","bottom-left","bottom-right"])
+  description: string           -- human-readable for debugging
+}
 ```
 
-No other files are touched. No tuning params, no validation functions, no engine integration.
+## Template Registry
+
+```text
++------------------+-------+-------------+------------------+-----------+---------------------------+
+| Template ID      | Count | Canvas AR   | Hero Area        | Hero AR   | Notes                     |
++------------------+-------+-------------+------------------+-----------+---------------------------+
+| corner-anchor    | 1     | 0.50 - 2.25 | 0.15-0.60        | 0.4 - 3.0 | Universal; squareMax 0.35 |
+|                  |       |             | (sq: 0.15-0.35)  |           |                           |
+| top-band         | 1     | 0.85 - 1.15 | 0.20 - 0.35      | 0.8 - 3.0 | Landscape-ish heroes      |
+| bottom-band      | 1     | 0.85 - 1.15 | 0.20 - 0.35      | 0.8 - 3.0 | Landscape-ish heroes      |
+| left-band        | 1     | 0.85 - 1.15 | 0.20 - 0.35      | 0.3 - 1.2 | Portrait-ish heroes       |
+| right-band       | 1     | 0.85 - 1.15 | 0.20 - 0.35      | 0.3 - 1.2 | Portrait-ish heroes       |
+| diagonal-corners | 2     | 0.50 - 2.25 | 0.22 - 0.42      | 0.4 - 3.0 | Universal dual            |
+| side-by-side     | 2     | 1.15 - 2.25 | 0.22 - 0.42      | 0.3 - 1.5 | Landscape canvas only     |
+| top-bottom       | 2     | 0.50 - 0.85 | 0.22 - 0.42      | 0.8 - 3.0 | Portrait canvas only      |
++------------------+-------+-------------+------------------+-----------+---------------------------+
+```
+
+Hero AR ranges are preliminary estimates based on geometric reasoning (e.g., a top-band hero spans the full width, so landscape-ish heroes fill it naturally while very tall portraits would create an awkwardly thin band). These can be refined through further rating tool testing.
+
+## Lookup Function
+
+```text
+findCandidateTemplates(heroCount, heroARs[]) -> HeroTemplate[]
+
+1. Filter by heroCount
+2. Filter by heroAR: every hero AR must fall within the template's heroAR range
+3. Return matching templates (engine will enumerate canvas ARs within each template's range)
+```
+
+For dual heroes, the hero AR filter checks that BOTH hero ARs fall within the template's range. This naturally handles mixed pairs (e.g., one landscape + one portrait hero narrows the candidate list).
+
+## File Changes
 
 | File | Change |
 |------|--------|
-| `src/lib/v3/hero-constraints.ts` | New file: documented rule set only |
+| `src/lib/v3/hero-constraints.ts` | Replace doc-only comments with exported types, registry array, and `findCandidateTemplates()` function |
+
+The existing documentation comments will be preserved as the file header, with the structured data below them.
+
+## Technical Details
+
+Exports from the file:
+- `HeroTemplate` -- TypeScript interface for a registry entry
+- `CanvasARRange` -- `{ min: number; max: number }` 
+- `HeroAreaRange` -- `{ min: number; max: number; squareMax?: number }`
+- `HeroARRange` -- `{ min: number; max: number }`
+- `HERO_TEMPLATES` -- the registry array (frozen/readonly)
+- `findCandidateTemplates(heroCount: number, heroARs: number[]): HeroTemplate[]` -- the lookup
 

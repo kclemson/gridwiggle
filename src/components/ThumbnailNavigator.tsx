@@ -125,7 +125,7 @@ export function ThumbnailNavigator({
               return (
                 <div 
                   key={photo.id}
-                  className="rounded-lg border border-border/70 bg-surface-elevated/60 overflow-hidden"
+                  className="rounded-lg border border-border/70 bg-surface-elevated/60 overflow-hidden flex flex-col items-center"
                   style={{ flex: `1 1 ${calculatedWidth}px`, maxWidth: calculatedWidth * 1.8 }}
                 >
                   {/* Photo thumbnail */}

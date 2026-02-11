@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Trash2, Loader2, Sparkles } from 'lucide-react';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
@@ -383,11 +383,11 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               Smart Crop
             </Button>
           )}
-          <div className="flex items-center gap-3">
-            <Checkbox 
+          <div className="flex items-center gap-2">
+            <Switch 
               id="hero-toggle"
               checked={isHero} 
-              onCheckedChange={(checked) => setIsHero(checked === true)} 
+              onCheckedChange={(checked) => setIsHero(checked)} 
             />
             <Label htmlFor="hero-toggle" className="text-sm">
               Hero

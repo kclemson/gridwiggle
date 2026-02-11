@@ -32,6 +32,7 @@ interface LayoutCandidateMeta {
   besideWidth: number;
   belowHeight: number;
   candidateCount: number;
+  penalties?: { ar: number; coverage: number; prominence: number };
 }
 
 interface LayoutCandidate {
@@ -348,22 +349,29 @@ function generateCandidates(
         }
         
         const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
-        if (arDeviation > AR_COHERENCE_THRESHOLD) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'AR coherence exceeded', {
+        
+        // Soft penalty: AR coherence
+        const arPenalty = arDeviation > AR_COHERENCE_THRESHOLD
+          ? Math.min(0.3, (arDeviation - AR_COHERENCE_THRESHOLD) * 1.2)
+          : 0;
+        if (arPenalty > 0) {
+          devLogger.warn('v4-penalty', 'AR coherence penalty', {
             template: template.id, targetAR: +targetCanvasAR.toFixed(3),
             actualAR: +canvasAR.toFixed(3), deviation: +(arDeviation * 100).toFixed(1),
-          }, geometry);
-          continue;
+            penalty: +arPenalty.toFixed(3),
+          });
         }
         
-        if (heroCoverage > HERO_COVERAGE_CEILING) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'Hero coverage exceeded ceiling', {
+        // Soft penalty: hero coverage
+        const coveragePenalty = heroCoverage > HERO_COVERAGE_CEILING
+          ? Math.min(0.3, (heroCoverage - HERO_COVERAGE_CEILING) * 1.5)
+          : 0;
+        if (coveragePenalty > 0) {
+          devLogger.warn('v4-penalty', 'Hero coverage penalty', {
             template: template.id, heroCoverage: +(heroCoverage * 100).toFixed(1),
             ceiling: +(HERO_COVERAGE_CEILING * 100).toFixed(0),
-          }, geometry);
-          continue;
+            penalty: +coveragePenalty.toFixed(3),
+          });
         }
         
         const allContentAreas: number[] = [];
@@ -379,12 +387,23 @@ function generateCandidates(
         const maxContentArea = Math.max(...allContentAreas, 0);
         const prominenceRatio = maxContentArea > 0 ? heroAreaVal / maxContentArea : Infinity;
         
-        if (prominenceRatio < tuning.hero_minProminence) continue;
+        // Soft penalty: prominence
+        const prominencePenalty = prominenceRatio < tuning.hero_minProminence
+          ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0)
+          : 0;
+        if (prominencePenalty > 0) {
+          devLogger.warn('v4-penalty', 'Prominence penalty', {
+            template: template.id, prominenceRatio: +prominenceRatio.toFixed(3),
+            threshold: tuning.hero_minProminence,
+            penalty: +prominencePenalty.toFixed(3),
+          });
+        }
         
         const allAreas = [heroAreaVal, ...allContentAreas];
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-        const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
         
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
@@ -397,6 +416,8 @@ function generateCandidates(
           width: wHero,
           height: hHero,
         };
+        
+        const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty };
         
         candidates.push({
           regions,
@@ -418,6 +439,7 @@ function generateCandidates(
             besideWidth,
             belowHeight,
             candidateCount: 0,
+            penalties,
           },
         });
       }
@@ -577,15 +599,19 @@ function generateDualHeroCandidates(
         const canvasArea = canvasWidth * canvasHeight;
         const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
         
-        // Validation
+        // Validation - canvas AR bounds is the only hard reject
         if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
         
         const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
-        if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
+        const arPenalty = arDeviation > AR_COHERENCE_THRESHOLD
+          ? Math.min(0.3, (arDeviation - AR_COHERENCE_THRESHOLD) * 1.2)
+          : 0;
         
-        if (combinedCoverage > HERO_COVERAGE_CEILING) continue;
+        const coveragePenalty = combinedCoverage > HERO_COVERAGE_CEILING
+          ? Math.min(0.3, (combinedCoverage - HERO_COVERAGE_CEILING) * 1.5)
+          : 0;
         
-        // Prominence: each hero must individually exceed minProminence
+        // Prominence: each hero checked individually
         const allContentAreas: number[] = [];
         for (const r of [region0, region1, region2]) {
           if (r.result) {
@@ -595,13 +621,17 @@ function generateDualHeroCandidates(
         const maxContentArea = Math.max(...allContentAreas, 0);
         const prom1 = maxContentArea > 0 ? hero1Area / maxContentArea : Infinity;
         const prom2 = maxContentArea > 0 ? hero2Area / maxContentArea : Infinity;
-        if (prom1 < tuning.hero_minProminence || prom2 < tuning.hero_minProminence) continue;
+        const minProm = Math.min(prom1, prom2);
+        const prominencePenalty = minProm < tuning.hero_minProminence
+          ? Math.min(0.3, (tuning.hero_minProminence - minProm) * 1.0)
+          : 0;
         
-        // Score
+        // Score with penalties
         const allAreas = [hero1Area, hero2Area, ...allContentAreas];
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = (r0Count > 0 ? 0.33 : 0) + (r1Count > 0 ? 0.34 : 0) + (r2Count > 0 ? 0.33 : 0);
-        const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty);
         
         const corner = randomize
           ? diagonalCorners[Math.floor(Math.random() * 2)]
@@ -633,6 +663,7 @@ function generateDualHeroCandidates(
             besideWidth: besideWidth0,
             belowHeight: middleHeight,
             candidateCount: 0,
+            penalties: { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty },
           },
         });
       }

@@ -22,7 +22,7 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
       template, targetCanvasAR, actualCanvasAR, arDeviation,
       areaFrac, heroCoverage, heroAR, hero2AR, prominenceRatio, score, corner,
       candidateCount, regionSizes, regionTargetRows, regionActualRows,
-      besideWidth, belowHeight,
+      besideWidth, belowHeight, penalties,
     } = meta as {
       template: string; targetCanvasAR: number; actualCanvasAR: number;
       arDeviation: number; areaFrac: number; heroCoverage: number;
@@ -30,6 +30,7 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
       candidateCount: number; regionSizes: number[];
       regionTargetRows: number[]; regionActualRows: number[];
       besideWidth: number; belowHeight: number;
+      penalties?: { ar: number; coverage: number; prominence: number };
     };
 
     return (
@@ -71,6 +72,11 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
           )}
           <div className="mt-1">
             score: {score.toFixed(3)} | candidates: {candidateCount}
+            {penalties && (penalties.ar > 0 || penalties.coverage > 0 || penalties.prominence > 0) && (
+              <div className="text-orange-500 dark:text-orange-400 font-semibold">
+                penalties: AR {penalties.ar.toFixed(3)} | coverage {penalties.coverage.toFixed(3)} | prominence {penalties.prominence.toFixed(3)}
+              </div>
+            )}
           </div>
           {regionSizes?.[0] > 0 && (
             <div className="mt-1">

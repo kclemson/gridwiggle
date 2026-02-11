@@ -273,9 +273,11 @@ export interface PackableRegion {
   constraint: 'height' | 'width';
   /** The fixed dimension: height for height-constrained, width for width-constrained */
   targetDimension: number;
+  /** Soft target for the unconstrained dimension (packer searches row counts to minimize deviation) */
+  targetSoftDimension?: number;
   /** Photos assigned to this region */
   photos: PhotoDimension[];
-  /** Geometrically-derived row count */
+  /** Geometrically-derived row count (used as search center when targetSoftDimension is set) */
   targetRowCount: number;
   /** Offset for positioning in canvas space */
   offset: { x: number; y: number };

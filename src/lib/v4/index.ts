@@ -8,7 +8,7 @@
 import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING, PackableRegion } from '@/lib/v3/types';
-import { packToFillHeight, packToFillWidth } from '@/lib/v3/normalized-pack';
+import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
 import { shuffleArray, deriveRegionCounts, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger } from '@/lib/devLogger';
 
@@ -160,22 +160,20 @@ function packRegion(
     return { ...region, result: { cells: [], width: 0, height: 0, rowCount: 0 } };
   }
   
-  const result = region.constraint === 'height'
-    ? packToFillHeight(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize)
-    : packToFillWidth(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize);
+  let result;
+  if (region.targetSoftDimension != null) {
+    // Dimension-aware: search row counts to minimize deviation from soft target
+    result = region.constraint === 'height'
+      ? packToFillHeightAtTargetWidth(region.photos, region.targetDimension, normalizedGap, region.targetSoftDimension, tuning, randomize)
+      : packToFillWidthAtTargetHeight(region.photos, region.targetDimension, normalizedGap, region.targetSoftDimension, tuning, randomize);
+  } else {
+    // Fallback: use targetRowCount directly
+    result = region.constraint === 'height'
+      ? packToFillHeight(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize)
+      : packToFillWidth(region.photos, region.targetDimension, normalizedGap, region.targetRowCount, tuning, randomize);
+  }
   
   return { ...region, result: result.cells.length > 0 ? result : null };
-}
-
-function rowCountVariants(targetRowCount: number, photoCount: number): number[] {
-  if (photoCount <= 0) return [0];
-  const max = Math.max(1, Math.ceil(photoCount / 2));
-  const variants = new Set<number>();
-  for (const delta of [0, -1, 1]) {
-    const rc = targetRowCount + delta;
-    if (rc >= 1 && rc <= max) variants.add(rc);
-  }
-  return [...variants];
 }
 
 // ============================================================================
@@ -233,98 +231,98 @@ function generateCandidates(
         ? deriveTargetRowCount(belowCount, belowMeanAR, targetCanvasAR, Math.max(0.01, targetBelowHeight))
         : 0;
       
-      const besideRowVariants = rowCountVariants(baseBesideRows, besideCount);
-      const belowRowVariants = rowCountVariants(baseBelowRows, belowCount);
+      const configKey = `${besideCount}-${areaFrac.toFixed(3)}-${targetCanvasAR.toFixed(3)}`;
+      if (triedConfigs.has(configKey)) continue;
+      triedConfigs.add(configKey);
       
-      for (const besideRowCount of besideRowVariants) {
-        for (const belowRowCount of belowRowVariants) {
-          const configKey = `${besideCount}-${besideRowCount}-${belowRowCount}`;
-          if (triedConfigs.has(configKey)) continue;
-          triedConfigs.add(configKey);
-          
-          const regions: PackableRegion[] = [
-            {
-              constraint: 'height',
-              targetDimension: 1.0,
-              photos: besidePhotos,
-              targetRowCount: besideRowCount,
-              offset: { x: normalizedGap + heroAR + normalizedGap, y: normalizedGap },
-              result: null,
-            },
-            {
-              constraint: 'width',
-              targetDimension: 0,
-              photos: belowPhotos,
-              targetRowCount: belowRowCount,
-              offset: { x: normalizedGap, y: normalizedGap + 1.0 + normalizedGap },
-              result: null,
-            },
-          ];
-          
-          regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);
-          if (besideCount > 0 && !regions[0].result) continue;
-          
-          const besideWidth = regions[0].result?.width ?? 0;
-          const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideWidth : 0);
-          regions[1] = { ...regions[1], targetDimension: heroRowWidth };
-          
-          regions[1] = packRegion(regions[1], normalizedGap, tuning, randomize);
-          if (belowCount > 0 && !regions[1].result) continue;
-          
-          const belowHeight = regions[1].result?.height ?? 0;
-          const totalHeight = 1.0 + (belowCount > 0 ? normalizedGap + belowHeight : 0);
-          const canvasWidth = heroRowWidth + 2 * normalizedGap;
-          const canvasHeight = totalHeight + 2 * normalizedGap;
-          const canvasAR = canvasWidth / canvasHeight;
-          
-          if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
-          
-          const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
-          if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
-          
-          const allContentAreas: number[] = [];
-          for (const region of regions) {
-            if (region.result) {
-              for (const cell of region.result.cells) {
-                allContentAreas.push(cell.width * cell.height);
-              }
-            }
+      // Build regions with soft targets (packer self-optimizes row counts)
+      const regions: PackableRegion[] = [
+        {
+          constraint: 'height',
+          targetDimension: 1.0,
+          targetSoftDimension: targetBesideWidth > 0.01 ? targetBesideWidth : undefined,
+          photos: besidePhotos,
+          targetRowCount: baseBesideRows,
+          offset: { x: normalizedGap + heroAR + normalizedGap, y: normalizedGap },
+          result: null,
+        },
+        {
+          constraint: 'width',
+          targetDimension: 0, // filled after packing region 0
+          targetSoftDimension: targetBelowHeight > 0.01 ? targetBelowHeight : undefined,
+          photos: belowPhotos,
+          targetRowCount: baseBelowRows,
+          offset: { x: normalizedGap, y: normalizedGap + 1.0 + normalizedGap },
+          result: null,
+        },
+      ];
+      
+      // Pack region 0 (beside hero) - packer finds best row count internally
+      regions[0] = packRegion(regions[0], normalizedGap, tuning, randomize);
+      if (besideCount > 0 && !regions[0].result) continue;
+      
+      // Compute hero row width and set region 1's hard dimension
+      const besideWidth = regions[0].result?.width ?? 0;
+      const heroRowWidth = heroAR + (besideCount > 0 ? normalizedGap + besideWidth : 0);
+      regions[1] = { ...regions[1], targetDimension: heroRowWidth };
+      
+      // Pack region 1 (below hero row) - packer finds best row count internally
+      regions[1] = packRegion(regions[1], normalizedGap, tuning, randomize);
+      if (belowCount > 0 && !regions[1].result) continue;
+      
+      // Compute canvas dimensions
+      const belowHeight = regions[1].result?.height ?? 0;
+      const totalHeight = 1.0 + (belowCount > 0 ? normalizedGap + belowHeight : 0);
+      const canvasWidth = heroRowWidth + 2 * normalizedGap;
+      const canvasHeight = totalHeight + 2 * normalizedGap;
+      const canvasAR = canvasWidth / canvasHeight;
+      
+      if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
+      
+      const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
+      if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
+      
+      const allContentAreas: number[] = [];
+      for (const region of regions) {
+        if (region.result) {
+          for (const cell of region.result.cells) {
+            allContentAreas.push(cell.width * cell.height);
           }
-          
-          const heroArea = heroAR * 1.0;
-          const maxContentArea = Math.max(...allContentAreas, 0);
-          const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
-          
-          if (prominenceRatio < tuning.hero_minProminence) continue;
-          
-          const allAreas = [heroArea, ...allContentAreas];
-          const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
-          const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-          const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-          
-          const corner = randomize 
-            ? corners[Math.floor(Math.random() * 4)]
-            : 'top-left';
-          
-          const heroCell: NormalizedCell = {
-            photoId: heroPhoto.id,
-            x: normalizedGap,
-            y: normalizedGap,
-            width: heroAR,
-            height: 1.0,
-          };
-          
-          candidates.push({
-            regions,
-            heroCell,
-            canvasWidth,
-            canvasHeight,
-            prominenceRatio,
-            score,
-            corner,
-          });
         }
       }
+      
+      const heroArea = heroAR * 1.0;
+      const maxContentArea = Math.max(...allContentAreas, 0);
+      const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+      
+      if (prominenceRatio < tuning.hero_minProminence) continue;
+      
+      const allAreas = [heroArea, ...allContentAreas];
+      const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
+      const presenceScore = besideCount > 0 ? 1.0 : 0.4;
+      const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+      
+      const corner = randomize 
+        ? corners[Math.floor(Math.random() * 4)]
+        : 'top-left';
+      
+      const heroCell: NormalizedCell = {
+        photoId: heroPhoto.id,
+        x: normalizedGap,
+        y: normalizedGap,
+        width: heroAR,
+        height: 1.0,
+      };
+      
+      candidates.push({
+        regions,
+        heroCell,
+        canvasWidth,
+        canvasHeight,
+        prominenceRatio,
+        score,
+        corner,
+      });
     }
   }
   

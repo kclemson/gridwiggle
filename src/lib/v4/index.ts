@@ -9,7 +9,7 @@ import { PhotoItem, CollageSettings, CollageLayout, CollageCell } from '@/types/
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING, PackableRegion } from '@/lib/v3/types';
 import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
-import { shuffleArray, deriveRegionCounts, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
+import { shuffleArray, deriveRegionCounts, deriveRegionCountsThreeWay, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions } from '@/lib/v3/utils';
 import { devLogger, RejectedLayoutGeometry } from '@/lib/devLogger';
 import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax } from '@/lib/v3/hero-constraints';
 
@@ -37,6 +37,7 @@ interface LayoutCandidateMeta {
 interface LayoutCandidate {
   regions: PackableRegion[];
   heroCell: NormalizedCell;
+  heroCell2?: NormalizedCell;
   canvasWidth: number;
   canvasHeight: number;
   prominenceRatio: number;
@@ -441,6 +442,218 @@ function generateCandidates(
 }
 
 // ============================================================================
+// Dual Hero Candidate Generation (diagonal-corners)
+// ============================================================================
+
+function generateDualHeroCandidates(
+  hero1: PhotoDimension,
+  hero2: PhotoDimension,
+  contentPhotos: PhotoDimension[],
+  normalizedGap: number,
+  tuning: V3Tuning,
+  randomize: boolean
+): LayoutCandidate[] {
+  const candidates: LayoutCandidate[] = [];
+  
+  const ordered = randomize
+    ? shuffleArray(contentPhotos)
+    : [...contentPhotos].sort((a, b) => a.aspectRatio - b.aspectRatio);
+  
+  const templates = findCandidateTemplates(2, [hero1.aspectRatio, hero2.aspectRatio]);
+  const triedConfigs = new Set<string>();
+  
+  // Only top-left and top-right for diagonal mirroring
+  const diagonalCorners: Array<'top-left' | 'top-right'> = ['top-left', 'top-right'];
+  
+  for (const template of templates) {
+    if (template.id !== 'diagonal-corners') continue; // only this template for now
+    
+    const minAR = Math.max(template.canvasAR.min, tuning.canvas_minAR);
+    const maxAR = Math.min(template.canvasAR.max, tuning.canvas_maxAR);
+    if (minAR > maxAR) continue;
+    
+    const canvasARSamples = sampleCanvasARValues(minAR, maxAR, 6, randomize);
+    const { heroAreaFraction } = template;
+    
+    for (const targetCanvasAR of canvasARSamples) {
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
+      const areaSamples = sampleAreaFractions(heroAreaFraction.min, maxFrac, 3);
+      
+      for (const areaFrac of areaSamples) {
+        const topology = getTemplateTopology(
+          template.id, hero1.aspectRatio, areaFrac, targetCanvasAR, normalizedGap, hero2.aspectRatio
+        );
+        if (!topology || !topology.heroCell2) continue;
+        
+        const { heroCell: tH1, heroCell2: tH2 } = topology;
+        const wH1 = tH1.width, hH1 = tH1.height;
+        const wH2 = tH2.width, hH2 = tH2.height;
+        
+        // 3-way photo split
+        const [r0Count, r1Count, r2Count] = deriveRegionCountsThreeWay(
+          hero1.aspectRatio, hero2.aspectRatio, targetCanvasAR, areaFrac, ordered.length
+        );
+        
+        const configKey = `diag-${r0Count}-${r1Count}-${areaFrac.toFixed(3)}-${targetCanvasAR.toFixed(3)}`;
+        if (triedConfigs.has(configKey)) continue;
+        triedConfigs.add(configKey);
+        
+        const r0Photos = ordered.slice(0, r0Count);
+        const r1Photos = ordered.slice(r0Count, r0Count + r1Count);
+        const r2Photos = ordered.slice(r0Count + r1Count);
+        
+        const r0MeanAR = r0Photos.length > 0 ? mean(r0Photos.map(p => p.aspectRatio)) : 1;
+        const r1MeanAR = r1Photos.length > 0 ? mean(r1Photos.map(p => p.aspectRatio)) : 1;
+        const r2MeanAR = r2Photos.length > 0 ? mean(r2Photos.map(p => p.aspectRatio)) : 1;
+        
+        // --- Staged packing ---
+        
+        // Region 0: beside Hero 1 (height = hH1)
+        const r0TargetRows = r0Count > 0
+          ? deriveTargetRowCount(r0Count, r0MeanAR, Math.max(0.01, topology.regions[0].softDimension), hH1)
+          : 0;
+        let region0: PackableRegion = {
+          constraint: 'height', targetDimension: hH1,
+          targetSoftDimension: topology.regions[0].softDimension > 0.01 ? topology.regions[0].softDimension : undefined,
+          photos: r0Photos, targetRowCount: r0TargetRows,
+          offset: topology.regions[0].offset, result: null,
+        };
+        region0 = packRegion(region0, normalizedGap, tuning, randomize);
+        if (r0Count > 0 && !region0.result) continue;
+        
+        // Hero row 1 width
+        const besideWidth0 = region0.result?.width ?? 0;
+        const heroRow1Width = wH1 + (r0Count > 0 ? normalizedGap + besideWidth0 : 0);
+        
+        // Region 1: middle band (width = heroRow1Width)
+        const targetMiddleHeight = topology.regions[1].softDimension;
+        const r1TargetRows = r1Count > 0
+          ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, Math.max(0.01, targetMiddleHeight))
+          : 0;
+        let region1: PackableRegion = {
+          constraint: 'width', targetDimension: heroRow1Width,
+          targetSoftDimension: targetMiddleHeight > 0.01 ? targetMiddleHeight : undefined,
+          photos: r1Photos, targetRowCount: r1TargetRows,
+          offset: topology.regions[1].offset, result: null,
+        };
+        region1 = packRegion(region1, normalizedGap, tuning, randomize);
+        if (r1Count > 0 && !region1.result) continue;
+        
+        const middleHeight = region1.result?.height ?? 0;
+        
+        // Region 2: beside Hero 2 (height = hH2)
+        // Target width = heroRow1Width - wH2 - gap (so bottom row matches top row width)
+        const targetBesideH2Width = heroRow1Width - wH2 - (r2Count > 0 ? normalizedGap : 0);
+        const r2OffsetY = tH1.y + hH1 + normalizedGap + middleHeight + (r1Count > 0 ? normalizedGap : 0);
+        const r2TargetRows = r2Count > 0
+          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, targetBesideH2Width), hH2)
+          : 0;
+        let region2: PackableRegion = {
+          constraint: 'height', targetDimension: hH2,
+          targetSoftDimension: targetBesideH2Width > 0.01 ? targetBesideH2Width : undefined,
+          photos: r2Photos, targetRowCount: r2TargetRows,
+          offset: { x: normalizedGap, y: r2OffsetY }, result: null,
+        };
+        region2 = packRegion(region2, normalizedGap, tuning, randomize);
+        if (r2Count > 0 && !region2.result) continue;
+        
+        // Hero row 2 width
+        const besideWidth2 = region2.result?.width ?? 0;
+        const heroRow2Width = (r2Count > 0 ? besideWidth2 + normalizedGap : 0) + wH2;
+        
+        // Canvas dimensions
+        const canvasContentWidth = Math.max(heroRow1Width, heroRow2Width);
+        const canvasWidth = canvasContentWidth + 2 * normalizedGap;
+        const totalHeight = hH1
+          + (r1Count > 0 ? normalizedGap + middleHeight : 0)
+          + normalizedGap + hH2;
+        const canvasHeight = totalHeight + 2 * normalizedGap;
+        const canvasAR = canvasWidth / canvasHeight;
+        
+        // Hero 2 final position (bottom-right in canonical TL+BR)
+        const hero2X = normalizedGap + canvasContentWidth - wH2;
+        const hero2Y = r2OffsetY;
+        
+        // Combined hero coverage
+        const hero1Area = wH1 * hH1;
+        const hero2Area = wH2 * hH2;
+        const canvasArea = canvasWidth * canvasHeight;
+        const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
+        
+        // Validation
+        if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
+        
+        const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
+        if (arDeviation > AR_COHERENCE_THRESHOLD) continue;
+        
+        if (combinedCoverage > HERO_COVERAGE_CEILING) continue;
+        
+        // Prominence: each hero must individually exceed minProminence
+        const allContentAreas: number[] = [];
+        for (const r of [region0, region1, region2]) {
+          if (r.result) {
+            for (const cell of r.result.cells) allContentAreas.push(cell.width * cell.height);
+          }
+        }
+        const maxContentArea = Math.max(...allContentAreas, 0);
+        const prom1 = maxContentArea > 0 ? hero1Area / maxContentArea : Infinity;
+        const prom2 = maxContentArea > 0 ? hero2Area / maxContentArea : Infinity;
+        if (prom1 < tuning.hero_minProminence || prom2 < tuning.hero_minProminence) continue;
+        
+        // Score
+        const allAreas = [hero1Area, hero2Area, ...allContentAreas];
+        const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
+        const presenceScore = (r0Count > 0 ? 0.33 : 0) + (r1Count > 0 ? 0.34 : 0) + (r2Count > 0 ? 0.33 : 0);
+        const score = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        
+        const corner = randomize
+          ? diagonalCorners[Math.floor(Math.random() * 2)]
+          : 'top-left';
+        
+        const heroCell1: NormalizedCell = {
+          photoId: hero1.id, x: tH1.x, y: tH1.y, width: wH1, height: hH1,
+        };
+        const heroCell2: NormalizedCell = {
+          photoId: hero2.id, x: hero2X, y: hero2Y, width: wH2, height: hH2,
+        };
+        
+        const regions = [region0, region1, region2];
+        
+        candidates.push({
+          regions,
+          heroCell: heroCell1,
+          heroCell2: heroCell2,
+          canvasWidth, canvasHeight,
+          prominenceRatio: Math.min(prom1, prom2),
+          score, corner,
+          meta: {
+            template: 'diagonal-corners',
+            targetCanvasAR, areaFrac, arDeviation,
+            heroCoverage: combinedCoverage,
+            regionSizes: [r0Count, r1Count, r2Count],
+            regionTargetRows: [r0TargetRows, r1TargetRows, r2TargetRows],
+            regionActualRows: regions.map(r => r.result?.rowCount ?? 0),
+            besideWidth: besideWidth0,
+            belowHeight: middleHeight,
+            candidateCount: 0,
+          },
+        });
+      }
+    }
+  }
+  
+  for (const c of candidates) c.meta.candidateCount = candidates.length;
+  
+  devLogger.log('layout', `V4 dual-hero generated ${candidates.length} candidates`, {
+    hero1AR: hero1.aspectRatio.toFixed(2),
+    hero2AR: hero2.aspectRatio.toFixed(2),
+    contentCount: contentPhotos.length,
+  });
+  
+  return candidates;
+}
+
+// ============================================================================
 // Candidate Selection
 // ============================================================================
 
@@ -476,7 +689,7 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     }
   };
   
-  // Add hero cell
+  // Add hero cell(s)
   const heroPos = transform(heroCell.x, heroCell.y, heroCell.width, heroCell.height);
   cells.push({
     photoId: heroCell.photoId,
@@ -485,6 +698,18 @@ function convertToLayout(candidate: LayoutCandidate, normalizedGap: number): Col
     width: Math.round(heroCell.width * VIRTUAL_CANVAS_BASE),
     height: Math.round(heroCell.height * VIRTUAL_CANVAS_BASE),
   });
+  
+  if (candidate.heroCell2) {
+    const hero2 = candidate.heroCell2;
+    const hero2Pos = transform(hero2.x, hero2.y, hero2.width, hero2.height);
+    cells.push({
+      photoId: hero2.photoId,
+      x: Math.round(hero2Pos.x * VIRTUAL_CANVAS_BASE),
+      y: Math.round(hero2Pos.y * VIRTUAL_CANVAS_BASE),
+      width: Math.round(hero2.width * VIRTUAL_CANVAS_BASE),
+      height: Math.round(hero2.height * VIRTUAL_CANVAS_BASE),
+    });
+  }
   
   // Add all region cells (generic loop)
   for (const region of candidate.regions) {
@@ -552,17 +777,36 @@ export function generateCollageLayoutV4(
   
   const dimensions = extractPhotoDimensions(photos, photoWeights);
   
-  const heroPhoto = dimensions.reduce((h, d) => d.weight > h.weight ? d : h);
-  const contentPhotos = dimensions.filter(d => d.id !== heroPhoto.id);
+  // Detect heroes (weight > 1), sorted by weight descending
+  const heroes = dimensions.filter(d => d.weight > 1).sort((a, b) => b.weight - a.weight);
+  const heroPhoto = heroes.length > 0 ? heroes[0] : dimensions.reduce((h, d) => d.weight > h.weight ? d : h);
+  
+  // Dual hero path: 2+ heroes and enough content photos (>= 6)
+  const isDualHero = heroes.length >= 2 && dimensions.length >= 8;
+  const hero2Photo = isDualHero ? heroes[1] : null;
+  const contentPhotos = dimensions.filter(d => d.id !== heroPhoto.id && d.id !== hero2Photo?.id);
   
   devLogger.log('layout', 'Photo analysis', {
     heroId: heroPhoto.id,
     heroAR: heroPhoto.aspectRatio.toFixed(2),
+    hero2Id: hero2Photo?.id ?? null,
+    hero2AR: hero2Photo?.aspectRatio.toFixed(2) ?? null,
     contentCount: contentPhotos.length,
     avgContentAR: (contentPhotos.reduce((s, d) => s + d.aspectRatio, 0) / contentPhotos.length).toFixed(2),
   });
   
-  const candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
+  let candidates: LayoutCandidate[];
+  if (isDualHero && hero2Photo) {
+    candidates = generateDualHeroCandidates(heroPhoto, hero2Photo, contentPhotos, normalizedGap, tuning, randomize);
+    // Fall back to single hero if no dual candidates
+    if (candidates.length === 0) {
+      devLogger.log('layout', 'No dual-hero candidates, falling back to single hero');
+      const allContent = dimensions.filter(d => d.id !== heroPhoto.id);
+      candidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize);
+    }
+  } else {
+    candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
+  }
   
   let selected: LayoutCandidate | null = null;
   let softRejection: { reason: string; details: Record<string, unknown> } | undefined;
@@ -605,6 +849,7 @@ export function generateCollageLayoutV4(
     regionActualRows: selected.meta.regionActualRows,
     besideWidth: selected.meta.besideWidth,
     belowHeight: selected.meta.belowHeight,
+    ...(hero2Photo ? { hero2AR: hero2Photo.aspectRatio } : {}),
     ...(softRejection ? { softRejection: softRejection.reason } : {}),
   };
   

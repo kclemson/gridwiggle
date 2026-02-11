@@ -69,6 +69,24 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     description: 'Universal corner placement; tighter area ceiling on square canvases',
   },
   {
+    id: 'hero-column',
+    heroCount: 1,
+    canvasAR: { min: 1.15, max: 2.25 },
+    heroAreaFraction: { min: 0.15, max: 0.35 },
+    heroAR: { min: 0.4, max: 0.85 },
+    positions: ['left', 'right'],
+    description: 'Full-height hero column; portrait hero on landscape canvas',
+  },
+  {
+    id: 'hero-row',
+    heroCount: 1,
+    canvasAR: { min: 0.50, max: 0.85 },
+    heroAreaFraction: { min: 0.15, max: 0.35 },
+    heroAR: { min: 1.2, max: 3.0 },
+    positions: ['top', 'bottom'],
+    description: 'Full-width hero row; landscape hero on portrait canvas',
+  },
+  {
     id: 'top-band',
     heroCount: 1,
     canvasAR: { min: 0.85, max: 1.15 },
@@ -328,6 +346,68 @@ export function diagonalCornersTopology(
 }
 
 /**
+ * Hero-column topology: portrait hero spanning full canvas height, content beside it.
+ *
+ * Canvas: width = canvasAR, height = 1.0 (normalized)
+ * Hero height = 1.0 - 2*gap (full height). Hero width = heroAR * heroHeight.
+ * One content region beside hero, width-constrained.
+ */
+export function heroColumnTopology(
+  heroAR: number,
+  _areaFrac: number,
+  canvasAR: number,
+  gap: number
+): TopologyResult {
+  const hHero = 1.0 - 2 * gap;
+  const wHero = heroAR * hHero;
+
+  const contentWidth = canvasAR - wHero - 3 * gap;
+
+  return {
+    heroCell: { x: gap, y: gap, width: wHero, height: hHero },
+    regions: [
+      {
+        constraint: 'width',
+        hardDimension: Math.max(0.01, contentWidth),
+        softDimension: hHero,
+        offset: { x: gap + wHero + gap, y: gap },
+      },
+    ],
+  };
+}
+
+/**
+ * Hero-row topology: landscape hero spanning full canvas width, content below it.
+ *
+ * Canvas: width = canvasAR, height = 1.0 (normalized)
+ * Hero width = canvasAR - 2*gap (full width). Hero height = heroWidth / heroAR.
+ * One content region below hero, width-constrained.
+ */
+export function heroRowTopology(
+  heroAR: number,
+  _areaFrac: number,
+  canvasAR: number,
+  gap: number
+): TopologyResult {
+  const wHero = canvasAR - 2 * gap;
+  const hHero = wHero / heroAR;
+
+  const contentHeight = 1.0 - hHero - 3 * gap;
+
+  return {
+    heroCell: { x: gap, y: gap, width: wHero, height: hHero },
+    regions: [
+      {
+        constraint: 'width',
+        hardDimension: wHero,
+        softDimension: Math.max(0.01, contentHeight),
+        offset: { x: gap, y: gap + hHero + gap },
+      },
+    ],
+  };
+}
+
+/**
  * Look up the topology function for a template ID and compute the layout.
  * Returns null for templates not yet implemented.
  */
@@ -342,6 +422,10 @@ export function getTemplateTopology(
   switch (templateId) {
     case 'corner-anchor':
       return cornerAnchorTopology(heroAR, areaFrac, canvasAR, gap);
+    case 'hero-column':
+      return heroColumnTopology(heroAR, areaFrac, canvasAR, gap);
+    case 'hero-row':
+      return heroRowTopology(heroAR, areaFrac, canvasAR, gap);
     case 'diagonal-corners':
       if (hero2AR == null) return null;
       return diagonalCornersTopology(heroAR, hero2AR, areaFrac, canvasAR, gap);

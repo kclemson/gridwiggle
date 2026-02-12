@@ -4,6 +4,7 @@ import { getDisplayCrop } from '@/lib/cropUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
 import { Star } from 'lucide-react';
+import { isMobileDevice } from '@/lib/platform';
 
 interface CollageCellProps {
   cell: CollageCell;
@@ -43,12 +44,14 @@ const CollageCellComponent = memo(function CollageCellComponent({
   onToggleHero,
 }: CollageCellProps) {
   const crop = getDisplayCrop(photo);
+  const mobile = isMobileDevice();
 
   return (
     <div
       data-photo-id={photo.id}
       className={cn(
-        "absolute overflow-hidden cursor-grab active:cursor-grabbing transition-all group",
+        "absolute overflow-hidden transition-all group",
+        !mobile && "cursor-grab active:cursor-grabbing",
         isBeingDragged && "opacity-50 scale-95",
         isDragTarget && "ring-4 ring-primary ring-offset-2 ring-offset-background"
       )}
@@ -57,10 +60,9 @@ const CollageCellComponent = memo(function CollageCellComponent({
         top: `${(cell.y / layoutHeight) * 100}%`,
         width: `${(cell.width / layoutWidth) * 100}%`,
         height: `${(cell.height / layoutHeight) * 100}%`,
-        // GPU hint for smoother drag animations
         willChange: isBeingDragged ? 'transform, opacity' : 'auto',
       }}
-      draggable
+      draggable={!mobile}
       onDragStart={(e) => onDragStart(e, photo.id)}
       onDragOver={(e) => onDragOver(e, photo.id)}
       onDragLeave={onDragLeave}

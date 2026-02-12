@@ -1,6 +1,7 @@
 import { PhotoItem, CollageLayout } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
+import { isMobileDevice } from '@/lib/platform';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -94,21 +95,22 @@ export function downloadBlob(blob: Blob, filename: string) {
 }
 
 export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
-  const file = new File([blob], filename, { type: 'image/png' });
-  const shareData = { files: [file] };
-  
-  // Check if Web Share API with file support is available (mobile browsers)
-  if (navigator.canShare && navigator.canShare(shareData)) {
-    try {
-      await navigator.share(shareData);
-      return;
-    } catch (err) {
-      // User cancelled - that's fine
-      if ((err as Error).name === 'AbortError') return;
-      // Other error - fall through to download
+  // Only use Web Share API on mobile devices
+  if (isMobileDevice()) {
+    const file = new File([blob], filename, { type: 'image/png' });
+    const shareData = { files: [file] };
+    
+    if (navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        // Fall through to download
+      }
     }
   }
   
-  // Fallback to traditional download (desktop)
+  // Desktop always gets direct download
   downloadBlob(blob, filename);
 }

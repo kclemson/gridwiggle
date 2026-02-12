@@ -767,6 +767,7 @@ function generateDualHeroCandidates(
         if (scaleRow1 > 1.001 && region0.result) {
           region0 = {
             ...region0,
+            offset: { x: normalizedGap + scaledWH1 + normalizedGap, y: normalizedGap },
             result: {
               ...region0.result,
               cells: region0.result.cells.map(c => ({

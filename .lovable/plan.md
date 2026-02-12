@@ -1,19 +1,49 @@
 
 
-# Default PNG Export to 2x Resolution
+# Fix: Download Button Should Save Directly, Not Open Share Picker
 
-## What changes
-One line in `src/pages/Index.tsx`: pass `scale = 2` to `exportCollageAsPng()`, doubling the export resolution (e.g., ~2000-4000px wide instead of ~1000-2000px).
+## Problem
+On production (Windows desktop), clicking "Download" opens the OS Share dialog instead of saving to the Downloads folder. This is because `shareOrDownload()` uses `navigator.canShare()` which returns `true` on modern Windows browsers, triggering `navigator.share()` instead of the direct download path.
 
-## Technical detail
-In the `handleDownload` function (~line 270), change:
+In dev mode on localhost, `canShare` returns `false`, so the download works as expected -- hiding this bug during development.
+
+## Design Intent
+The share picker should only appear on mobile devices where users expect to share to apps. On desktop, clicking download should always save to the Downloads folder.
+
+## Fix
+
+### File: `src/lib/exportCollage.ts` (~line 83)
+
+Gate the share path behind `isMobileDevice()` so that only phones/tablets get the share picker. Desktop always gets a direct download.
+
 ```typescript
-// Before
-const blob = await exportCollageAsPng(photos, layout, gapColor);
+import { isMobileDevice } from '@/lib/platform';
 
-// After
-const blob = await exportCollageAsPng(photos, layout, gapColor, 2);
+export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
+  // Only use Web Share API on mobile devices
+  if (isMobileDevice()) {
+    const file = new File([blob], filename, { type: 'image/png' });
+    const shareData = { files: [file] };
+    
+    if (navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        // Fall through to download
+      }
+    }
+  }
+  
+  // Desktop always gets direct download
+  downloadBlob(blob, filename);
+}
 ```
 
-No other files change. The `scale` parameter already exists in `exportCollageAsPng` and is fully wired up.
+The existing `isMobileDevice()` helper in `src/lib/platform.ts` already handles the detection via User-Agent. No new dependencies or files needed.
 
+## What does NOT change
+- Mobile behavior (still gets the share picker)
+- Export resolution (still 2x)
+- Download filename format

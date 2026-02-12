@@ -1,28 +1,18 @@
 
 
-# Fix PhotoStrip Button Overflow on Mobile
+# Fix Generate Button Wrapping to Second Row on Desktop
 
 ## Problem
-On mobile screens (~375px wide), four buttons with text labels ("Adjust Crops", "Add Photos", "Generate", "Clear All") overflow the single row, cutting off icons and text.
+With `flex-wrap`, the Generate button causes all four buttons plus Generate to wrap "Clear All" to a second row even on desktop, which looks awkward.
 
 ## Solution
-On mobile, switch to a two-row layout and shorten labels so everything fits comfortably.
+Move the Generate button to its own row below the utility buttons. The three utility buttons (Adjust Crops, Add Photos, Clear All) stay on one row and always fit. Generate gets visual prominence on its own line.
 
 ## Changes to `src/components/PhotoStrip.tsx`
 
-**Wrap the button row for mobile**: Change the container from a single `flex` row to `flex flex-wrap justify-center` so buttons can flow to a second line on narrow screens.
+**Split into two rows**:
+- Row 1: Adjust Crops, Add Photos, Clear All -- always on one line, no wrapping needed
+- Row 2 (conditional): Generate button, only when `showGenerateButton` is true, centered on its own line
 
-**Shorten labels on mobile**: Use responsive text -- on small screens, use abbreviated labels:
-- "Adjust Crops" becomes "Crops" (the Crop icon already communicates the action)
-- "Add Photos" becomes "Add"
-- "Clear All" becomes "Clear"
-- "Generate" stays as-is (short enough)
-
-Implementation approach:
-- Use `<span className="hidden sm:inline">` for the longer words and `<span className="sm:hidden">` for shortened versions
-- This keeps full labels on desktop and short labels on mobile with zero JS overhead
-
-**Result on mobile (~375px)**: All buttons fit on one row with shortened labels: `[Crops] [Add] [Generate] [Clear]` -- each with its icon, no overflow.
-
-If even shortened labels overflow (e.g., with Generate present), the `flex-wrap` ensures graceful wrapping to two rows rather than clipping.
+Remove `flex-wrap` from the utility row since it's no longer needed. Move the Generate button block outside that row into a sibling div.
 

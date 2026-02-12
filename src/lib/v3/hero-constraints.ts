@@ -157,26 +157,47 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
 // ============================================================================
 
 /**
- * Compute the effective maximum area fraction for a template at a given canvas AR.
+ * Scale hero constraints based on total photo count.
+ * At high counts, heroes don't need to dominate as much.
  *
- * As canvasAR grows beyond 1.0, the hero occupies more vertical space for the
- * same area fraction (hHero = sqrt(areaFrac * canvasAR / heroAR)). This helper
- * scales the ceiling down continuously so hHero stays ~0.50 regardless of canvas width.
+ * baseCount = 20 (photo count where current tuning is calibrated)
+ * floor = 0.55 (never reduce below 55% of the base values)
  *
- * Formula: effectiveMax = template.max * clamp(1 / canvasAR, 0.5, 1.0)
+ * | Photos | Scale |
+ * |--------|-------|
+ * | ≤20    | 1.00  |
+ * | 25     | 0.80  |
+ * | 30     | 0.67  |
+ * | 36     | 0.56  |
+ * | ≥50    | 0.55  |
+ */
+export function photoCountScale(totalPhotos: number): number {
+  const BASE_COUNT = 20;
+  const FLOOR = 0.55;
+  return Math.max(FLOOR, Math.min(1.0, BASE_COUNT / totalPhotos));
+}
+
+/**
+ * Compute the effective maximum area fraction for a template at a given canvas AR,
+ * optionally scaled by total photo count.
  *
- * Examples (template.max = 0.40):
- *   canvasAR 1.0  → 0.40   (unchanged)
- *   canvasAR 1.5  → 0.27
- *   canvasAR 2.0  → 0.20
- *   canvasAR 2.25 → 0.18   (floor at 0.5 scale)
+ * Two independent scaling factors:
+ *   arScale: clamp(1 / canvasAR, 0.5, 1.0) — prevents hero from dominating wide canvases
+ *   countScale: photoCountScale(totalPhotos) — tapers hero at high photo counts
+ *
+ * Examples (template.max = 0.40, square canvas):
+ *   20 photos → 0.40   (unchanged)
+ *   30 photos → 0.27
+ *   36 photos → 0.22
  */
 export function effectiveAreaFractionMax(
   heroAreaFraction: HeroAreaRange,
-  canvasAR: number
+  canvasAR: number,
+  totalPhotos?: number
 ): number {
-  const scale = Math.max(0.5, Math.min(1.0, 1.0 / canvasAR));
-  return heroAreaFraction.max * scale;
+  const arScale = Math.max(0.5, Math.min(1.0, 1.0 / canvasAR));
+  const countScale = totalPhotos != null ? photoCountScale(totalPhotos) : 1.0;
+  return heroAreaFraction.max * arScale * countScale;
 }
 
 // ============================================================================

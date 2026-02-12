@@ -11,7 +11,7 @@ import { PhotoDimension, NormalizedCell, V3Tuning, DEFAULT_V3_TUNING, PackableRe
 import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
 import { shuffleArray, deriveRegionCounts, deriveRegionCountsThreeWay, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions, coefficientOfVariation } from '@/lib/v3/utils';
 import { devLogger, RejectedLayoutGeometry } from '@/lib/devLogger';
-import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax } from '@/lib/v3/hero-constraints';
+import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax, photoCountScale } from '@/lib/v3/hero-constraints';
 
 // Virtual canvas base unit for final pixel values
 const VIRTUAL_CANVAS_BASE = 1000;
@@ -266,7 +266,8 @@ function generateCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
-      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
+      const totalPhotos = contentPhotos.length + 1; // +1 for hero
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, totalPhotos);
       const areaSamples = sampleAreaFractions(
         heroAreaFraction.min, maxFrac, 3
       );
@@ -387,8 +388,10 @@ function generateCandidates(
           const allContentAreas = regions[0].result.cells.map(c => c.width * c.height);
           const maxContentArea = Math.max(...allContentAreas, 0);
           const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
-          const prominencePenalty = prominenceRatio < tuning.hero_minProminence
-            ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0) : 0;
+          const countScale1 = photoCountScale(contentPhotos.length + 1);
+          const effectiveMinProminence1 = tuning.hero_minProminence * countScale1;
+          const prominencePenalty = prominenceRatio < effectiveMinProminence1
+            ? Math.min(0.3, (effectiveMinProminence1 - prominenceRatio) * 1.0) : 0;
           
           // Content-only uniformity: penalize high CV among content cells
           const contentCV = coefficientOfVariation(allContentAreas);
@@ -506,8 +509,10 @@ function generateCandidates(
         const prominenceRatio = maxContentArea > 0 ? heroAreaVal / maxContentArea : Infinity;
         
         // Soft penalty: prominence
-        const prominencePenalty = prominenceRatio < tuning.hero_minProminence
-          ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0)
+        const countScale2 = photoCountScale(contentPhotos.length + 1);
+        const effectiveMinProminence2 = tuning.hero_minProminence * countScale2;
+        const prominencePenalty = prominenceRatio < effectiveMinProminence2
+          ? Math.min(0.3, (effectiveMinProminence2 - prominenceRatio) * 1.0)
           : 0;
         if (prominencePenalty > 0) {
           devLogger.warn('v4-penalty', 'Prominence penalty', {
@@ -623,7 +628,8 @@ function generateDualHeroCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
-      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
+      const totalPhotosDual = contentPhotos.length + 2; // +2 for both heroes
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, totalPhotosDual);
       const areaSamples = sampleAreaFractions(heroAreaFraction.min, maxFrac, 3);
       
       for (const areaFrac of areaSamples) {
@@ -811,8 +817,10 @@ function generateDualHeroCandidates(
         const prom1 = maxContentArea > 0 ? hero1Area / maxContentArea : Infinity;
         const prom2 = maxContentArea > 0 ? hero2Area / maxContentArea : Infinity;
         const minProm = Math.min(prom1, prom2);
-        const prominencePenalty = minProm < tuning.hero_minProminence
-          ? Math.min(0.3, (tuning.hero_minProminence - minProm) * 1.0)
+        const countScaleDual = photoCountScale(contentPhotos.length + 2);
+        const effectiveMinPromDual = tuning.hero_minProminence * countScaleDual;
+        const prominencePenalty = minProm < effectiveMinPromDual
+          ? Math.min(0.3, (effectiveMinPromDual - minProm) * 1.0)
           : 0;
         
         // Content-only uniformity: penalize high CV among content cells

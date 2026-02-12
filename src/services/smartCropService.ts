@@ -1,5 +1,6 @@
 import { CropRegion } from '@/types/collage';
 import { remoteLogger } from '@/lib/remoteLogger';
+import { isMobileDevice } from '@/lib/platform';
 
 interface SmartCropResult {
   crop: CropRegion;
@@ -156,6 +157,7 @@ export async function getSmartCrop(
       imageBlob: blob,
       originalWidth: width,
       originalHeight: height,
+      isMobile: isMobileDevice(),
     });
   });
 }

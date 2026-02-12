@@ -1,65 +1,38 @@
 
 
-# Fix: Cap Hero 2 Width Flex with Crop Tolerance Penalty
+# Fix: Worker Two-Region Path Still Uses Hard Rejects
 
-## What's Happening
+## Problem
+When shuffling with ~30 photos and a hero, the collage frequently shows a blank black box. This happens because the worker's two-region candidate generation path (corner-anchor templates) still uses **hard rejects** for AR coherence, hero coverage, and prominence -- while the main V4 engine (`v4/index.ts`) was updated to use soft penalties. Certain photo orderings cause every candidate to fail these hard checks, producing zero valid candidates.
 
-After the height-constraining fix, Hero 2 keeps its natural height (`hH2`), but its width gets flexed to `adjustedWH2 = heroRow1Width - besideWidth2 - gap`. When `adjustedWH2` differs significantly from the natural `wH2`, the cell's aspect ratio no longer matches the photo's -- the renderer crops to fit, but heavy cropping makes the hero look skewed.
+## Why It Shows Up Intermittently
+Shuffling randomizes photo order and template selection. Some orderings produce candidates that pass all hard checks; others don't. With ~30 photos, the geometry is tightly constrained, making hard rejection more likely.
 
-## The Fix: Crop Tolerance on Hero 2
+## The Fix
 
-Allow up to 10% width deviation (which translates to ~10% crop off left+right or top+bottom). Beyond that threshold, penalize the candidate so the engine prefers configurations where Region 2's packed width naturally aligns with the top row.
+**File: `src/workers/layoutWorker.ts`** (two-region path, lines ~476-517)
 
-## Technical Changes
+Replace the three hard rejects with soft penalties matching `v4/index.ts`:
 
-### 1. `src/lib/v4/index.ts` -- after line 708 (adjustedWH2 calculation)
+1. **AR coherence** (line 476-483): Change from `continue` to a penalty variable, matching the single-region path pattern already in the worker
+2. **Hero coverage** (line 485-492): Change from `continue` to a penalty variable  
+3. **Prominence** (line 506-513): Change from `continue` to a penalty variable
+4. **Scoring** (line 515-517): Update to subtract penalties from score (matching v4/index.ts lines 527-531), including the content uniformity penalty that exists in v4 but is missing from the worker's two-region path
+5. **Add `penalties` to meta** for the two-region path (it's missing, unlike single-region which has it)
 
-Add a distortion check and penalty:
+The single-region path (lines 337-427) already correctly uses soft penalties -- only the two-region path needs updating.
 
-```typescript
-// Measure how much Hero 2's width was flexed vs its natural width
-const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
-const HERO_CROP_TOLERANCE = 0.10; // allow up to 10% crop
-const hero2CropPenalty = hero2WidthDeviation > HERO_CROP_TOLERANCE
-  ? Math.min(0.3, (hero2WidthDeviation - HERO_CROP_TOLERANCE) * 2.0)
-  : 0;
-```
+## Regarding Gap Variation
 
-Also add a hard skip if deviation exceeds 25% (no amount of cropping saves it):
+Different shuffles produce different canvas aspect ratios, so the same normalized gap maps to slightly different visual widths. This is inherent to the area-budget approach and not a bug. No code change needed.
 
-```typescript
-if (hero2WidthDeviation > 0.25) continue;
-```
+## Regarding Speed
 
-Then subtract from the final score on line 767:
-
-```typescript
-const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty
-  - prominencePenalty - contentUniformityPenalty - hero2CropPenalty);
-```
-
-### 2. `src/workers/layoutWorker.ts` -- after line 759 (same spot)
-
-Same deviation check. The worker uses hard rejects, so add:
-
-```typescript
-const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
-if (hero2WidthDeviation > 0.25) continue;
-```
-
-No penalty needed in the worker since it already uses hard rejects for AR/coverage/prominence.
-
-## What This Achieves
-
-- Small width flex (under 10%): no penalty, slight crop is invisible
-- Medium flex (10-25%): penalized, engine prefers better-fitting candidates
-- Large flex (over 25%): hard reject, prevents obviously skewed heroes
-- Hero 1 is unaffected (its width is never flexed)
+The worker now handles single-region templates natively (from the previous fix) instead of crashing and falling back to synchronous generation. This explains the speed improvement. No code change needed.
 
 ## What Does NOT Change
-
-- Region packing logic
-- Height-constraining approach (Region 2 stays height-constrained)
-- Single-hero paths
-- Rendering / CroppedImage behavior
+- Single-region path (already correct)
+- Dual-hero path (already has hard rejects but those are acceptable for now since dual-hero has the single-hero fallback)
+- v4/index.ts (already correct, this is syncing the worker TO it)
+- Layout scoring, packing, rendering -- all untouched
 

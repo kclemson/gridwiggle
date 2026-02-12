@@ -13,7 +13,7 @@ import { CollageLayout, CollageCell } from '@/types/collage';
 import { packToFillHeight, packToFillWidth, packToFillHeightAtTargetWidth, packToFillWidthAtTargetHeight } from '@/lib/v3/normalized-pack';
 import { shuffleArray, deriveRegionCounts, deriveRegionCountsThreeWay, deriveTargetRowCount, mean, sampleCanvasARValues, sampleAreaFractions, coefficientOfVariation } from '@/lib/v3/utils';
 import { devLogger, LogEntry, RejectedLayoutGeometry } from '@/lib/devLogger';
-import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax } from '@/lib/v3/hero-constraints';
+import { findCandidateTemplates, getTemplateTopology, effectiveAreaFractionMax, photoCountScale } from '@/lib/v3/hero-constraints';
 
 // Virtual canvas base unit - normalized dimensions are scaled to this
 const VIRTUAL_CANVAS_BASE = 1000;
@@ -330,10 +330,10 @@ function generateCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
-      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
-      const areaSamples = sampleAreaFractions(
-        heroAreaFraction.min, maxFrac, 3
-      );
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, contentPhotos.length + 1);
+        const areaSamples = sampleAreaFractions(
+          heroAreaFraction.min, maxFrac, 3
+        );
       
       for (const areaFrac of areaSamples) {
         // Get topology for this template + parameters
@@ -447,8 +447,10 @@ function generateCandidates(
           const allContentAreas = regions[0].result.cells.map(c => c.width * c.height);
           const maxContentArea = Math.max(...allContentAreas, 0);
           const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
-          const prominencePenalty = prominenceRatio < tuning.hero_minProminence
-            ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0) : 0;
+          const countScale1 = photoCountScale(contentPhotos.length + 1);
+          const effectiveMinProm1 = tuning.hero_minProminence * countScale1;
+          const prominencePenalty = prominenceRatio < effectiveMinProm1
+            ? Math.min(0.3, (effectiveMinProm1 - prominenceRatio) * 1.0) : 0;
           
           const contentCV = coefficientOfVariation(allContentAreas);
           const CV_THRESHOLD_1 = 0.35;
@@ -574,8 +576,10 @@ function generateCandidates(
         const prominenceRatio = maxContentArea > 0 ? heroAreaVal / maxContentArea : Infinity;
         
         // Soft penalty: prominence (synced with v4/index.ts)
-        const prominencePenalty = prominenceRatio < tuning.hero_minProminence
-          ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0)
+        const countScale2 = photoCountScale(contentPhotos.length + 1);
+        const effectiveMinProm2 = tuning.hero_minProminence * countScale2;
+        const prominencePenalty = prominenceRatio < effectiveMinProm2
+          ? Math.min(0.3, (effectiveMinProm2 - prominenceRatio) * 1.0)
           : 0;
         if (prominencePenalty > 0) {
           devLogger.warn('v4-penalty', 'Prominence penalty', {
@@ -678,7 +682,7 @@ function generateDualHeroCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
-      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR);
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, contentPhotos.length + 2);
       const areaSamples = sampleAreaFractions(heroAreaFraction.min, maxFrac, 3);
       
       for (const areaFrac of areaSamples) {
@@ -852,7 +856,9 @@ function generateDualHeroCandidates(
         const maxContentArea = Math.max(...allContentAreas, 0);
         const prom1 = maxContentArea > 0 ? hero1Area / maxContentArea : Infinity;
         const prom2 = maxContentArea > 0 ? hero2Area / maxContentArea : Infinity;
-        if (prom1 < tuning.hero_minProminence || prom2 < tuning.hero_minProminence) continue;
+        const dualCountScale = photoCountScale(contentPhotos.length + 2);
+        const effMinProm = tuning.hero_minProminence * dualCountScale;
+        if (prom1 < effMinProm || prom2 < effMinProm) continue;
         
         const allAreas = [hero1Area, hero2Area, ...allContentAreas];
         const coherenceScore = tierCoherenceScore(allAreas);
@@ -1100,6 +1106,8 @@ function generateLayout(
       regionActualRows: selected.meta.regionActualRows,
       besideWidth: selected.meta.besideWidth,
       belowHeight: selected.meta.belowHeight,
+      photoCountScaleFactor: photoCountScale(dimensions.length),
+      photoCount: dimensions.length,
     },
   };
 }

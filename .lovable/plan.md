@@ -1,66 +1,61 @@
 
 
-# Fix: Mobile Touch Interactions (Tap, Star Toggle, Hold-to-Drag)
+# Fix Crop Editor Footer: Single-Row Layout on Mobile
 
 ## Problem
-Two related issues on mobile:
-1. Tapping a cell feels like a drag is beginning (native `draggable` attribute conflicts with touch)
-2. Tapping the hero star icon doesn't work cleanly because the same native drag interference swallows the touch
+`DialogFooter` applies `flex-col-reverse` on mobile, stacking all controls vertically. The custom `flex-col sm:flex-row` class on line 367 conflicts with this, creating a messy layout.
 
-## Design Intent
-Three distinct gestures on mobile, each with a clear purpose:
-- **Tap cell** -- opens crop editor
-- **Tap star icon** -- toggles hero status (already wired with `stopPropagation`, just blocked by native drag)
-- **Hold 300ms then move** -- drag to swap photos (existing hold-to-drag system)
+## Solution
+Replace `DialogFooter` with a plain `div` that's always a horizontal flex row. To fit everything on ~343px (375px minus padding), use icon-only buttons for Delete and Smart Crop on mobile, with text labels only on larger screens.
 
-Desktop behavior stays the same (native drag-and-drop + click).
+## Layout (all screen sizes, single row)
+`[Trash icon] [Sparkles icon] ---- [Hero toggle] [Cancel] [Save]`
 
-## User Outcome
-- Tapping a photo feels instant and opens the crop editor
-- Tapping the star icon toggles hero on/off without opening the crop editor
-- Hold-to-drag still works for rearranging photos
-- No visual drag artifacts on tap
+On desktop (sm+), the icons get their text labels back:
+`[Trash Delete Photo] [Sparkles Smart Crop] ---- [Hero toggle] [Cancel] [Save]`
 
-## Technical Changes
+## Technical Details
 
-### File: `src/components/CollagePreview.tsx`
+### File: `src/components/CropEditor.tsx` (lines 367-404)
 
-**1. Import platform helper**
-Add `isMobileDevice` import at the top.
-
-**2. CollageCellComponent -- disable native drag on mobile**
-Compute `const mobile = isMobileDevice()` once inside the component, then:
-
-- Set `draggable={!mobile}` so the browser doesn't hijack touches
-- Remove `cursor-grab` / `active:cursor-grabbing` on mobile (irrelevant for touch)
-- Keep all existing `onDragStart`, `onTouchStart`, `onClick` handlers unchanged
+Replace `DialogFooter` with:
 
 ```tsx
-const mobile = isMobileDevice();
-
-<div
-  ...
-  draggable={!mobile}
-  className={cn(
-    "absolute overflow-hidden transition-all group",
-    !mobile && "cursor-grab active:cursor-grabbing",
-    isBeingDragged && "opacity-50 scale-95",
-    isDragTarget && "ring-4 ring-primary ring-offset-2 ring-offset-background"
+<div className="px-4 py-3 border-t border-border shrink-0 flex items-center gap-2">
+  <Button 
+    variant="ghost" 
+    size="icon"
+    onClick={handleDelete}
+    className="text-destructive hover:text-destructive hover:bg-destructive/10 sm:w-auto sm:px-3"
+  >
+    <Trash2 className="h-4 w-4" />
+    <span className="hidden sm:inline ml-1.5">Delete</span>
+  </Button>
+  {photo.smartCrop && (
+    <Button 
+      variant="ghost" 
+      size="icon"
+      onClick={handleApplySmartCrop}
+      disabled={isSmartCropActive}
+      className="sm:w-auto sm:px-3"
+    >
+      <Sparkles className="h-4 w-4" />
+      <span className="hidden sm:inline ml-1.5">Smart Crop</span>
+    </Button>
   )}
-  ...
->
+  <div className="flex items-center gap-2 ml-auto">
+    <Switch id="hero-toggle" checked={isHero} onCheckedChange={setIsHero} />
+    <Label htmlFor="hero-toggle" className="text-sm">Hero</Label>
+  </div>
+  <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+  <Button size="sm" onClick={handleSave} disabled={!hasChanges}>Save</Button>
+</div>
 ```
 
-**3. Star button -- ensure touch events pass through correctly**
-The existing `stopPropagation` on `onClick`, `onMouseDown`, and `onTouchStart` already isolates the star button from the cell's handlers. No changes needed here -- fixing the native `draggable` is sufficient.
-
-### What does NOT change
-- Desktop drag-and-drop (still uses native `draggable`)
-- Mobile hold-to-drag (custom touch handlers with 300ms threshold)
-- Star button markup or event handlers (already correctly isolated)
-- Crop editor click handler (`onCellClick`)
-- Touch drag preview overlay
-
-### One file changed
-`src/components/CollagePreview.tsx` only. Uses existing `isMobileDevice()` from `src/lib/platform.ts`.
+Key changes:
+- Plain `div` instead of `DialogFooter` -- no conflicting flex-col-reverse
+- Delete and Smart Crop are `size="icon"` on mobile, expand with text on `sm+`
+- Cancel/Save use `size="sm"` to save space
+- `ml-auto` on the Hero toggle group pushes it and the action buttons to the right
+- Single row on all screen sizes
 

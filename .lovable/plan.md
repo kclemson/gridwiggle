@@ -1,46 +1,68 @@
 
-# Fix: Reduce Mobile Inference Memory by Halving Input Size
 
-## Why This Should Work
+# Fix: Switch to Lighter Detection Model (YOLOS-Tiny) for Mobile
 
-The model itself (~85MB) loads fine -- we've seen it succeed on mobile. The crash happens during the forward pass (`model(image)`), where intermediate tensors (feature maps, attention matrices) are allocated proportional to the **input image area**. Cutting from 640px to 320px reduces peak inference memory by roughly 4x, which could keep us under iOS Safari's variable memory ceiling.
+## What We Now Know
 
-DETR at 320px is still plenty for detecting people -- we just need bounding boxes, not pixel-perfect segmentation.
+The 320px input resize is confirmed live and did NOT fix the crash. The last log before the crash is still `Running inference...`, meaning the model's forward pass itself exceeds iOS Safari's memory ceiling. This rules out input size as the bottleneck -- the problem is the model architecture.
+
+DETR ResNet-50 has a deep convolutional backbone that allocates large intermediate feature maps during inference, regardless of input resolution. These allocations happen inside the ONNX runtime's WASM execution and cannot be controlled from JavaScript.
+
+## Solution: Use YOLOS-Tiny on Mobile
+
+YOLOS-Tiny is a DETR-style object detection model built on a tiny Vision Transformer (ViT) backbone instead of ResNet-50. It produces the same output format (bounding boxes with labels and scores) but uses roughly 3-4x less memory.
+
+| Model | Params | Size | Backbone |
+|-------|--------|------|----------|
+| DETR ResNet-50 | ~41M | ~85MB | ResNet-50 (deep CNN) |
+| YOLOS-Tiny | ~6M | ~25MB | ViT-Tiny (lightweight) |
+
+Both models are trained on COCO and detect "person" among other categories -- which is all we need.
 
 ## Changes
 
-### 1. Pass `isMobile` flag to the worker
+### 1. Conditional model loading in `src/workers/visionWorker.ts`
 
-**File:** `src/services/smartCropService.ts`
+- Accept `isMobile` flag (already passed from the service)
+- Load `Xenova/yolos-tiny` on mobile, `Xenova/detr-resnet-50` on desktop
+- Cache both models separately (desktop users keep DETR quality, mobile users get a model that actually runs)
+- The pipeline API and output format are identical -- no changes needed to `calculateOptimalCrop` or result handling
 
-- Import `isMobileDevice` from `src/lib/platform.ts`
-- Add `isMobile: boolean` to the `postMessage` payload sent to the worker
+### 2. No changes to `src/services/smartCropService.ts`
 
-### 2. Use smaller inference size on mobile
+The `isMobile` flag is already being passed to the worker. No other changes needed.
 
-**File:** `src/workers/visionWorker.ts`
+### 3. No changes to crop calculation or result handling
 
-- Add `isMobile` to the `WorkerMessage` interface
-- Change `maxSize` from a hardcoded `640` to `isMobile ? 320 : 640`
-- After inference completes, explicitly null out the `image` variable to help GC reclaim tensor memory sooner
+YOLOS-Tiny returns the same `DetectionResult` format (label, score, box) as DETR, so `calculateOptimalCrop` works unchanged.
 
-### 3. Null out RawImage after inference (both platforms)
+## What This Preserves
 
-Still in `visionWorker.ts` -- after `const results = await model(image)`, set `image = null` to release the pixel buffer before we do post-processing. This reduces peak memory overlap between inference output and input data.
-
-## What This Does NOT Change
-
-- Desktop continues at 640px (no quality regression)
-- The model itself is unchanged (~85MB DETR ResNet-50)
-- The crop calculation logic is unchanged
+- Photos stay 100% on-device -- no server calls
+- Desktop users keep DETR ResNet-50 (no quality regression)
 - The worker singleton pattern is unchanged
-- No server-side fallback needed (photos stay on-device)
+- The crop calculation logic is unchanged
+- The Safari WASM single-thread fix remains in place
 
 ## Risk Assessment
 
-- If 320px still crashes on some devices under extreme memory pressure, we'd revisit with either an even smaller size (240px) or the server-side fallback as a last resort
-- Detection quality at 320px should be fine for people detection -- DETR was designed for COCO-scale images where objects can be small
+- YOLOS-Tiny has lower detection accuracy than DETR, but for detecting people in photos (our primary use case), it should be sufficient
+- If YOLOS-Tiny also crashes (unlikely at ~25MB), the next step would be an even smaller model or accepting the server-side fallback
+- First model download on mobile will be faster (~25MB vs ~85MB)
+
+## Technical Details
+
+```
+// In visionWorker.ts loadModel():
+const modelName = isMobile
+  ? "Xenova/yolos-tiny"
+  : "Xenova/detr-resnet-50";
+
+detector = await pipeline("object-detection", modelName, { device });
+```
+
+The `isMobile` flag needs to be stored at module scope so `loadModel()` can access it, since `loadModel` is called before message handling. The simplest approach is to set a module-level variable from the first `detect` message and pass it to `loadModel`.
 
 ## Testing
 
-After publishing, trigger smart crop on the same iPhone that crashed before. If inference completes, the reduced input size was sufficient.
+After publishing, trigger smart crop on the same iPhone. With ~60MB less model weight and proportionally smaller intermediate tensors, inference should complete without crashing.

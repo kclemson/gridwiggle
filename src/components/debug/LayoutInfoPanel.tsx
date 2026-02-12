@@ -6,6 +6,7 @@
  */
 
 import { Info } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface LayoutInfoPanelProps {
   /** V4 layout metadata */
@@ -13,6 +14,53 @@ interface LayoutInfoPanelProps {
   /** Legacy soft rejection (fallback display) */
   reason?: string;
   details?: Record<string, unknown>;
+}
+
+const DURATION_THRESHOLDS = { good: 50, warn: 200 };
+
+function DurationIndicator({ ms }: { ms: number }) {
+  const color = ms <= DURATION_THRESHOLDS.good
+    ? 'text-green-600'
+    : ms <= DURATION_THRESHOLDS.warn
+      ? 'text-amber-600'
+      : 'text-red-600';
+  return <span className={cn('tabular-nums font-semibold', color)}>{ms.toFixed(1)}ms</span>;
+}
+
+function PerfSection({ meta }: { meta: Record<string, unknown> }) {
+  const durationMs = meta.durationMs as number | undefined;
+  const usedWorker = meta.usedWorker as boolean | undefined;
+  const path = meta.path as string | undefined;
+  const candidateCount = meta.candidateCount as number | undefined;
+  const photoCount = meta.photoCount as number | undefined;
+  const heroCount = meta.heroCount as number | undefined;
+
+  if (durationMs == null && path == null) return null;
+
+  return (
+    <div className="mb-2 pb-2 border-b border-border/50">
+      <div className="text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">Performance</div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        {durationMs != null && <DurationIndicator ms={durationMs} />}
+        {usedWorker != null && (
+          <span className={cn('tabular-nums', usedWorker ? 'text-green-600' : 'text-amber-600')}>
+            {usedWorker ? 'worker' : 'main thread'}
+          </span>
+        )}
+        {path && (
+          <span className={cn('tabular-nums', path === 'dual-hero-fallback-single' ? 'text-amber-600' : 'text-foreground/70')}>
+            {path}
+          </span>
+        )}
+        {candidateCount != null && (
+          <span className="text-foreground/70 tabular-nums">{candidateCount} candidates</span>
+        )}
+        {photoCount != null && heroCount != null && (
+          <span className="text-muted-foreground/60 tabular-nums">{photoCount} photos ({heroCount}h)</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps) {
@@ -40,6 +88,7 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
           Layout Info
         </div>
         <div className="text-xs text-muted-foreground/80 font-mono space-y-0.5">
+          <PerfSection meta={meta} />
           <div>template: {template} ({corner})</div>
           <div className="mt-1">
             target area fraction: {areaFrac.toFixed(3)}
@@ -106,7 +155,6 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
       </div>
     );
   }
-
   // Legacy soft rejection display
   if (reason && details) {
     return (

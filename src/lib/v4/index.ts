@@ -1020,7 +1020,9 @@ export function generateCollageLayoutV4(
   });
   
   let candidates: LayoutCandidate[];
+  let layoutPath: 'single-hero' | 'dual-hero' | 'dual-hero-fallback-single' = 'single-hero';
   if (isDualHero && hero2Photo) {
+    layoutPath = 'dual-hero';
     candidates = generateDualHeroCandidates(heroPhoto, hero2Photo, contentPhotos, normalizedGap, tuning, randomize);
     // Fall back to single hero if dual candidates are absent or all near floor score
     const bestDualScore = candidates.length > 0
@@ -1033,6 +1035,7 @@ export function generateCollageLayoutV4(
         const bestSingle = Math.max(...singleCandidates.map(c => c.score));
         if (bestSingle > bestDualScore) {
           candidates = singleCandidates;
+          layoutPath = 'dual-hero-fallback-single';
           devLogger.log('layout', 'Single-hero beats dual-hero', {
             bestDual: bestDualScore.toFixed(3),
             bestSingle: bestSingle.toFixed(3),
@@ -1085,6 +1088,10 @@ export function generateCollageLayoutV4(
     regionActualRows: selected.meta.regionActualRows,
     besideWidth: selected.meta.besideWidth,
     belowHeight: selected.meta.belowHeight,
+    path: layoutPath,
+    photoCount: dimensions.length,
+    contentCount: contentPhotos.length,
+    heroCount: hero2Photo ? 2 : 1,
     ...(hero2Photo ? { hero2AR: hero2Photo.aspectRatio } : {}),
     ...(softRejection ? { softRejection: softRejection.reason } : {}),
   };

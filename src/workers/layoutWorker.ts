@@ -758,6 +758,10 @@ function generateDualHeroCandidates(
         const besideWidth2 = region2.result?.width ?? 0;
         const adjustedWH2 = heroRow1Width - besideWidth2 - (r2Count > 0 ? normalizedGap : 0);
         
+        // Hero 2 crop tolerance: hard reject if width flex > 25%
+        const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
+        if (hero2WidthDeviation > 0.25) continue;
+        
         // Canvas dimensions (both rows same width by construction)
         const canvasWidth = heroRow1Width + 2 * normalizedGap;
         const totalHeight = hH1

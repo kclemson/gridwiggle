@@ -758,6 +758,7 @@ function generateDualHeroCandidates(
         region1 = {
           ...region1,
           targetDimension: canonicalRowWidth,
+          offset: { x: normalizedGap, y: normalizedGap + scaledHH1 + normalizedGap },
         };
         region1 = packRegion(region1, normalizedGap, tuning, randomize);
         if (r1Count > 0 && !region1.result) continue;

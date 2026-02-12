@@ -4,14 +4,13 @@ import { pipeline, RawImage, env } from "@huggingface/transformers";
 const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
 if (isSafari) {
-  // Fix iOS Safari memory leak (GitHub issue #1242)
-  // Safari's JavaScriptCore has a bug with threaded WASM that causes memory bloat
-  // Single-threaded execution avoids the leak while keeping bundled binaries
   env.backends.onnx.wasm.numThreads = 1;
-  
-  // NOTE: Do NOT override wasmPaths - the bundled binaries have the correct API
-  // Overriding to external CDN versions causes "_OrtGetInputOutputMetadata is not a function"
 }
+
+// Diagnostic: confirm Safari detection and WASM config inside the worker
+self.postMessage({ type: 'status', message: `[diag] UA: ${navigator.userAgent}` });
+self.postMessage({ type: 'status', message: `[diag] isSafari: ${isSafari}` });
+self.postMessage({ type: 'status', message: `[diag] numThreads: ${env.backends.onnx.wasm.numThreads}` });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;
@@ -45,6 +44,7 @@ async function loadModel(isMobile: boolean) {
     const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
     const device = isSafari ? "wasm" : (hasWebGPU ? "webgpu" : "wasm");
     
+    self.postMessage({ type: 'status', message: `[diag] loading model=${modelName} device=${device} hasWebGPU=${hasWebGPU}` });
     detector = await pipeline("object-detection", modelName, { device });
     loadedForMobile = isMobile;
   }

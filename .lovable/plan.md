@@ -1,72 +1,65 @@
 
 
-# Fix: Height-Constrain Region 2 + Flex Hero 2 Width
+# Fix: Cap Hero 2 Width Flex with Crop Tolerance Penalty
 
-## Problem
+## What's Happening
 
-Region 2 (beside Hero 2) is width-constrained to force both rows to the same width. This means Hero 2's height is dictated by the packing result, distorting its aspect ratio. The topology docstring even says Region 2 should be "height-constrained at hH2" -- the code contradicts the spec.
+After the height-constraining fix, Hero 2 keeps its natural height (`hH2`), but its width gets flexed to `adjustedWH2 = heroRow1Width - besideWidth2 - gap`. When `adjustedWH2` differs significantly from the natural `wH2`, the cell's aspect ratio no longer matches the photo's -- the renderer crops to fit, but heavy cropping makes the hero look skewed.
 
-## Why It Showed Up Recently
+## The Fix: Crop Tolerance on Hero 2
 
-The previous worker crash on single-region templates forced a V3 fallback (which has no dual-hero). The crash fix means V4's dual-hero path now actually runs, exposing this pre-existing bug.
-
-## The Fix
-
-Mirror Region 0's approach for Region 2: height-constrain it to `hH2`. Then absorb any width difference by flexing Hero 2's width (not height). This keeps both rows pixel-aligned to the same total width while preserving Hero 2's natural height.
-
-```text
-Top row:    [Hero 1 (wH1 x hH1) | Region 0 (? x hH1)]  -- total width = heroRow1Width
-Middle:     [         Region 1 (heroRow1Width x ?)      ]
-Bottom row: [Region 2 (? x hH2) | Hero 2 (wH2' x hH2) ]  -- total width forced to heroRow1Width
-                                          ^
-                                   wH2' = heroRow1Width - region2Width - gap
-                                   (flexed to fill, slight AR shift but height preserved)
-```
-
-Hero 2's width adjustment is small (typically less than 5%) and only affects horizontal cropping, which is far less visually jarring than the current vertical squishing.
+Allow up to 10% width deviation (which translates to ~10% crop off left+right or top+bottom). Beyond that threshold, penalize the candidate so the engine prefers configurations where Region 2's packed width naturally aligns with the top row.
 
 ## Technical Changes
 
-### 1. `src/lib/v3/hero-constraints.ts` -- diagonalCornersTopology (line 337-343)
+### 1. `src/lib/v4/index.ts` -- after line 708 (adjustedWH2 calculation)
 
-Fix Region 2 to match the docstring:
+Add a distortion check and penalty:
 
 ```typescript
-{
-  // Region 2: beside Hero 2, height-constrained at hH2
-  constraint: 'height',
-  hardDimension: hH2,
-  softDimension: Math.max(0.01, targetBesideH2Width),
-  offset: { x: gap, y: 0 }, // y set by engine after packing middle
-},
+// Measure how much Hero 2's width was flexed vs its natural width
+const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
+const HERO_CROP_TOLERANCE = 0.10; // allow up to 10% crop
+const hero2CropPenalty = hero2WidthDeviation > HERO_CROP_TOLERANCE
+  ? Math.min(0.3, (hero2WidthDeviation - HERO_CROP_TOLERANCE) * 2.0)
+  : 0;
 ```
 
-### 2. `src/lib/v4/index.ts` -- dual-hero path (lines ~691-776)
+Also add a hard skip if deviation exceeds 25% (no amount of cropping saves it):
 
-Replace the width-constrained Region 2 packing with height-constrained:
+```typescript
+if (hero2WidthDeviation > 0.25) continue;
+```
 
-- Pack Region 2 with `constraint: 'height'`, `targetDimension: hH2`, `targetSoftDimension` from topology
-- After packing, compute `besideWidth2 = region2.result?.width ?? 0`
-- Compute `heroRow2Width = besideWidth2 + (r2Count > 0 ? normalizedGap : 0) + wH2`
-- If `heroRow2Width !== heroRow1Width`: flex Hero 2's width to fill: `adjustedWH2 = heroRow1Width - besideWidth2 - (r2Count > 0 ? normalizedGap : 0)`
-- Hero 2 cell uses `{ width: adjustedWH2, height: hH2 }` -- height is always natural, width absorbs the difference
-- Remove the `actualH2Height` variable entirely -- Hero 2 height is always `hH2`
+Then subtract from the final score on line 767:
 
-### 3. `src/workers/layoutWorker.ts` -- dual-hero path (lines ~742-758)
+```typescript
+const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty
+  - prominencePenalty - contentUniformityPenalty - hero2CropPenalty);
+```
 
-Same changes synced to the worker.
+### 2. `src/workers/layoutWorker.ts` -- after line 759 (same spot)
+
+Same deviation check. The worker uses hard rejects, so add:
+
+```typescript
+const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
+if (hero2WidthDeviation > 0.25) continue;
+```
+
+No penalty needed in the worker since it already uses hard rejects for AR/coverage/prominence.
 
 ## What This Achieves
 
-- Hero 2 always keeps its natural height (no vertical squishing)
-- Both rows always have the same total width (no blank rectangles)
-- Width flex on Hero 2 is minimal and far less noticeable than height distortion
-- The topology spec, the topology function, and the engine code are all in agreement
+- Small width flex (under 10%): no penalty, slight crop is invisible
+- Medium flex (10-25%): penalized, engine prefers better-fitting candidates
+- Large flex (over 25%): hard reject, prevents obviously skewed heroes
+- Hero 1 is unaffected (its width is never flexed)
 
 ## What Does NOT Change
 
-- Region 0 (already correct)
-- Region 1 / middle band (still width-constrained to heroRow1Width)
+- Region packing logic
+- Height-constraining approach (Region 2 stays height-constrained)
 - Single-hero paths
-- Template registry constraints
-- Scoring logic
+- Rendering / CroppedImage behavior
+

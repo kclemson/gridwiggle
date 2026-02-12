@@ -1,68 +1,50 @@
 
 
-# Fix: Switch to Lighter Detection Model (YOLOS-Tiny) for Mobile
+# Diagnose: Why YOLOS-Tiny Still Crashes on iOS Safari
 
-## What We Now Know
+## What "Repeatedly" Tells Us
 
-The 320px input resize is confirmed live and did NOT fix the crash. The last log before the crash is still `Running inference...`, meaning the model's forward pass itself exceeds iOS Safari's memory ceiling. This rules out input size as the bottleneck -- the problem is the model architecture.
+Safari's "A problem repeatedly occurred" message means the WebContent process (the OS-level process hosting the tab) crashed multiple times. Safari has crash-loop protection that kicks in after 2-3 consecutive process crashes. This is NOT a JavaScript error -- it's a process-level termination by WebKit/iOS.
 
-DETR ResNet-50 has a deep convolutional backbone that allocates large intermediate feature maps during inference, regardless of input resolution. These allocations happen inside the ONNX runtime's WASM execution and cannot be controlled from JavaScript.
+## Current State of Fixes (All Failed)
 
-## Solution: Use YOLOS-Tiny on Mobile
+| Fix | Result |
+|-----|--------|
+| Input resize 640 to 320px | Still crashes |
+| Switch from DETR (~85MB) to YOLOS-Tiny (~25MB) | Still crashes |
+| Single-threaded WASM (numThreads=1) | Still crashes |
 
-YOLOS-Tiny is a DETR-style object detection model built on a tiny Vision Transformer (ViT) backbone instead of ResNet-50. It produces the same output format (bounding boxes with labels and scores) but uses roughly 3-4x less memory.
+The crash happens at the same point every time: after "Running inference..." and before any result. This means the ONNX WASM runtime's forward pass is what kills the process -- regardless of model size or input size.
 
-| Model | Params | Size | Backbone |
-|-------|--------|------|----------|
-| DETR ResNet-50 | ~41M | ~85MB | ResNet-50 (deep CNN) |
-| YOLOS-Tiny | ~6M | ~25MB | ViT-Tiny (lightweight) |
+## Diagnostic Plan: Confirm the Safari Fix Is Actually Applying
 
-Both models are trained on COCO and detect "person" among other categories -- which is all we need.
+Before giving up on on-device inference, we need to verify one critical assumption: **is the `isSafari` detection and `numThreads = 1` fix actually working inside the Web Worker?**
 
-## Changes
+The fix runs at module top-level (line 4-14 of visionWorker.ts). While `navigator.userAgent` should be available in Web Workers, we have never confirmed it. If this check silently fails, the worker would try to use multi-threaded WASM -- which is known to cause memory bloat in Safari's JavaScriptCore.
 
-### 1. Conditional model loading in `src/workers/visionWorker.ts`
+### Changes to `src/workers/visionWorker.ts`
 
-- Accept `isMobile` flag (already passed from the service)
-- Load `Xenova/yolos-tiny` on mobile, `Xenova/detr-resnet-50` on desktop
-- Cache both models separately (desktop users keep DETR quality, mobile users get a model that actually runs)
-- The pipeline API and output format are identical -- no changes needed to `calculateOptimalCrop` or result handling
+Add diagnostic logging immediately after the Safari detection block:
 
-### 2. No changes to `src/services/smartCropService.ts`
+1. Log the raw `navigator.userAgent` string from within the worker
+2. Log whether `isSafari` resolved to `true` or `false`
+3. Log the actual `numThreads` value that was set
+4. Log the selected `device` (wasm vs webgpu) right before `pipeline()` is called
+5. Log the model name being loaded
 
-The `isMobile` flag is already being passed to the worker. No other changes needed.
+These logs will flow through the existing worker message channel (using `self.postMessage({ type: 'status', ... })`) so they appear in the remote logger before the crash.
 
-### 3. No changes to crop calculation or result handling
+### No changes to `src/services/smartCropService.ts`
 
-YOLOS-Tiny returns the same `DetectionResult` format (label, score, box) as DETR, so `calculateOptimalCrop` works unchanged.
+The status callback already forwards worker status messages to the remote logger. No changes needed.
 
-## What This Preserves
+## What We Learn
 
-- Photos stay 100% on-device -- no server calls
-- Desktop users keep DETR ResNet-50 (no quality regression)
-- The worker singleton pattern is unchanged
-- The crop calculation logic is unchanged
-- The Safari WASM single-thread fix remains in place
+- **If `isSafari` is `false` in the worker**: The single-thread fix never applied, and multi-threaded WASM is likely the root cause. Fix: pass `isSafari` from the main thread instead of detecting in the worker.
+- **If `isSafari` is `true` and `numThreads` is 1**: The fix IS applying but ONNX WASM still crashes. This would confirm that even single-threaded WASM execution of any object detection model exceeds iOS Safari's process memory limits, and on-device inference is not viable on current iOS versions.
+- **If the logs never appear at all**: The worker is crashing during module initialization (import of transformers.js itself), before any detection code runs.
 
-## Risk Assessment
+## Why This Matters Before Moving On
 
-- YOLOS-Tiny has lower detection accuracy than DETR, but for detecting people in photos (our primary use case), it should be sufficient
-- If YOLOS-Tiny also crashes (unlikely at ~25MB), the next step would be an even smaller model or accepting the server-side fallback
-- First model download on mobile will be faster (~25MB vs ~85MB)
+If the Safari fix is NOT applying (scenario 1), we may be one line away from a working solution. If it IS applying (scenario 2), we have definitive evidence that on-device ONNX inference is not viable on iOS Safari, and can make an informed decision about alternatives.
 
-## Technical Details
-
-```
-// In visionWorker.ts loadModel():
-const modelName = isMobile
-  ? "Xenova/yolos-tiny"
-  : "Xenova/detr-resnet-50";
-
-detector = await pipeline("object-detection", modelName, { device });
-```
-
-The `isMobile` flag needs to be stored at module scope so `loadModel()` can access it, since `loadModel` is called before message handling. The simplest approach is to set a module-level variable from the first `detect` message and pass it to `loadModel`.
-
-## Testing
-
-After publishing, trigger smart crop on the same iPhone. With ~60MB less model weight and proportionally smaller intermediate tensors, inference should complete without crashing.

@@ -29,7 +29,7 @@ const SAVE_DEBOUNCE_MS = 300;
 const defaultSettings: CollageSettings = {
   shape: 'auto',
   gapColor: '#000000',
-  gapSize: 20,
+  gapSize: 30,
 };
 
 const defaultState: CollageState = {

@@ -56,37 +56,41 @@ export function PhotoStrip({
         </div>
       </button>
 
-      {/* Actions - unified row */}
-      <div className="flex flex-wrap justify-center items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onViewAll}>
-          <Crop className="h-4 w-4" />
-          <span className="hidden sm:inline">Adjust </span>Crops
-        </Button>
-        <Button variant="outline" size="sm" onClick={onAddPhotos}>
-          <Plus className="h-4 w-4" />
-          <span className="sm:hidden">Add</span>
-          <span className="hidden sm:inline">Add Photos</span>
-        </Button>
-        {showGenerateButton && onGenerate && (
-          <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
-            {isGenerating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="h-4 w-4" />
-            )}
-            Generate
+      {/* Actions */}
+      <div className="space-y-2">
+        <div className="flex justify-center items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onViewAll}>
+            <Crop className="h-4 w-4" />
+            <span className="hidden sm:inline">Adjust </span>Crops
           </Button>
+          <Button variant="outline" size="sm" onClick={onAddPhotos}>
+            <Plus className="h-4 w-4" />
+            <span className="sm:hidden">Add</span>
+            <span className="hidden sm:inline">Add Photos</span>
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={onClearAll}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="sm:hidden">Clear</span>
+            <span className="hidden sm:inline">Clear All</span>
+          </Button>
+        </div>
+        {showGenerateButton && onGenerate && (
+          <div className="flex justify-center">
+            <Button size="sm" onClick={onGenerate} disabled={isGenerating}>
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="h-4 w-4" />
+              )}
+              Generate
+            </Button>
+          </div>
         )}
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={onClearAll}
-          className="text-destructive hover:text-destructive"
-        >
-          <Trash2 className="h-4 w-4" />
-          <span className="sm:hidden">Clear</span>
-          <span className="hidden sm:inline">Clear All</span>
-        </Button>
       </div>
     </div>
   );

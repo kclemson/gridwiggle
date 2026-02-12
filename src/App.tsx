@@ -7,6 +7,7 @@ import NotFound from "./pages/NotFound";
 import LayoutRating from "./pages/LayoutRating";
 import V3Test from "./pages/V3Test";
 import HeroFractionRating from "./pages/HeroFractionRating";
+import Help from "./pages/Help";
 import { remoteLogger } from "@/lib/remoteLogger";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/help" element={<Help />} />
             {/* DEV-ONLY: Layout tools for algorithm tuning */}
             {import.meta.env.DEV && (
               <>

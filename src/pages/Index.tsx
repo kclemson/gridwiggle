@@ -619,7 +619,8 @@ export default function Index() {
       const blob = await exportCollageAsPng(
         state.photos,
         state.layout,
-        state.settings.gapColor
+        state.settings.gapColor,
+        2
       );
       await shareOrDownload(blob, `collage-${Date.now()}.png`);
       remoteLogger.info('export', 'Export complete', { size: blob.size });

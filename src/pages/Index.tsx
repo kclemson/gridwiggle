@@ -684,8 +684,9 @@ export default function Index() {
               <span className="text-primary">wiggle</span>
             </h1>
             <Link to="/help">
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground">
                 <HelpCircle className="h-4 w-4" />
+                <span className="text-xs">Help</span>
               </Button>
             </Link>
           </div>

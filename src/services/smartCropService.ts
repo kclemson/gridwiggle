@@ -1,6 +1,7 @@
 import { CropRegion } from '@/types/collage';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { isMobileDevice } from '@/lib/platform';
+import { getServerSmartCrop } from '@/services/serverSmartCropService';
 
 interface SmartCropResult {
   crop: CropRegion;
@@ -64,6 +65,12 @@ export async function getSmartCrop(
   height: number,
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
+  // Mobile devices route to server-side inference to avoid Safari WASM crashes
+  if (isMobileDevice()) {
+    remoteLogger.info('vision-svc', 'Routing to server (mobile device)', { width, height });
+    return getServerSmartCrop(objectUrl, blob, width, height, onStatus);
+  }
+
   remoteLogger.info('vision-svc', 'getSmartCrop entry', {
     blobSize: blob?.size ?? -1,
     blobType: blob?.type ?? 'none',

@@ -19,7 +19,7 @@ import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { getImageDimensions, createDisplayPreview } from '@/lib/imageUtils';
-import { isMobileDevice } from '@/lib/platform';
+import { isMobileDevice } from '@/lib/platform'; // Still used for logging
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING, PhotoDimension } from '@/lib/v3/types';
 import { 
@@ -445,31 +445,8 @@ export default function Index() {
     regenerateCollage({ randomize: state.layout !== null });
   }, [state.layout, regenerateCollage]);
 
-  // Load dimensions + previews WITHOUT smart crop (for mobile upload)
-  const loadDimensionsOnly = useCallback(async (photo: PhotoItem) => {
-    try {
-      const dimensions = await getImageDimensions(photo.objectUrl);
-      const [preview, thumbnail] = await Promise.all([
-        createDisplayPreview(photo.blob, 1200),
-        createDisplayPreview(photo.blob, 480),
-      ]);
-      
-      updatePhoto(photo.id, {
-        originalWidth: dimensions.width,
-        originalHeight: dimensions.height,
-        previewUrl: preview.url,
-        previewBlob: preview.blob,
-        thumbnailUrl: thumbnail.url,
-        thumbnailBlob: thumbnail.blob,
-        isProcessing: false,  // Done immediately
-      });
-    } catch (error) {
-      updatePhoto(photo.id, {
-        isProcessing: false,
-        error: error instanceof Error ? error.message : 'Failed to load',
-      });
-    }
-  }, [updatePhoto]);
+  // loadDimensionsOnly removed — mobile now uses processSmartCrops
+  // (which loads dimensions internally) via server-side routing
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
     const { succeeded } = await addPhotos(newPhotos);
@@ -482,25 +459,18 @@ export default function Index() {
 
     const wasLayoutEmpty = state.layout === null;
 
-    // MOBILE: Skip auto smart crop - user triggers manually per photo
-    // DESKTOP: Run auto smart crop on all photos
-    if (!isMobileDevice()) {
-      try {
-        await processSmartCrops(succeeded);
-      } catch (error) {
-        console.error('Smart crop processing failed:', error);
-        // Silent - photos still work, just without smart crop
-      }
-    } else {
-      // Mobile: Just load dimensions + create previews (no AI)
-      for (const photo of succeeded) {
-        await loadDimensionsOnly(photo);
-      }
+    // Smart crop runs for ALL platforms now.
+    // Mobile is routed to server-side by the smartCropService layer.
+    try {
+      await processSmartCrops(succeeded);
+    } catch (error) {
+      console.error('Smart crop processing failed:', error);
+      // Silent - photos still work, just without smart crop
     }
     
     // Always generate collage after processing
     regenerateCollage({ randomize: !wasLayoutEmpty });
-  }, [addPhotos, processSmartCrops, loadDimensionsOnly, state.layout, regenerateCollage]);
+  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
 
   // File input handler for Add Photos button (reuses handlePhotosAdded logic)
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

@@ -739,37 +739,38 @@ function generateDualHeroCandidates(
         
         const middleHeight = region1.result?.height ?? 0;
         
-        // Region 2: beside Hero 2 (width-constrained, pinned to match top row)
-        const region2TargetWidth = heroRow1Width - wH2 - (r2Count > 0 ? normalizedGap : 0);
+        // Region 2: beside Hero 2 (height-constrained at hH2, mirrors Region 0)
         const r2OffsetY = tH1.y + hH1 + normalizedGap + middleHeight + (r1Count > 0 ? normalizedGap : 0);
+        const targetBesideH2Width = topology.regions[2].softDimension;
         const r2TargetRows = r2Count > 0
-          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, region2TargetWidth), hH2)
+          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, targetBesideH2Width), hH2)
           : 0;
         let region2: PackableRegion = {
-          constraint: 'width', targetDimension: region2TargetWidth,
-          targetSoftDimension: hH2 > 0.01 ? hH2 : undefined,
+          constraint: 'height', targetDimension: hH2,
+          targetSoftDimension: targetBesideH2Width > 0.01 ? targetBesideH2Width : undefined,
           photos: r2Photos, targetRowCount: r2TargetRows,
           offset: { x: normalizedGap, y: r2OffsetY }, result: null,
         };
         region2 = packRegion(region2, normalizedGap, tuning, randomize);
         if (r2Count > 0 && !region2.result) continue;
         
-        // Hero 2 height discovered from packing (not formula-derived)
-        const actualH2Height = r2Count > 0 && region2.result ? region2.result.height : hH2;
+        // Flex Hero 2's width to align bottom row with top row width
+        const besideWidth2 = region2.result?.width ?? 0;
+        const adjustedWH2 = heroRow1Width - besideWidth2 - (r2Count > 0 ? normalizedGap : 0);
         
         // Canvas dimensions (both rows same width by construction)
         const canvasWidth = heroRow1Width + 2 * normalizedGap;
         const totalHeight = hH1
           + (r1Count > 0 ? normalizedGap + middleHeight : 0)
-          + normalizedGap + actualH2Height;
+          + normalizedGap + hH2;
         const canvasHeight = totalHeight + 2 * normalizedGap;
         const canvasAR = canvasWidth / canvasHeight;
         
-        const hero2X = normalizedGap + heroRow1Width - wH2;
+        const hero2X = normalizedGap + heroRow1Width - adjustedWH2;
         const hero2Y = r2OffsetY;
         
         const hero1Area = wH1 * hH1;
-        const hero2Area = wH2 * actualH2Height;
+        const hero2Area = adjustedWH2 * hH2;
         const canvasArea = canvasWidth * canvasHeight;
         const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
         
@@ -803,7 +804,7 @@ function generateDualHeroCandidates(
           photoId: hero1.id, x: tH1.x, y: tH1.y, width: wH1, height: hH1,
         };
         const heroCell2: NormalizedCell = {
-          photoId: hero2.id, x: hero2X, y: hero2Y, width: wH2, height: actualH2Height,
+          photoId: hero2.id, x: hero2X, y: hero2Y, width: adjustedWH2, height: hH2,
         };
         
         const regions = [region0, region1, region2];

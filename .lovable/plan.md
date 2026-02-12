@@ -1,63 +1,60 @@
 
 
-# Uniform Row Scaling for Dual-Hero Diagonal-Corners Layout
+# Fix: Stale Region 1 Offset Causing Row Gap in Dual-Hero Layouts
 
 ## Problem
-In the diagonal-corners dual-hero layout, Region 2 (beside Hero 2) is width-constrained, which forces Hero 2's height to match the packing result rather than its natural aspect ratio. This distorts Hero 2. The fix is to make Region 2 height-constrained (like Region 0), then uniformly scale the narrower row so both rows match in width -- preserving every cell's aspect ratio perfectly.
+In diagonal-corners dual-hero layouts, a visible gap appears between the top hero section and the middle band. This is caused by Region 1 (middle band) using a stale y-offset from the topology function, which was computed with the **unscaled** hero height (`hH1`). After uniform row scaling, Hero 1's height becomes `scaledHH1` (larger), but Region 1's offset is never updated -- leaving a gap of `(scaledHH1 - hH1)` pixels.
 
-## Changes
+## Root Cause
 
-### 1. Topology: Make Region 2 height-constrained
-**File: `src/lib/v3/hero-constraints.ts`** (lines 337-343)
+The topology function `diagonalCornersTopology` sets Region 1's offset to `{ x: gap, y: gap + hH1 + gap }`. After row scaling, `hH1` grows to `scaledHH1`, but line 684 in `v4/index.ts` (and line 735 in the worker) still use the original topology offset.
 
-Change Region 2 from `constraint: 'width'` to `constraint: 'height'` with `hardDimension: hH2`, and set `softDimension` to the target beside width (matching how Region 0 works).
+Region 2's offset IS correctly recalculated (line 769 / 820), but Region 1's is not.
+
+## Fix
+
+Both files need a one-line update: after scaling row 1, update Region 1's offset.y to use `scaledHH1` before packing it.
+
+### File 1: `src/lib/v4/index.ts` (line ~758)
+
+Before packing Region 1, update its offset to account for scaled row 1 height:
 
 ```
-// Before
-constraint: 'width',
-hardDimension: 0,
-softDimension: hH2,
+// Currently (line 758):
+region1 = {
+  ...region1,
+  targetDimension: canonicalRowWidth,
+};
 
-// After
-constraint: 'height',
-hardDimension: hH2,
-softDimension: Math.max(0.01, targetBesideH2Width),
+// Fix:
+region1 = {
+  ...region1,
+  targetDimension: canonicalRowWidth,
+  offset: { x: normalizedGap, y: normalizedGap + scaledHH1 + normalizedGap },
+};
 ```
 
-### 2. V4 engine: Uniform row scaling
-**File: `src/lib/v4/index.ts`** (lines 691-776)
+### File 2: `src/workers/layoutWorker.ts` (line ~809)
 
-Replace the current Region 2 width-constrained packing and `actualH2Height` logic with:
+Same fix:
 
-- Pack Region 2 as height-constrained at `hH2` (like Region 0)
-- Compute natural row widths:
-  - `heroRow1Width = wH1 + gap + besideWidth0` (already exists)
-  - `heroRow2NaturalWidth = wH2 + gap + besideWidth2`
-- Pick canonical width: `canonicalRowWidth = Math.max(heroRow1Width, heroRow2NaturalWidth)`
-- Compute scale factors: `scaleRow1 = canonicalRowWidth / heroRow1Width`, `scaleRow2 = canonicalRowWidth / heroRow2NaturalWidth`
-- Sanity guard: if either scale > 1.30, skip candidate
-- Scale ALL cells in the narrower row (hero dimensions + region cell positions/sizes) by the scale factor on both axes
-- Remove `actualH2Height` -- Hero 2 uses `hH2 * scaleRow2`
-- Region 1 (middle band) packs width-constrained at `canonicalRowWidth`
-- Canvas width = `canonicalRowWidth + 2 * gap`
-- Canvas height adjusts based on scaled row heights
+```
+// Currently (line 809):
+region1 = {
+  ...region1,
+  targetDimension: canonicalRowWidth,
+};
 
-### 3. Worker: Same uniform scaling logic
-**File: `src/workers/layoutWorker.ts`** (lines 742-758)
-
-Mirror the same changes from the V4 engine:
-- Region 2 becomes height-constrained at `hH2`
-- Uniform row scaling with scale factor > 1.30 guard (hard reject in worker)
-- Remove `actualH2Height`
-- Hero 2 area uses scaled dimensions
+// Fix:
+region1 = {
+  ...region1,
+  targetDimension: canonicalRowWidth,
+  offset: { x: normalizedGap, y: normalizedGap + scaledHH1 + normalizedGap },
+};
+```
 
 ## What does NOT change
-- Topology function signatures
-- Single-hero paths (corner-anchor, hero-column, hero-row)
-- Region 0 packing (already height-constrained)
-- Scoring formulas (same penalties, just using correct scaled areas)
-- Template registry
-- Rendering / CroppedImage
-
-## Key insight
-Instead of distorting one cell to match row widths, scale the entire narrower row uniformly. Every cell keeps its exact aspect ratio. The only visual effect is the narrower row's cells are slightly larger.
+- Topology functions (the initial offset is fine as a starting point)
+- Region 0 or Region 2 handling
+- Scoring, scaling logic, or candidate selection
+- Single-hero paths

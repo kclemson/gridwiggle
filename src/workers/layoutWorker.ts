@@ -734,42 +734,104 @@ function generateDualHeroCandidates(
           photos: r1Photos, targetRowCount: r1TargetRows,
           offset: topology.regions[1].offset, result: null,
         };
+        // Region 1 packing deferred until after uniform row scaling
+        
+        // Region 2: beside Hero 2 (height-constrained at hH2, like Region 0)
+        const r2TargetBesideWidth = topology.regions[2].softDimension;
+        const r2TargetRows = r2Count > 0
+          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, r2TargetBesideWidth), hH2)
+          : 0;
+        let region2: PackableRegion = {
+          constraint: 'height', targetDimension: hH2,
+          targetSoftDimension: r2TargetBesideWidth > 0.01 ? r2TargetBesideWidth : undefined,
+          photos: r2Photos, targetRowCount: r2TargetRows,
+          offset: topology.regions[2].offset, result: null,
+        };
+        region2 = packRegion(region2, normalizedGap, tuning, randomize);
+        if (r2Count > 0 && !region2.result) continue;
+        
+        // --- Uniform row scaling ---
+        const besideWidth2 = region2.result?.width ?? 0;
+        const heroRow2NaturalWidth = wH2 + (r2Count > 0 ? normalizedGap + besideWidth2 : 0);
+        const canonicalRowWidth = Math.max(heroRow1Width, heroRow2NaturalWidth);
+        
+        const scaleRow1 = heroRow1Width > 0 ? canonicalRowWidth / heroRow1Width : 1;
+        const scaleRow2 = heroRow2NaturalWidth > 0 ? canonicalRowWidth / heroRow2NaturalWidth : 1;
+        
+        // Hard reject: if either row needs >30% scaling
+        if (scaleRow1 > 1.30 || scaleRow2 > 1.30) continue;
+        
+        // Scale row 1 cells (hero1 + region0) if needed
+        const scaledHH1 = hH1 * scaleRow1;
+        const scaledWH1 = wH1 * scaleRow1;
+        if (scaleRow1 > 1.001 && region0.result) {
+          region0 = {
+            ...region0,
+            result: {
+              ...region0.result,
+              cells: region0.result.cells.map(c => ({
+                ...c,
+                x: c.x * scaleRow1,
+                y: c.y * scaleRow1,
+                width: c.width * scaleRow1,
+                height: c.height * scaleRow1,
+              })),
+              width: region0.result.width * scaleRow1,
+              height: region0.result.height * scaleRow1,
+              rowCount: region0.result.rowCount,
+            },
+          };
+        }
+        
+        // Scale row 2 cells (hero2 + region2) if needed
+        const scaledHH2 = hH2 * scaleRow2;
+        const scaledWH2 = wH2 * scaleRow2;
+        if (scaleRow2 > 1.001 && region2.result) {
+          region2 = {
+            ...region2,
+            result: {
+              ...region2.result,
+              cells: region2.result.cells.map(c => ({
+                ...c,
+                x: c.x * scaleRow2,
+                y: c.y * scaleRow2,
+                width: c.width * scaleRow2,
+                height: c.height * scaleRow2,
+              })),
+              width: region2.result.width * scaleRow2,
+              height: region2.result.height * scaleRow2,
+              rowCount: region2.result.rowCount,
+            },
+          };
+        }
+        
+        // Region 1 (middle band) packs width-constrained at canonicalRowWidth
+        region1 = {
+          ...region1,
+          targetDimension: canonicalRowWidth,
+        };
         region1 = packRegion(region1, normalizedGap, tuning, randomize);
         if (r1Count > 0 && !region1.result) continue;
         
         const middleHeight = region1.result?.height ?? 0;
         
-        // Region 2: beside Hero 2 (width-constrained, pinned to match top row)
-        const region2TargetWidth = heroRow1Width - wH2 - (r2Count > 0 ? normalizedGap : 0);
-        const r2OffsetY = tH1.y + hH1 + normalizedGap + middleHeight + (r1Count > 0 ? normalizedGap : 0);
-        const r2TargetRows = r2Count > 0
-          ? deriveTargetRowCount(r2Count, r2MeanAR, Math.max(0.01, region2TargetWidth), hH2)
-          : 0;
-        let region2: PackableRegion = {
-          constraint: 'width', targetDimension: region2TargetWidth,
-          targetSoftDimension: hH2 > 0.01 ? hH2 : undefined,
-          photos: r2Photos, targetRowCount: r2TargetRows,
-          offset: { x: normalizedGap, y: r2OffsetY }, result: null,
-        };
-        region2 = packRegion(region2, normalizedGap, tuning, randomize);
-        if (r2Count > 0 && !region2.result) continue;
+        // Compute y offset for row 2
+        const r2OffsetY = tH1.y + scaledHH1 + normalizedGap + middleHeight + (r1Count > 0 ? normalizedGap : 0);
+        region2 = { ...region2, offset: { x: normalizedGap, y: r2OffsetY } };
         
-        // Hero 2 height discovered from packing (not formula-derived)
-        const actualH2Height = r2Count > 0 && region2.result ? region2.result.height : hH2;
-        
-        // Canvas dimensions (both rows same width by construction)
-        const canvasWidth = heroRow1Width + 2 * normalizedGap;
-        const totalHeight = hH1
+        // Canvas dimensions
+        const canvasWidth = canonicalRowWidth + 2 * normalizedGap;
+        const totalHeight = scaledHH1
           + (r1Count > 0 ? normalizedGap + middleHeight : 0)
-          + normalizedGap + actualH2Height;
+          + normalizedGap + scaledHH2;
         const canvasHeight = totalHeight + 2 * normalizedGap;
         const canvasAR = canvasWidth / canvasHeight;
         
-        const hero2X = normalizedGap + heroRow1Width - wH2;
+        const hero2X = normalizedGap + canonicalRowWidth - scaledWH2;
         const hero2Y = r2OffsetY;
         
-        const hero1Area = wH1 * hH1;
-        const hero2Area = wH2 * actualH2Height;
+        const hero1Area = scaledWH1 * scaledHH1;
+        const hero2Area = scaledWH2 * scaledHH2;
         const canvasArea = canvasWidth * canvasHeight;
         const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
         
@@ -800,10 +862,10 @@ function generateDualHeroCandidates(
           : 'top-left';
         
         const heroCell1: NormalizedCell = {
-          photoId: hero1.id, x: tH1.x, y: tH1.y, width: wH1, height: hH1,
+          photoId: hero1.id, x: tH1.x, y: tH1.y, width: scaledWH1, height: scaledHH1,
         };
         const heroCell2: NormalizedCell = {
-          photoId: hero2.id, x: hero2X, y: hero2Y, width: wH2, height: actualH2Height,
+          photoId: hero2.id, x: hero2X, y: hero2Y, width: scaledWH2, height: scaledHH2,
         };
         
         const regions = [region0, region1, region2];

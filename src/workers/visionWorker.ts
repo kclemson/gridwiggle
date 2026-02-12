@@ -15,6 +15,7 @@ if (isSafari) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let detector: any = null;
+let loadedForMobile: boolean | null = null; // track which model variant is cached
 
 interface DetectionResult {
   label: string;
@@ -30,20 +31,22 @@ interface WorkerMessage {
   isMobile: boolean;
 }
 
-async function loadModel() {
+async function loadModel(isMobile: boolean) {
+  // Reload if switching between mobile/desktop model variants
+  if (detector && loadedForMobile !== isMobile) {
+    detector = null;
+  }
+  
   if (!detector) {
-    self.postMessage({ type: 'status', message: 'Loading AI model (first time only)...' });
+    const modelName = isMobile ? "Xenova/yolos-tiny" : "Xenova/detr-resnet-50";
+    self.postMessage({ type: 'status', message: `Loading AI model (${modelName})...` });
     
     // Safari must use WASM (non-JSEP binaries don't support WebGPU)
-    // Other browsers can use WebGPU for better performance
     const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
     const device = isSafari ? "wasm" : (hasWebGPU ? "webgpu" : "wasm");
     
-    detector = await pipeline(
-      "object-detection",
-      "Xenova/detr-resnet-50",
-      { device }
-    );
+    detector = await pipeline("object-detection", modelName, { device });
+    loadedForMobile = isMobile;
   }
   return detector;
 }
@@ -107,7 +110,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   
   try {
     self.postMessage({ type: 'status', message: 'Loading AI model...' });
-    const model = await loadModel();
+    const model = await loadModel(e.data.isMobile);
     self.postMessage({ type: 'status', message: 'Model ready. Loading image...' });
     
     // Load image directly from blob - no base64 conversion needed

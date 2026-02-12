@@ -1,38 +1,63 @@
 
 
-# Fix: Worker Two-Region Path Still Uses Hard Rejects
+# Uniform Row Scaling for Dual-Hero Diagonal-Corners Layout
 
 ## Problem
-When shuffling with ~30 photos and a hero, the collage frequently shows a blank black box. This happens because the worker's two-region candidate generation path (corner-anchor templates) still uses **hard rejects** for AR coherence, hero coverage, and prominence -- while the main V4 engine (`v4/index.ts`) was updated to use soft penalties. Certain photo orderings cause every candidate to fail these hard checks, producing zero valid candidates.
+In the diagonal-corners dual-hero layout, Region 2 (beside Hero 2) is width-constrained, which forces Hero 2's height to match the packing result rather than its natural aspect ratio. This distorts Hero 2. The fix is to make Region 2 height-constrained (like Region 0), then uniformly scale the narrower row so both rows match in width -- preserving every cell's aspect ratio perfectly.
 
-## Why It Shows Up Intermittently
-Shuffling randomizes photo order and template selection. Some orderings produce candidates that pass all hard checks; others don't. With ~30 photos, the geometry is tightly constrained, making hard rejection more likely.
+## Changes
 
-## The Fix
+### 1. Topology: Make Region 2 height-constrained
+**File: `src/lib/v3/hero-constraints.ts`** (lines 337-343)
 
-**File: `src/workers/layoutWorker.ts`** (two-region path, lines ~476-517)
+Change Region 2 from `constraint: 'width'` to `constraint: 'height'` with `hardDimension: hH2`, and set `softDimension` to the target beside width (matching how Region 0 works).
 
-Replace the three hard rejects with soft penalties matching `v4/index.ts`:
+```
+// Before
+constraint: 'width',
+hardDimension: 0,
+softDimension: hH2,
 
-1. **AR coherence** (line 476-483): Change from `continue` to a penalty variable, matching the single-region path pattern already in the worker
-2. **Hero coverage** (line 485-492): Change from `continue` to a penalty variable  
-3. **Prominence** (line 506-513): Change from `continue` to a penalty variable
-4. **Scoring** (line 515-517): Update to subtract penalties from score (matching v4/index.ts lines 527-531), including the content uniformity penalty that exists in v4 but is missing from the worker's two-region path
-5. **Add `penalties` to meta** for the two-region path (it's missing, unlike single-region which has it)
+// After
+constraint: 'height',
+hardDimension: hH2,
+softDimension: Math.max(0.01, targetBesideH2Width),
+```
 
-The single-region path (lines 337-427) already correctly uses soft penalties -- only the two-region path needs updating.
+### 2. V4 engine: Uniform row scaling
+**File: `src/lib/v4/index.ts`** (lines 691-776)
 
-## Regarding Gap Variation
+Replace the current Region 2 width-constrained packing and `actualH2Height` logic with:
 
-Different shuffles produce different canvas aspect ratios, so the same normalized gap maps to slightly different visual widths. This is inherent to the area-budget approach and not a bug. No code change needed.
+- Pack Region 2 as height-constrained at `hH2` (like Region 0)
+- Compute natural row widths:
+  - `heroRow1Width = wH1 + gap + besideWidth0` (already exists)
+  - `heroRow2NaturalWidth = wH2 + gap + besideWidth2`
+- Pick canonical width: `canonicalRowWidth = Math.max(heroRow1Width, heroRow2NaturalWidth)`
+- Compute scale factors: `scaleRow1 = canonicalRowWidth / heroRow1Width`, `scaleRow2 = canonicalRowWidth / heroRow2NaturalWidth`
+- Sanity guard: if either scale > 1.30, skip candidate
+- Scale ALL cells in the narrower row (hero dimensions + region cell positions/sizes) by the scale factor on both axes
+- Remove `actualH2Height` -- Hero 2 uses `hH2 * scaleRow2`
+- Region 1 (middle band) packs width-constrained at `canonicalRowWidth`
+- Canvas width = `canonicalRowWidth + 2 * gap`
+- Canvas height adjusts based on scaled row heights
 
-## Regarding Speed
+### 3. Worker: Same uniform scaling logic
+**File: `src/workers/layoutWorker.ts`** (lines 742-758)
 
-The worker now handles single-region templates natively (from the previous fix) instead of crashing and falling back to synchronous generation. This explains the speed improvement. No code change needed.
+Mirror the same changes from the V4 engine:
+- Region 2 becomes height-constrained at `hH2`
+- Uniform row scaling with scale factor > 1.30 guard (hard reject in worker)
+- Remove `actualH2Height`
+- Hero 2 area uses scaled dimensions
 
-## What Does NOT Change
-- Single-region path (already correct)
-- Dual-hero path (already has hard rejects but those are acceptable for now since dual-hero has the single-hero fallback)
-- v4/index.ts (already correct, this is syncing the worker TO it)
-- Layout scoring, packing, rendering -- all untouched
+## What does NOT change
+- Topology function signatures
+- Single-hero paths (corner-anchor, hero-column, hero-row)
+- Region 0 packing (already height-constrained)
+- Scoring formulas (same penalties, just using correct scaled areas)
+- Template registry
+- Rendering / CroppedImage
 
+## Key insight
+Instead of distorting one cell to match row widths, scale the entire narrower row uniformly. Every cell keeps its exact aspect ratio. The only visual effect is the narrower row's cells are slightly larger.

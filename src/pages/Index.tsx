@@ -40,7 +40,7 @@ import {
 
 export default function Index() {
   // Ref to processSmartCrops for recovery callback (avoids stale closure)
-  const processSmartCropsRef = useRef<((photos: PhotoItem[]) => Promise<void>) | null>(null);
+  const processSmartCropsRef = useRef<((photos: PhotoItem[]) => Promise<{ id: string; width: number; height: number }[] | void>) | null>(null);
 
   const {
     state,
@@ -283,8 +283,10 @@ export default function Index() {
 
   // Process smart crops for photos - called directly from event handler
   // Also loads dimensions + creates display previews (moved here for instant UI feedback)
-  const processSmartCrops = useCallback(async (photos: PhotoItem[]) => {
-    if (photos.length === 0) return;
+  const processSmartCrops = useCallback(async (photos: PhotoItem[]): Promise<{ id: string; width: number; height: number }[]> => {
+    if (photos.length === 0) return [];
+    
+    const processedDims: { id: string; width: number; height: number }[] = [];
     
     setIsProcessingSmartCrop(true);
     setSmartCropProgress(0);
@@ -358,6 +360,9 @@ export default function Index() {
           smartCropAttempted: true,
           isProcessing: false,
         });
+        
+        // Collect dimensions for caller (bypasses stale React state)
+        processedDims.push({ id: photo.id, width, height });
       } catch (error) {
         console.error('Smart crop failed for photo:', photo.id, error);
         remoteLogger.error('smartcrop', 'Phase: failed', { 
@@ -383,6 +388,8 @@ export default function Index() {
     setCurrentlyProcessingId(null);
     setIsProcessingSmartCrop(false);
     setSmartCropProgress(0);
+    
+    return processedDims;
   }, [updatePhoto]);
   
   // Assign ref for recovery callback (avoids stale closure in useCollageState callback)
@@ -461,15 +468,24 @@ export default function Index() {
 
     // Smart crop runs for ALL platforms now.
     // Mobile is routed to server-side by the smartCropService layer.
+    let processedDims: { id: string; width: number; height: number }[] = [];
     try {
-      await processSmartCrops(succeeded);
+      processedDims = await processSmartCrops(succeeded);
     } catch (error) {
       console.error('Smart crop processing failed:', error);
       // Silent - photos still work, just without smart crop
     }
     
-    // Always generate collage after processing
-    regenerateCollage({ randomize: !wasLayoutEmpty });
+    // Merge freshly-loaded dimensions onto current photos to bypass stale React state.
+    // On mobile, server crop returns so fast that updatePhoto() hasn't flushed yet,
+    // so photosRef.current still has 0x0 dimensions.
+    const dimMap = new Map(processedDims.map(d => [d.id, d]));
+    const patchedPhotos = photosRef.current.map(p => {
+      const dims = dimMap.get(p.id);
+      return dims ? { ...p, originalWidth: dims.width, originalHeight: dims.height } : p;
+    });
+    
+    regenerateCollage({ photos: patchedPhotos, randomize: !wasLayoutEmpty });
   }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
 
   // File input handler for Add Photos button (reuses handlePhotosAdded logic)

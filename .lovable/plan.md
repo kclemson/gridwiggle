@@ -1,39 +1,86 @@
 
 
-# Fix: Region 0 Offset Not Updated After Row Scaling
+# Add Performance Diagnostics to Layout Info Panel
 
 ## Problem
-After uniform row scaling, Hero 1 becomes wider (`scaledWH1 > wH1`), but Region 0's offset still uses the original unscaled hero width from the topology: `{ x: gap + wH1 + gap, y: gap }`. This means Region 0 photos start too far left, overlapping with the now-wider Hero 1.
+The Layout Info Panel shows layout math (AR, coverage, scores) but nothing about **why** generation was slow. Key performance signals -- duration, candidate count, which code path ran, whether it used the worker, and whether dual-hero fell back to single-hero -- are either buried in logs or not surfaced at all.
 
-## Root Cause
-The topology sets Region 0's offset as `{ x: gap + wH1 + gap, y: gap }`. When `scaleRow1 > 1`, Hero 1 grows to `scaledWH1`, but Region 0's offset.x is never updated to `gap + scaledWH1 + gap`.
+## What users will see
+A new "Performance" section at the top of the Layout Info Panel showing:
+- **Duration** (color-coded green/amber/red like the existing DebugLogPanel badge)
+- **Path**: single-hero vs dual-hero, and whether dual-hero fell back to single-hero
+- **Worker**: whether layout ran on the web worker or fell back to sync (main thread = UI jank)
+- **Candidates explored**: how many candidates were generated (high count = slow)
+- **Templates tried**: how many unique configs were sampled
 
-Region 2's offset IS recalculated (line 770), and Region 1's offset was just fixed in the previous commit -- but Region 0's was missed.
+## Changes
 
-## Fix
+### 1. Emit performance metadata from the V4 engine
+**File: `src/lib/v4/index.ts`**
 
-### File 1: `src/lib/v4/index.ts` (lines 716-733)
+Add these fields to the `layoutMeta` object built at line 1071:
+- `path`: `'single-hero'` | `'dual-hero'` | `'dual-hero-fallback-single'` (the fallback case at line 1036)
+- `photoCount`: total photos
+- `contentCount`: content photos (non-hero)
+- `heroCount`: 1 or 2
 
-After scaling row 1 cells, also update `region0.offset.x` to use `scaledWH1`:
+The `candidateCount` is already there. No new iteration tracking needed -- the existing `candidates.length` captures it.
+
+To track the dual-hero fallback, add a local variable before the candidate generation block (~line 1022) and set it when the fallback triggers.
+
+### 2. Pass timing + worker flag through layoutMeta
+**File: `src/pages/Index.tsx`** (line 253)
+
+When setting `layoutMeta`, merge in `durationMs` and `usedWorker`:
+```
+setLayoutMeta({
+  ...(result.layoutMeta ?? {}),
+  durationMs: result.durationMs,
+  usedWorker: result.usedWorker,
+});
+```
+
+**File: `src/pages/V3Test.tsx`** (line 169)
+
+Same pattern -- merge `durationMs` and `usedWorker: false` (V3Test runs synchronously).
+
+### 3. Display performance section in LayoutInfoPanel
+**File: `src/components/debug/LayoutInfoPanel.tsx`**
+
+Add a performance block at the top of the V4 metadata display, before the existing template line:
 
 ```
-if (scaleRow1 > 1.001 && region0.result) {
-  region0 = {
-    ...region0,
-    offset: { x: normalizedGap + scaledWH1 + normalizedGap, y: normalizedGap },
-    result: { ... scaled cells ... },
-  };
-}
+--- Performance ---
+123.4ms (green/amber/red)  |  worker  |  dual-hero  |  42 candidates
 ```
 
-Even when `scaleRow1 <= 1.001` (row 1 is already the wider row), the offset is correct because `scaledWH1 == wH1`. So we can unconditionally set the offset.
+Extract `durationMs`, `usedWorker`, `path`, `photoCount`, `contentCount`, `heroCount` from the meta object. Use the same color thresholds as DebugLogPanel's DurationBadge (good: <=50ms, warn: <=200ms, red: >200ms).
 
-### File 2: `src/workers/layoutWorker.ts`
+### 4. Worker file -- no changes needed
+The worker already returns `durationMs` and the V4 engine's `layoutMeta`. The `usedWorker` flag is set by `layoutGenerationService.ts`. No worker code changes required.
 
-Same fix mirrored in the worker's dual-hero path.
+## Technical details
 
-## What does NOT change
-- Region 1 offset (already fixed)
-- Region 2 offset (already recalculated)
-- Hero cell positions
-- Scaling logic, scoring, or template registry
+### Fields added to layoutMeta
+
+| Field | Type | Source |
+|-------|------|--------|
+| `path` | `'single-hero'` / `'dual-hero'` / `'dual-hero-fallback-single'` | V4 engine |
+| `photoCount` | number | V4 engine |
+| `contentCount` | number | V4 engine |
+| `heroCount` | number | V4 engine |
+| `durationMs` | number | Merged in Index.tsx / V3Test.tsx |
+| `usedWorker` | boolean | Merged in Index.tsx / V3Test.tsx |
+
+### Files modified
+- `src/lib/v4/index.ts` -- add path/count fields to layoutMeta
+- `src/pages/Index.tsx` -- merge durationMs + usedWorker into layoutMeta
+- `src/pages/V3Test.tsx` -- same merge
+- `src/components/debug/LayoutInfoPanel.tsx` -- render performance section
+
+### What does NOT change
+- Worker code
+- Layout generation logic / scoring
+- Topology / hero-constraints
+- DebugLogPanel (keeps its own duration badge independently)
+

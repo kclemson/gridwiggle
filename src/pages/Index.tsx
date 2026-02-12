@@ -250,7 +250,11 @@ export default function Index() {
       setLayout(layout);
       setLayoutError(null);
       setSoftRejection(result.softRejection ?? null);
-      setLayoutMeta(result.layoutMeta ?? null);
+      setLayoutMeta(result.layoutMeta ? {
+        ...result.layoutMeta,
+        durationMs: result.durationMs,
+        usedWorker: result.usedWorker ?? false,
+      } : null);
       remoteLogger.info('layout', 'Layout generated', { 
         cells: layout.cells.length,
         durationMs: result.durationMs,

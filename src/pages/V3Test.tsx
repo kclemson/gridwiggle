@@ -166,7 +166,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
   
   return { 
     layout: result?.layout ?? null, 
-    layoutMeta: result?.layoutMeta ?? null,
+    layoutMeta: result?.layoutMeta ? { ...result.layoutMeta, durationMs, usedWorker: false } : null,
     logs, 
     durationMs, 
     rejectedLayout,

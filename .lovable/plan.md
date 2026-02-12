@@ -1,60 +1,39 @@
 
 
-# Fix: Stale Region 1 Offset Causing Row Gap in Dual-Hero Layouts
+# Fix: Region 0 Offset Not Updated After Row Scaling
 
 ## Problem
-In diagonal-corners dual-hero layouts, a visible gap appears between the top hero section and the middle band. This is caused by Region 1 (middle band) using a stale y-offset from the topology function, which was computed with the **unscaled** hero height (`hH1`). After uniform row scaling, Hero 1's height becomes `scaledHH1` (larger), but Region 1's offset is never updated -- leaving a gap of `(scaledHH1 - hH1)` pixels.
+After uniform row scaling, Hero 1 becomes wider (`scaledWH1 > wH1`), but Region 0's offset still uses the original unscaled hero width from the topology: `{ x: gap + wH1 + gap, y: gap }`. This means Region 0 photos start too far left, overlapping with the now-wider Hero 1.
 
 ## Root Cause
+The topology sets Region 0's offset as `{ x: gap + wH1 + gap, y: gap }`. When `scaleRow1 > 1`, Hero 1 grows to `scaledWH1`, but Region 0's offset.x is never updated to `gap + scaledWH1 + gap`.
 
-The topology function `diagonalCornersTopology` sets Region 1's offset to `{ x: gap, y: gap + hH1 + gap }`. After row scaling, `hH1` grows to `scaledHH1`, but line 684 in `v4/index.ts` (and line 735 in the worker) still use the original topology offset.
-
-Region 2's offset IS correctly recalculated (line 769 / 820), but Region 1's is not.
+Region 2's offset IS recalculated (line 770), and Region 1's offset was just fixed in the previous commit -- but Region 0's was missed.
 
 ## Fix
 
-Both files need a one-line update: after scaling row 1, update Region 1's offset.y to use `scaledHH1` before packing it.
+### File 1: `src/lib/v4/index.ts` (lines 716-733)
 
-### File 1: `src/lib/v4/index.ts` (line ~758)
-
-Before packing Region 1, update its offset to account for scaled row 1 height:
+After scaling row 1 cells, also update `region0.offset.x` to use `scaledWH1`:
 
 ```
-// Currently (line 758):
-region1 = {
-  ...region1,
-  targetDimension: canonicalRowWidth,
-};
-
-// Fix:
-region1 = {
-  ...region1,
-  targetDimension: canonicalRowWidth,
-  offset: { x: normalizedGap, y: normalizedGap + scaledHH1 + normalizedGap },
-};
+if (scaleRow1 > 1.001 && region0.result) {
+  region0 = {
+    ...region0,
+    offset: { x: normalizedGap + scaledWH1 + normalizedGap, y: normalizedGap },
+    result: { ... scaled cells ... },
+  };
+}
 ```
 
-### File 2: `src/workers/layoutWorker.ts` (line ~809)
+Even when `scaleRow1 <= 1.001` (row 1 is already the wider row), the offset is correct because `scaledWH1 == wH1`. So we can unconditionally set the offset.
 
-Same fix:
+### File 2: `src/workers/layoutWorker.ts`
 
-```
-// Currently (line 809):
-region1 = {
-  ...region1,
-  targetDimension: canonicalRowWidth,
-};
-
-// Fix:
-region1 = {
-  ...region1,
-  targetDimension: canonicalRowWidth,
-  offset: { x: normalizedGap, y: normalizedGap + scaledHH1 + normalizedGap },
-};
-```
+Same fix mirrored in the worker's dual-hero path.
 
 ## What does NOT change
-- Topology functions (the initial offset is fine as a starting point)
-- Region 0 or Region 2 handling
-- Scoring, scaling logic, or candidate selection
-- Single-hero paths
+- Region 1 offset (already fixed)
+- Region 2 offset (already recalculated)
+- Hero cell positions
+- Scaling logic, scoring, or template registry

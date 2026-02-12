@@ -1,38 +1,72 @@
 
 
-# Fix: Worker Two-Region Path Still Uses Hard Rejects
+# Fix: Height-Constrain Region 2 + Flex Hero 2 Width
 
 ## Problem
-When shuffling with ~30 photos and a hero, the collage frequently shows a blank black box. This happens because the worker's two-region candidate generation path (corner-anchor templates) still uses **hard rejects** for AR coherence, hero coverage, and prominence -- while the main V4 engine (`v4/index.ts`) was updated to use soft penalties. Certain photo orderings cause every candidate to fail these hard checks, producing zero valid candidates.
 
-## Why It Shows Up Intermittently
-Shuffling randomizes photo order and template selection. Some orderings produce candidates that pass all hard checks; others don't. With ~30 photos, the geometry is tightly constrained, making hard rejection more likely.
+Region 2 (beside Hero 2) is width-constrained to force both rows to the same width. This means Hero 2's height is dictated by the packing result, distorting its aspect ratio. The topology docstring even says Region 2 should be "height-constrained at hH2" -- the code contradicts the spec.
+
+## Why It Showed Up Recently
+
+The previous worker crash on single-region templates forced a V3 fallback (which has no dual-hero). The crash fix means V4's dual-hero path now actually runs, exposing this pre-existing bug.
 
 ## The Fix
 
-**File: `src/workers/layoutWorker.ts`** (two-region path, lines ~476-517)
+Mirror Region 0's approach for Region 2: height-constrain it to `hH2`. Then absorb any width difference by flexing Hero 2's width (not height). This keeps both rows pixel-aligned to the same total width while preserving Hero 2's natural height.
 
-Replace the three hard rejects with soft penalties matching `v4/index.ts`:
+```text
+Top row:    [Hero 1 (wH1 x hH1) | Region 0 (? x hH1)]  -- total width = heroRow1Width
+Middle:     [         Region 1 (heroRow1Width x ?)      ]
+Bottom row: [Region 2 (? x hH2) | Hero 2 (wH2' x hH2) ]  -- total width forced to heroRow1Width
+                                          ^
+                                   wH2' = heroRow1Width - region2Width - gap
+                                   (flexed to fill, slight AR shift but height preserved)
+```
 
-1. **AR coherence** (line 476-483): Change from `continue` to a penalty variable, matching the single-region path pattern already in the worker
-2. **Hero coverage** (line 485-492): Change from `continue` to a penalty variable  
-3. **Prominence** (line 506-513): Change from `continue` to a penalty variable
-4. **Scoring** (line 515-517): Update to subtract penalties from score (matching v4/index.ts lines 527-531), including the content uniformity penalty that exists in v4 but is missing from the worker's two-region path
-5. **Add `penalties` to meta** for the two-region path (it's missing, unlike single-region which has it)
+Hero 2's width adjustment is small (typically less than 5%) and only affects horizontal cropping, which is far less visually jarring than the current vertical squishing.
 
-The single-region path (lines 337-427) already correctly uses soft penalties -- only the two-region path needs updating.
+## Technical Changes
 
-## Regarding Gap Variation
+### 1. `src/lib/v3/hero-constraints.ts` -- diagonalCornersTopology (line 337-343)
 
-Different shuffles produce different canvas aspect ratios, so the same normalized gap maps to slightly different visual widths. This is inherent to the area-budget approach and not a bug. No code change needed.
+Fix Region 2 to match the docstring:
 
-## Regarding Speed
+```typescript
+{
+  // Region 2: beside Hero 2, height-constrained at hH2
+  constraint: 'height',
+  hardDimension: hH2,
+  softDimension: Math.max(0.01, targetBesideH2Width),
+  offset: { x: gap, y: 0 }, // y set by engine after packing middle
+},
+```
 
-The worker now handles single-region templates natively (from the previous fix) instead of crashing and falling back to synchronous generation. This explains the speed improvement. No code change needed.
+### 2. `src/lib/v4/index.ts` -- dual-hero path (lines ~691-776)
+
+Replace the width-constrained Region 2 packing with height-constrained:
+
+- Pack Region 2 with `constraint: 'height'`, `targetDimension: hH2`, `targetSoftDimension` from topology
+- After packing, compute `besideWidth2 = region2.result?.width ?? 0`
+- Compute `heroRow2Width = besideWidth2 + (r2Count > 0 ? normalizedGap : 0) + wH2`
+- If `heroRow2Width !== heroRow1Width`: flex Hero 2's width to fill: `adjustedWH2 = heroRow1Width - besideWidth2 - (r2Count > 0 ? normalizedGap : 0)`
+- Hero 2 cell uses `{ width: adjustedWH2, height: hH2 }` -- height is always natural, width absorbs the difference
+- Remove the `actualH2Height` variable entirely -- Hero 2 height is always `hH2`
+
+### 3. `src/workers/layoutWorker.ts` -- dual-hero path (lines ~742-758)
+
+Same changes synced to the worker.
+
+## What This Achieves
+
+- Hero 2 always keeps its natural height (no vertical squishing)
+- Both rows always have the same total width (no blank rectangles)
+- Width flex on Hero 2 is minimal and far less noticeable than height distortion
+- The topology spec, the topology function, and the engine code are all in agreement
 
 ## What Does NOT Change
-- Single-region path (already correct)
-- Dual-hero path (already has hard rejects but those are acceptable for now since dual-hero has the single-hero fallback)
-- v4/index.ts (already correct, this is syncing the worker TO it)
-- Layout scoring, packing, rendering -- all untouched
 
+- Region 0 (already correct)
+- Region 1 / middle band (still width-constrained to heroRow1Width)
+- Single-hero paths
+- Template registry constraints
+- Scoring logic

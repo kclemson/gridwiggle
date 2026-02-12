@@ -364,44 +364,35 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </svg>
         </div>
 
-        <DialogFooter className="px-4 py-3 border-t border-border shrink-0 flex-col sm:flex-row gap-3">
+        <div className="px-4 py-3 border-t border-border shrink-0 flex items-center gap-2">
           <Button 
             variant="ghost" 
+            size="icon"
             onClick={handleDelete}
-            className="text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 sm:w-auto sm:px-3"
           >
-            <Trash2 className="h-4 w-4 mr-1.5" />
-            Delete Photo
+            <Trash2 className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1.5">Delete</span>
           </Button>
           {photo.smartCrop && (
             <Button 
               variant="ghost" 
+              size="icon"
               onClick={handleApplySmartCrop}
               disabled={isSmartCropActive}
+              className="sm:w-auto sm:px-3"
             >
-              <Sparkles className="h-4 w-4 mr-1.5" />
-              Smart Crop
+              <Sparkles className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1.5">Smart Crop</span>
             </Button>
           )}
-          <div className="flex items-center gap-2">
-            <Switch 
-              id="hero-toggle"
-              checked={isHero} 
-              onCheckedChange={(checked) => setIsHero(checked)} 
-            />
-            <Label htmlFor="hero-toggle" className="text-sm">
-              Hero
-            </Label>
+          <div className="flex items-center gap-2 ml-auto">
+            <Switch id="hero-toggle" checked={isHero} onCheckedChange={setIsHero} />
+            <Label htmlFor="hero-toggle" className="text-sm">Hero</Label>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={!hasChanges}>
-              Save
-            </Button>
-          </div>
-        </DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={!hasChanges}>Save</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

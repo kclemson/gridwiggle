@@ -1,37 +1,38 @@
 
 
-# Fix: Desktop Black Screen (Worker Crash)
+# Fix: Worker Two-Region Path Still Uses Hard Rejects
 
 ## Problem
-The layout worker crashes with "Cannot read properties of undefined (reading 'length')" at `packRegion`. This causes all layout generation to fail, producing a black box.
+When shuffling with ~30 photos and a hero, the collage frequently shows a blank black box. This happens because the worker's two-region candidate generation path (corner-anchor templates) still uses **hard rejects** for AR coherence, hero coverage, and prominence -- while the main V4 engine (`v4/index.ts`) was updated to use soft penalties. Certain photo orderings cause every candidate to fail these hard checks, producing zero valid candidates.
 
-## Root Cause
-The `v4/index.ts` file was updated with single-region template handling (templates like `hero-column` and `hero-row` that have only 1 content region). But the **worker's copy** of `generateCandidates` was never updated to match. When these templates are encountered:
+## Why It Shows Up Intermittently
+Shuffling randomizes photo order and template selection. Some orderings produce candidates that pass all hard checks; others don't. With ~30 photos, the geometry is tightly constrained, making hard rejection more likely.
 
-1. `topology.regions` has only 1 entry
-2. The worker builds `regions` array with 1 element
-3. It then tries `regions[1]` (line 330) -- which is `undefined`
-4. `packRegion(undefined, ...)` crashes accessing `undefined.photos.length`
+## The Fix
 
-The v4/index.ts handles this with an `isSingleRegion` flag and a separate code path that packs region 0 only, derives canvas dimensions from it, and `continue`s before reaching the two-region code. The worker is missing all of this.
+**File: `src/workers/layoutWorker.ts`** (two-region path, lines ~476-517)
 
-## Fix
+Replace the three hard rejects with soft penalties matching `v4/index.ts`:
 
-Sync the worker's `generateCandidates` function (lines 275-440 in `src/workers/layoutWorker.ts`) with the v4/index.ts version. Specifically:
+1. **AR coherence** (line 476-483): Change from `continue` to a penalty variable, matching the single-region path pattern already in the worker
+2. **Hero coverage** (line 485-492): Change from `continue` to a penalty variable  
+3. **Prominence** (line 506-513): Change from `continue` to a penalty variable
+4. **Scoring** (line 515-517): Update to subtract penalties from score (matching v4/index.ts lines 527-531), including the content uniformity penalty that exists in v4 but is missing from the worker's two-region path
+5. **Add `penalties` to meta** for the two-region path (it's missing, unlike single-region which has it)
 
-1. **Add single-region detection**: Check `topology.regions.length === 1` after getting topology
-2. **Route single-region templates**: When single-region, assign all content photos to region 0, pack it, derive canvas dimensions from hero + packed content, score it, and `continue` before the two-region path
-3. **Guard two-region path**: Only run the existing `regions[1]` code when there are 2+ regions
+The single-region path (lines 337-427) already correctly uses soft penalties -- only the two-region path needs updating.
 
-This is a sync of existing, working code from `v4/index.ts` into the worker -- no new logic.
+## Regarding Gap Variation
 
-## Technical Detail
+Different shuffles produce different canvas aspect ratios, so the same normalized gap maps to slightly different visual widths. This is inherent to the area-budget approach and not a bug. No code change needed.
 
-The worker duplicates the V4 layout engine because Web Workers can't share code with the main thread via standard imports. The `generateCandidates` function in the worker (lines 237-450) needs the same single-region handling that exists in `v4/index.ts` lines 283-431, including:
+## Regarding Speed
 
-- `isSingleRegion` flag from `topology.regions.length === 1`
-- When single-region: all photos go to region 0, skip `deriveRegionCounts`
-- Region 0 constraint-aware canvas dimension derivation (width vs height constrained)
-- Single-region scoring with soft penalties instead of hard rejections (AR penalty, coverage penalty, prominence penalty, content CV penalty)
-- `continue` before the two-region path
+The worker now handles single-region templates natively (from the previous fix) instead of crashing and falling back to synchronous generation. This explains the speed improvement. No code change needed.
+
+## What Does NOT Change
+- Single-region path (already correct)
+- Dual-hero path (already has hard rejects but those are acceptable for now since dual-hero has the single-hero fallback)
+- v4/index.ts (already correct, this is syncing the worker TO it)
+- Layout scoring, packing, rendering -- all untouched
 

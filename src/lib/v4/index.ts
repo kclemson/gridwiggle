@@ -707,6 +707,14 @@ function generateDualHeroCandidates(
         const besideWidth2 = region2.result?.width ?? 0;
         const adjustedWH2 = heroRow1Width - besideWidth2 - (r2Count > 0 ? normalizedGap : 0);
         
+        // Hero 2 crop tolerance: hard reject if width flex > 25%, penalize if > 10%
+        const hero2WidthDeviation = Math.abs(adjustedWH2 - wH2) / wH2;
+        const HERO_CROP_TOLERANCE = 0.10;
+        if (hero2WidthDeviation > 0.25) continue;
+        const hero2CropPenalty = hero2WidthDeviation > HERO_CROP_TOLERANCE
+          ? Math.min(0.3, (hero2WidthDeviation - HERO_CROP_TOLERANCE) * 2.0)
+          : 0;
+        
         // Canvas dimensions (both rows same width by construction)
         const canvasWidth = heroRow1Width + 2 * normalizedGap;
         const totalHeight = hH1
@@ -764,7 +772,7 @@ function generateDualHeroCandidates(
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = (r0Count > 0 ? 0.33 : 0) + (r1Count > 0 ? 0.34 : 0) + (r2Count > 0 ? 0.33 : 0);
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - hero2CropPenalty);
         
         const corner = randomize
           ? diagonalCorners[Math.floor(Math.random() * 2)]

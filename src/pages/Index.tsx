@@ -28,6 +28,7 @@ import {
   getLastRejection,
 } from '@/lib/v3CaptureStorage';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router-dom';
 import { 
   Wand2, 
   Grid3X3, 
@@ -35,7 +36,8 @@ import {
   Loader2,
   Trash2,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 
 export default function Index() {
@@ -681,7 +683,11 @@ export default function Index() {
               <span className="text-muted-foreground">grid</span>
               <span className="text-primary">wiggle</span>
             </h1>
-
+            <Link to="/help">
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </Link>
           </div>
         </header>
         

@@ -129,6 +129,68 @@ function tierCoherenceScore(areas: number[], tierCount: number = 3): number {
 }
 
 // ============================================================================
+// Cell Balance Scoring (synced from v4/index.ts)
+// ============================================================================
+
+function scoreCellBalance(
+  areas: number[],
+  photoCount: number,
+  tuning: V3Tuning,
+  tierCount: number = 3
+): { score: number; coherence: number; spreadRatio: number; spreadPenalty: number } {
+  if (areas.length < 2) {
+    return { score: 1.0, coherence: 1.0, spreadRatio: 1, spreadPenalty: 0 };
+  }
+  
+  const sorted = [...areas].sort((a, b) => b - a);
+  const largest = sorted[0];
+  const smallest = sorted[sorted.length - 1];
+  
+  let coherence = 0.5;
+  if (areas.length >= tierCount * 2) {
+    const grandMean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+    
+    const tierSize = Math.ceil(sorted.length / tierCount);
+    const tiers: number[][] = [];
+    for (let i = 0; i < tierCount; i++) {
+      tiers.push(sorted.slice(i * tierSize, (i + 1) * tierSize));
+    }
+    
+    const tierMeans = tiers.map(tier => 
+      tier.reduce((a, b) => a + b, 0) / tier.length
+    );
+    
+    const betweenVar = tierMeans.reduce((sum, mean) => 
+      sum + Math.pow(mean - grandMean, 2), 0
+    ) / tierCount;
+    
+    let withinVarSum = 0;
+    for (let i = 0; i < tierCount; i++) {
+      const tierMean = tierMeans[i];
+      const tierVar = tiers[i].reduce((sum, area) => 
+        sum + Math.pow(area - tierMean, 2), 0
+      ) / tiers[i].length;
+      withinVarSum += tierVar;
+    }
+    const withinVar = withinVarSum / tierCount;
+    
+    const fRatio = withinVar > 0.0001 ? betweenVar / withinVar : 0;
+    coherence = Math.min(1.0, fRatio / 5);
+  }
+  
+  const adaptiveLimit = tuning.tier_baseSpreadLimit * Math.sqrt(photoCount / 10);
+  const spreadRatio = smallest > 0 ? largest / smallest : Infinity;
+  
+  const spreadPenalty = spreadRatio <= adaptiveLimit 
+    ? 0 
+    : Math.min(0.4, (spreadRatio - adaptiveLimit) / adaptiveLimit * 0.3);
+  
+  const score = Math.max(0.1, coherence - spreadPenalty);
+  
+  return { score, coherence, spreadRatio, spreadPenalty };
+}
+
+// ============================================================================
 // Weighted Random Selection
 // ============================================================================
 
@@ -473,22 +535,29 @@ function generateCandidates(
         }
         
         const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
-        if (arDeviation > AR_COHERENCE_THRESHOLD) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'AR coherence exceeded', {
+        
+        // Soft penalty: AR coherence (synced with v4/index.ts)
+        const arPenalty = arDeviation > AR_COHERENCE_THRESHOLD
+          ? Math.min(0.3, (arDeviation - AR_COHERENCE_THRESHOLD) * 1.2)
+          : 0;
+        if (arPenalty > 0) {
+          devLogger.warn('v4-penalty', 'AR coherence penalty', {
             template: template.id, targetAR: +targetCanvasAR.toFixed(3),
             actualAR: +canvasAR.toFixed(3), deviation: +(arDeviation * 100).toFixed(1),
-          }, geometry);
-          continue;
+            penalty: +arPenalty.toFixed(3),
+          });
         }
         
-        if (heroCoverage > HERO_COVERAGE_CEILING) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'Hero coverage exceeded ceiling', {
+        // Soft penalty: hero coverage (synced with v4/index.ts)
+        const coveragePenalty = heroCoverage > HERO_COVERAGE_CEILING
+          ? Math.min(0.3, (heroCoverage - HERO_COVERAGE_CEILING) * 1.5)
+          : 0;
+        if (coveragePenalty > 0) {
+          devLogger.warn('v4-penalty', 'Hero coverage penalty', {
             template: template.id, heroCoverage: +(heroCoverage * 100).toFixed(1),
             ceiling: +(HERO_COVERAGE_CEILING * 100).toFixed(0),
-          }, geometry);
-          continue;
+            penalty: +coveragePenalty.toFixed(3),
+          });
         }
         
         const allContentAreas: number[] = [];
@@ -500,21 +569,34 @@ function generateCandidates(
           }
         }
         
+        const heroAreaVal = wHero * hHero;
         const maxContentArea = Math.max(...allContentAreas, 0);
-        const prominenceRatio = maxContentArea > 0 ? heroArea / maxContentArea : Infinity;
+        const prominenceRatio = maxContentArea > 0 ? heroAreaVal / maxContentArea : Infinity;
         
-        if (prominenceRatio < tuning.hero_minProminence) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'Prominence too low', {
-            template: template.id, prominenceRatio: +prominenceRatio.toFixed(2),
-            min: tuning.hero_minProminence,
-          }, geometry);
-          continue;
+        // Soft penalty: prominence (synced with v4/index.ts)
+        const prominencePenalty = prominenceRatio < tuning.hero_minProminence
+          ? Math.min(0.3, (tuning.hero_minProminence - prominenceRatio) * 1.0)
+          : 0;
+        if (prominencePenalty > 0) {
+          devLogger.warn('v4-penalty', 'Prominence penalty', {
+            template: template.id, prominenceRatio: +prominenceRatio.toFixed(3),
+            threshold: tuning.hero_minProminence,
+            penalty: +prominencePenalty.toFixed(3),
+          });
         }
         
-        const coherenceScore = tierCoherenceScore(allContentAreas);
+        // Content-only uniformity penalty (synced with v4/index.ts)
+        const contentCV = coefficientOfVariation(allContentAreas);
+        const CV_THRESHOLD_2 = 0.35;
+        const contentUniformityPenalty = contentCV > CV_THRESHOLD_2
+          ? Math.min(0.25, (contentCV - CV_THRESHOLD_2) * 0.5)
+          : 0;
+        
+        const allAreas = [heroAreaVal, ...allContentAreas];
+        const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
-        const score = (coherenceScore * 0.7) + (presenceScore * 0.3);
+        const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
         
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
@@ -548,6 +630,7 @@ function generateCandidates(
             besideWidth,
             belowHeight,
             candidateCount: 0,
+            penalties: { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty },
           },
         });
       }

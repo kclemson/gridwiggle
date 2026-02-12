@@ -70,7 +70,7 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
       template, targetCanvasAR, actualCanvasAR, arDeviation,
       areaFrac, heroCoverage, heroAR, hero2AR, prominenceRatio, score, corner,
       candidateCount, regionSizes, regionTargetRows, regionActualRows,
-      besideWidth, belowHeight, penalties,
+      besideWidth, belowHeight, penalties, photoCountScaleFactor, photoCount,
     } = meta as {
       template: string; targetCanvasAR: number; actualCanvasAR: number;
       arDeviation: number; areaFrac: number; heroCoverage: number;
@@ -79,6 +79,7 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
       regionTargetRows: number[]; regionActualRows: number[];
       besideWidth: number; belowHeight: number;
       penalties?: { ar: number; coverage: number; prominence: number };
+      photoCountScaleFactor?: number; photoCount?: number;
     };
 
     return (
@@ -96,6 +97,15 @@ export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps)
               [hero % of canvas used for photo split planning]
             </span>
           </div>
+          {photoCountScaleFactor != null && (
+            <div className={cn('mt-1', photoCountScaleFactor < 1.0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-muted-foreground/50')}>
+              photo count scale: {photoCountScaleFactor.toFixed(2)} ({photoCount ?? '?'} photos)
+              <div className="ml-2 text-[10px] font-normal text-muted-foreground/50">
+                [1.0 = no tapering (≤20 photos); lower = hero claims less area &amp; prominence.
+                {' '}Formula: clamp(20 / photoCount, 0.55, 1.0)]
+              </div>
+            </div>
+          )}
           {heroCoverage != null && (
             <div className="text-primary font-semibold">
               actual hero coverage: {(heroCoverage * 100).toFixed(1)}% of canvas

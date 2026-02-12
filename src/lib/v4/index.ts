@@ -1102,6 +1102,7 @@ export function generateCollageLayoutV4(
     heroCount: hero2Photo ? 2 : 1,
     ...(hero2Photo ? { hero2AR: hero2Photo.aspectRatio } : {}),
     ...(softRejection ? { softRejection: softRejection.reason } : {}),
+    photoCountScaleFactor: photoCountScale(dimensions.length),
   };
   
   return {

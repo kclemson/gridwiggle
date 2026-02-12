@@ -27,6 +27,7 @@ interface WorkerMessage {
   imageBlob: Blob;
   originalWidth: number;
   originalHeight: number;
+  isMobile: boolean;
 }
 
 async function loadModel() {
@@ -115,8 +116,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     let image = await RawImage.fromBlob(e.data.imageBlob);
     self.postMessage({ type: 'status', message: `Image loaded: ${image.width}x${image.height}` });
     
-    // Scale down to max 640px for performance
-    const maxSize = 640;
+    const maxSize = e.data.isMobile ? 320 : 640;
     const origW = image.width;
     const origH = image.height;
     let processedWidth = origW;
@@ -126,13 +126,16 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       const scale = Math.min(maxSize / origW, maxSize / origH);
       processedWidth = Math.round(origW * scale);
       processedHeight = Math.round(origH * scale);
-      self.postMessage({ type: 'status', message: `Resizing to ${processedWidth}x${processedHeight}...` });
+      self.postMessage({ type: 'status', message: `Resizing to ${processedWidth}x${processedHeight} (max ${maxSize})...` });
       image = await image.resize(processedWidth, processedHeight);
       self.postMessage({ type: 'status', message: 'Resize complete' });
     }
     
     self.postMessage({ type: 'status', message: 'Running inference...' });
     const results = await model(image) as DetectionResult[];
+    // Release pixel buffer immediately to reduce peak memory
+    image = null as any;
+    self.postMessage({ type: 'status', message: `Inference done: ${results.length} detections` });
     self.postMessage({ type: 'status', message: `Inference done: ${results.length} detections` });
     
     // Calculate optimal crop

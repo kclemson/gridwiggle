@@ -1,70 +1,68 @@
 
+# Fix: Middle Band Uses Same Codepath as Hero-less Packing
 
-# Step 1: Sync Photo-Count Scaling into the Worker (immediate fix)
+## Problem
+
+The middle band in diagonal-corners layouts packs 17 photos into 1 row because it's treated as a "height-targeted" region. The code sets `targetSoftDimension` to the leftover height between the two hero rows, which causes `packRegion` to call `packToFillWidthAtTargetHeight`. That function optimizes row count to match the tiny leftover height -- resulting in 1 row for 17 photos.
+
+## Insight
+
+The middle band is just "N photos filling a known width." That's the exact same problem a hero-less collage solves. The hero-less codepath uses plain `packToFillWidth` with a row count derived from photo count and width -- no height target. The middle band should do the same.
 
 ## What Changes
 
-Seven surgical edits to `src/workers/layoutWorker.ts` so the photo-count scaling actually takes effect in production layouts.
+**One file: `src/workers/layoutWorker.ts`** -- Region 1 construction (lines 730-741)
 
-### 1. Import `photoCountScale` (line 16)
-
-Add it to the existing import from `hero-constraints.ts`.
-
-### 2. Single-hero `effectiveAreaFractionMax` call (line 333)
-
-Pass `contentPhotos.length + 1` as the `totalPhotos` argument so the area ceiling shrinks at high counts.
-
-### 3. Single-region prominence penalty (line 450)
-
-Scale the min-prominence threshold:
-```
-const countScale = photoCountScale(contentPhotos.length + 1);
-const effectiveMinProm = tuning.hero_minProminence * countScale;
-```
-Then use `effectiveMinProm` instead of `tuning.hero_minProminence`.
-
-### 4. Two-region prominence penalty (line 577)
-
-Same scaling applied to the multi-region path.
-
-### 5. Dual-hero `effectiveAreaFractionMax` call (line 681)
-
-Pass `contentPhotos.length + 2` as `totalPhotos`.
-
-### 6. Dual-hero prominence hard reject (line 855)
-
-Scale the threshold so dual-hero layouts aren't rejected unnecessarily at high counts:
-```
-const countScale = photoCountScale(contentPhotos.length + 2);
-const effMinProm = tuning.hero_minProminence * countScale;
-if (prom1 < effMinProm || prom2 < effMinProm) continue;
+**Current:**
+```typescript
+const targetMiddleHeight = topology.regions[1].softDimension;
+const r1TargetRows = r1Count > 0
+  ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, Math.max(0.01, targetMiddleHeight))
+  : 0;
+let region1: PackableRegion = {
+  constraint: 'width', targetDimension: heroRow1Width,
+  targetSoftDimension: targetMiddleHeight > 0.01 ? targetMiddleHeight : undefined,
+  photos: r1Photos, targetRowCount: r1TargetRows,
+  offset: topology.regions[1].offset, result: null,
+};
 ```
 
-### 7. `layoutMeta` object (lines 1085-1103)
-
-Add two fields:
+**New:**
+```typescript
+// Middle band: same codepath as hero-less packing.
+// Don't constrain to leftover height -- let the packer choose rows
+// based on photo count and width, then height follows naturally.
+const r1TargetRows = r1Count > 0
+  ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, heroRow1Width / r1MeanAR)
+  : 0;
+let region1: PackableRegion = {
+  constraint: 'width', targetDimension: heroRow1Width,
+  // No targetSoftDimension -- height is unconstrained, just like hero-less
+  photos: r1Photos, targetRowCount: r1TargetRows,
+  offset: topology.regions[1].offset, result: null,
+};
 ```
-photoCountScaleFactor: photoCountScale(dimensions.length),
-photoCount: dimensions.length,
-```
 
-This makes the Layout Info panel display work for worker-generated layouts (currently it only works for the sync fallback).
+### What this does
 
----
+1. **Removes `targetSoftDimension`** from Region 1 -- so `packRegion` calls plain `packToFillWidth` instead of `packToFillWidthAtTargetHeight`
+2. **Changes `deriveTargetRowCount` input** -- passes `heroRow1Width / r1MeanAR` as the height argument instead of the tiny leftover height. This effectively asks "how many rows for square-ish cells at this width?" -- same logic as hero-less layouts.
 
-# Step 2: Plan for eliminating the duplication (next step)
+### Same fix in `src/lib/v4/index.ts`
 
-The root cause of this bug is that the V4 engine lives in two places: `src/lib/v4/index.ts` (sync fallback) and `src/workers/layoutWorker.ts` (production). Every change must be manually applied to both.
+Apply the identical change in the sync fallback path if the same pattern exists there, keeping both paths in sync.
 
-The refactor would:
+## Expected Row Counts (17 photos, meanAR ~1.2, width ~1.5)
 
-1. **Extract shared orchestration** into pure functions in `src/lib/v4/` (e.g., `engine.ts`) that take inputs and return results with zero DOM/Worker dependencies.
-2. **Worker becomes a thin wrapper** -- receives message, calls the shared engine function, posts result back. ~30 lines instead of ~1,150.
-3. **Sync fallback calls the same function** directly on the main thread.
-4. Vite's worker bundler handles the import graph automatically -- no manual code duplication needed.
+| Scenario | Height input | Computed rows |
+|----------|-------------|---------------|
+| Current (leftover height) | 0.15 | 1 |
+| Fixed (width-derived) | 1.25 | 4 |
 
-This eliminates the entire class of "forgot to sync the worker" bugs permanently. We'll tackle this after confirming the scaling fix works.
+## Why This Is Right
 
----
-
-One file edited for step 1. Step 2 is documented here for future reference.
+- The middle band's height was never a real constraint -- it's computed after packing, not before
+- This uses the exact same packing codepath as hero-less layouts
+- No new formulas, no floors, no density caps
+- The beside-hero regions (0 and 2) correctly keep their `targetSoftDimension` because they ARE height-constrained (locked to hero height)
+- Two single-line changes across two files

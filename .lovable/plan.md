@@ -1,36 +1,61 @@
 
 
-# Remove Dead Code -- Safety-Verified Plan
+# GitHub-Ready Code Cleanup
 
-All changes affect either unreferenced files or dev-only test tooling (gated behind `import.meta.env.DEV` in App.tsx). Zero production code paths are impacted.
+## The Real Architecture
 
-## Deletions (zero importers)
+The **V4 engine** (`src/lib/v4/engine.ts`) is the production layout engine. It imports shared primitives from `src/lib/v3/` -- these are foundational math/packing modules, not a separate engine. The old V3 *orchestrator* (`intersection.ts`, `region-search.ts`) has been fully replaced by V4 but was never cleaned up.
 
-- `src/lib/v3/entities/canvas.ts` -- no imports anywhere
-- `src/lib/v3/entities/content-pool.ts` -- no imports anywhere  
-- `src/lib/v3/entities/hero.ts` -- no imports anywhere
-- `src/lib/layoutMath.ts` -- only imported by dev-only test adapter; replaced by identical functions in `v3/utils.ts`
+## Tier 1: Dead Code Removal (~1,050 lines)
 
-## Edits (dev-only files)
+### 1.1 Delete `src/lib/v3/intersection.ts` (578 lines)
+The old V3 orchestrator. Its main export `findValidConfiguration` has zero callers. Only `LayoutTest.tsx` imports two tiny helper functions from it (`getLastRejectedLayout`, `clearRejectedLayout`).
 
-### `src/types/collage.ts`
-Remove the `LayoutTuning` interface and `DEFAULT_TUNING` constant (lines 96-149). Only consumed by the files being deleted/updated below.
+**Fix**: Extract those 2 functions (10 lines) into a new `src/lib/v3/rejected-layout-store.ts`, then delete `intersection.ts`.
 
-### `src/test/layout/layoutAdapter.ts`
-- Change import from `@/lib/layoutMath` to `@/lib/v3/utils` (same `coefficientOfVariation` and `shuffleArray`)
-- Remove `randomMinPhotosPerRow` function
-- Remove `tuning` field from generated test cases
+### 1.2 Delete `src/lib/v3/region-search.ts` (473 lines)
+Only imported by `intersection.ts`. Zero external consumers.
 
-### `src/test/layout/types.ts`
-- Remove `LayoutTuning` from the import
-- Remove `tuning?: Partial<LayoutTuning>` from `LayoutTestCase`
+### 1.3 Remove dead exports from `src/lib/v3/utils.ts`
+These functions are only called by the files being deleted above -- V4 never uses them:
+- `stratifiedARDistribution` (only caller: `region-search.ts`)
+- `calculateContentStats` (only caller: `intersection.ts`)
+- `estimateContentPhotoArea` (only caller: `intersection.ts`)
+- `isRegionViable` (only caller: `intersection.ts`)
 
-### `src/pages/LayoutRating.tsx`
-- Remove `tuning?` from the inline type that mirrors `LayoutTestCase`
+The following stay because V4 and/or `row-pack.ts` use them: `mean`, `variance`, `coefficientOfVariation`, `shuffleArray`, `distributeByARBudget`, `deriveRegionCounts`, `deriveRegionCountsThreeWay`, `sampleCanvasARValues`, `sampleAreaFractions`, `deriveTargetRowCount`, `randomInt`, `regionArea`.
 
-## What stays untouched
+### 1.4 Remove dead export from `src/hooks/useCollageState.ts`
+`updateLayoutCells` is defined and exported but never imported anywhere.
 
-- `src/lib/v3/types.ts`, `utils.ts`, `row-pack.ts`, `normalized-pack.ts`, `hero-constraints.ts`, `intersection.ts` -- all actively used by V4 engine
-- `src/lib/layoutUtils.ts` -- `reflowAfterSwap` used by Index.tsx
-- All production routes (`/`, `/help`) and their dependencies
+### 1.5 Remove dead ref from `src/components/CollagePreview.tsx`
+`collageRef` with "Kept for potential future use" comment -- classic YAGNI.
+
+### 1.6 Rename "V3 Tuning" label in `src/components/V3TuningSection.tsx`
+Change `<span>V3 Tuning</span>` to `<span>Layout Tuning</span>`. This label is visible in the dev debug panel.
+
+## Tier 2: Naming Cleanup (mechanical rename, separate pass)
+
+Rename `src/lib/v3/` to `src/lib/layout/` and update all imports. This is a large but purely mechanical change -- every file that imports from `@/lib/v3/...` switches to `@/lib/layout/...`. No logic changes.
+
+Affected import sites (~15 files): `v4/engine.ts`, `v4/index.ts`, `useCollageGeneration.ts`, `layoutGenerationService.ts`, `V3TuningSection.tsx`, `DebugPanel.tsx`, `layoutWorker.ts`, `LayoutTest.tsx`, `layoutAdapter.ts`, `types.ts` (test), `deriveRegionCounts.test.ts`, `heroFractionGenerator.ts`, `CollageSettings.tsx`, `Index.tsx`, `LayoutRating.tsx`.
+
+Optionally also rename `V3Tuning` to `LayoutTuning` and `v3Tuning` to `layoutTuning` across hooks and components.
+
+## Summary
+
+| Action | File | Lines removed |
+|---|---|---|
+| Delete | `src/lib/v3/intersection.ts` | 578 |
+| Delete | `src/lib/v3/region-search.ts` | 473 |
+| Create | `src/lib/v3/rejected-layout-store.ts` | +10 |
+| Edit | `src/lib/v3/utils.ts` | ~55 (4 dead functions) |
+| Edit | `src/hooks/useCollageState.ts` | ~15 (1 dead function) |
+| Edit | `src/components/CollagePreview.tsx` | ~3 (dead ref) |
+| Edit | `src/components/V3TuningSection.tsx` | 1 (label text) |
+| Edit | `src/pages/LayoutTest.tsx` | 1 (import path) |
+
+**Net reduction**: ~1,100 lines of dead code removed.
+
+I'd recommend doing Tier 1 now and Tier 2 (the directory rename) as a follow-up, since they're independent and Tier 1 is the high-signal cleanup.
 

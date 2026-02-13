@@ -1,8 +1,5 @@
 /**
- * V3 Layout Utilities
- * 
- * Shared math functions for the V3 layout engine.
- * SIMPLIFIED: Removed effective threshold functions and row merging.
+ * Layout Utilities -- Shared math functions for the layout engine.
  */
 
 import { PhotoDimension, V3Tuning } from './types';
@@ -44,13 +41,6 @@ export function coefficientOfVariation(values: number[]): number {
 // ============================================================================
 // Geometry Functions
 // ============================================================================
-
-/**
- * Calculate area of a region.
- */
-export function regionArea(width: number, height: number): number {
-  return width * height;
-}
 
 // ============================================================================
 // Array Utilities

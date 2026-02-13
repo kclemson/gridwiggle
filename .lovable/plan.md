@@ -1,37 +1,48 @@
 
 
-# Clean Up Code Quality Issues
+# Sync the Fallback Path to V4
 
-## What Changes
+## The Problem
 
-Fix four items that look sloppy to anyone browsing the repo.
+The layout system has two code paths:
 
-## 1. Delete placeholder test -- `src/test/example.test.ts`
+| Path | Engine | Thread | When |
+|---|---|---|---|
+| Worker (normal) | V4 | Background | Worker available |
+| Sync fallback | V3 (old!) | Main thread | Worker crash or timeout |
 
-The `expect(true).toBe(true)` test is pure scaffolding. The project has real tests in `src/test/layout/` and `src/test/CroppedImage.test.tsx`. Delete this file entirely.
+When the worker fails, you get a double penalty: the fallback runs the outdated V3 algorithm (producing worse layouts) AND it runs on the main thread (freezing the UI).
 
-## 2. Remove duplicate postMessage -- `src/workers/visionWorker.ts`
+## The Fix
 
-Lines 141-142 send the exact same "Inference done" message twice. Remove the duplicate (line 142).
+Replace the sync fallback so it calls V4 instead of V3, matching what the worker does.
 
-## 3. Fix `as any[]` cast -- `src/services/layoutGenerationService.ts`
+### File: `src/services/layoutGenerationService.ts`
 
-Line 108 casts to `as any[]` to satisfy the `PhotoItem[]` type. Add the missing `smartCropAttempted` field to the stub object so it properly satisfies `PhotoItem` without the cast.
+1. Change the dynamic import from `@/lib/v3` to `@/lib/v4`
+2. Call `generateCollageLayoutV4` instead of `generateCollageLayoutV3`
+3. Remove the mock `PhotoItem[]` construction -- V4's `generateCollageLayoutV4` accepts `PhotoItem[]` directly (same as V3 did), so the stub-building stays but points at V4
+4. Propagate `softRejection` and `layoutMeta` from V4's result into the `LayoutGenerationResult` return value, so debug info is available even on the fallback path
 
-## 4. Brand the 404 page -- `src/pages/NotFound.tsx`
+### What this does NOT change
 
-- Remove unused `useLocation` import
-- Add GridWiggle branding (matching the header style from Help page)
-- Keep it minimal but consistent with the app's look
+- The worker path stays exactly the same (it already runs V4 inline)
+- No new dependencies or files
+- The fallback still runs on the main thread (unavoidable if the worker is dead), but at least produces the same quality layout
 
-## Technical Details
+## Technical Detail
 
-| File | Change |
-|---|---|
-| `src/test/example.test.ts` | Delete |
-| `src/workers/visionWorker.ts` | Remove duplicate line 142 |
-| `src/services/layoutGenerationService.ts` | Add `smartCropAttempted: false` to stub, remove `as any[]` |
-| `src/pages/NotFound.tsx` | Remove unused import, add GridWiggle branding, dark background |
+The current fallback calls:
+```
+const { generateCollageLayoutV3 } = await import('@/lib/v3');
+```
 
-No functional changes to the app.
+It will change to:
+```
+const { generateCollageLayoutV4 } = await import('@/lib/v4');
+```
+
+And use V4's API, which returns `{ layout, layoutMeta }` instead of a bare `CollageLayout | null`. The soft-reject info and layout metadata will be threaded through to the caller.
+
+The mock `PhotoItem` construction stays because V4 also expects `PhotoItem[]` as input (it calls `extractPhotoDimensions` internally). The shape is identical.
 

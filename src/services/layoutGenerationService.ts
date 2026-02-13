@@ -1,8 +1,10 @@
 /**
  * Layout Generation Service
  * 
- * Manages a singleton Web Worker for V3 layout generation.
+ * Manages a singleton Web Worker for V4 layout generation.
  * Falls back to synchronous generation if workers aren't supported.
+ * 
+ * Both paths use the same engine (src/lib/v4/engine.ts) — single source of truth.
  */
 
 import { PhotoDimension, V3Tuning } from '@/lib/v3/types';
@@ -22,7 +24,7 @@ export interface LayoutGenerationPayload {
 }
 
 export interface LayoutGenerationResult {
-  layout: CollageLayout;  // Always non-null now (soft rejections instead of hard)
+  layout: CollageLayout;  // Always non-null (soft rejections instead of hard)
   durationMs: number;
   logs?: LogEntry[];
   usedWorker: boolean;
@@ -88,52 +90,25 @@ function nextRequestId(): string {
 async function generateLayoutSync(
   payload: LayoutGenerationPayload
 ): Promise<LayoutGenerationResult> {
-  // Dynamic import to avoid bundling issues
-  const { generateCollageLayoutV4 } = await import('@/lib/v4');
+  // Dynamic import to avoid bundling the engine in the main bundle
+  const { generateLayoutFromDimensions } = await import('@/lib/v4/engine');
   
   const startTime = performance.now();
   
-  // Build mock PhotoItem array (only needs id, originalWidth/Height, and crop fields)
-  const mockPhotos = payload.dimensions.map(d => ({
-    id: d.id,
-    objectUrl: '',
-    blob: new Blob(),
-    originalWidth: 1000,  // Normalized
-    originalHeight: 1000 / d.aspectRatio,
-    smartCrop: null,
-    manualCrop: null,
-    smartCropAttempted: false,
-    isProcessing: false,
-    error: null,
-    priority: (d.weight > 1 ? 1 : 3) as 1 | 2 | 3,
-  }));
-  
-  const photoWeights: Record<string, number> = {};
-  for (const d of payload.dimensions) {
-    photoWeights[d.id] = d.weight;
-  }
-  
-  const result = generateCollageLayoutV4(
-    mockPhotos,
-    { shape: 'auto', gapColor: '#ffffff', gapSize: payload.normalizedGap * 100 / 0.04, exportScale: 1 },
-    { photoWeights, randomize: payload.randomize, tuning: payload.tuning }
+  const result = generateLayoutFromDimensions(
+    payload.dimensions,
+    payload.normalizedGap,
+    payload.tuning,
+    payload.randomize
   );
   
   const durationMs = performance.now() - startTime;
-  
-  if (!result) {
-    // V4 returned null — create a minimal fallback layout
-    return {
-      layout: { width: 0, height: 0, cells: [] },
-      durationMs,
-      usedWorker: false,
-    };
-  }
   
   return {
     layout: result.layout,
     durationMs,
     usedWorker: false,
+    softRejection: result.softRejection,
     layoutMeta: result.layoutMeta,
   };
 }
@@ -161,7 +136,6 @@ export async function generateLayoutInWorker(
       cleanup();
       resetWorker();
       console.warn('Layout worker timeout, falling back to sync');
-      // Fall back to sync on timeout
       generateLayoutSync(payload).then(resolve);
     }, TIMEOUT_MS);
     
@@ -172,7 +146,6 @@ export async function generateLayoutInWorker(
     };
     
     const handleMessage = (e: MessageEvent<LayoutResponse>) => {
-      // Ignore messages for other requests
       if (e.data.requestId !== requestId) return;
       
       cleanup();
@@ -191,7 +164,6 @@ export async function generateLayoutInWorker(
       console.error('Layout worker crashed:', errorEvent);
       cleanup();
       resetWorker();
-      // Fall back to sync on crash
       generateLayoutSync(payload).then(resolve);
     };
     

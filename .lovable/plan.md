@@ -1,48 +1,22 @@
 
+# ✅ COMPLETED: Unified Layout Engine
 
-# Sync the Fallback Path to V4
+## What Was Done
 
-## The Problem
+Extracted the V4 layout algorithm into a single shared module (`src/lib/v4/engine.ts`) that both the Web Worker and the sync fallback import. This eliminated ~1,000 lines of duplicated code and fixed scoring drift between the two paths.
 
-The layout system has two code paths:
+### Files Changed
 
-| Path | Engine | Thread | When |
-|---|---|---|---|
-| Worker (normal) | V4 | Background | Worker available |
-| Sync fallback | V3 (old!) | Main thread | Worker crash or timeout |
+| File | Before | After |
+|---|---|---|
+| `src/lib/v4/engine.ts` | New | ~750 lines — shared algorithm core |
+| `src/lib/v4/index.ts` | 1113 lines | ~85 lines — thin wrapper (extractPhotoDimensions + API) |
+| `src/workers/layoutWorker.ts` | 1163 lines | ~95 lines — thin message handler |
+| `src/services/layoutGenerationService.ts` | 212 lines | ~165 lines — calls engine directly, no PhotoItem stubs |
 
-When the worker fails, you get a double penalty: the fallback runs the outdated V3 algorithm (producing worse layouts) AND it runs on the main thread (freezing the UI).
+### Bugs Fixed During Unification
 
-## The Fix
-
-Replace the sync fallback so it calls V4 instead of V3, matching what the worker does.
-
-### File: `src/services/layoutGenerationService.ts`
-
-1. Change the dynamic import from `@/lib/v3` to `@/lib/v4`
-2. Call `generateCollageLayoutV4` instead of `generateCollageLayoutV3`
-3. Remove the mock `PhotoItem[]` construction -- V4's `generateCollageLayoutV4` accepts `PhotoItem[]` directly (same as V3 did), so the stub-building stays but points at V4
-4. Propagate `softRejection` and `layoutMeta` from V4's result into the `LayoutGenerationResult` return value, so debug info is available even on the fallback path
-
-### What this does NOT change
-
-- The worker path stays exactly the same (it already runs V4 inline)
-- No new dependencies or files
-- The fallback still runs on the main thread (unavoidable if the worker is dead), but at least produces the same quality layout
-
-## Technical Detail
-
-The current fallback calls:
-```
-const { generateCollageLayoutV3 } = await import('@/lib/v3');
-```
-
-It will change to:
-```
-const { generateCollageLayoutV4 } = await import('@/lib/v4');
-```
-
-And use V4's API, which returns `{ layout, layoutMeta }` instead of a bare `CollageLayout | null`. The soft-reject info and layout metadata will be threaded through to the caller.
-
-The mock `PhotoItem` construction stays because V4 also expects `PhotoItem[]` as input (it calls `extractPhotoDimensions` internally). The shape is identical.
-
+1. **Worker dual-hero used hard rejects** → now uses soft penalties (canonical v4 behavior)
+2. **Worker single-region scoring used `tierCoherenceScore`** → now uses `scoreCellBalance` (unified scorer)
+3. **Worker dual-hero fallback only on 0 candidates** → now falls back when best score ≤ 0.10
+4. **Fallback path built unnecessary PhotoItem stubs** → now passes dimensions directly

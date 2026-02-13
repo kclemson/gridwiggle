@@ -72,8 +72,10 @@ async function resizeAndEncode(blob: Blob, maxSize: number = 800): Promise<strin
  * Server-side smart crop using the smart-crop edge function.
  * Used for mobile devices where on-device ONNX inference crashes Safari.
  *
- * The edge function uses Gemini Flash vision to detect subjects and return
- * optimal crop coordinates — same SmartCropResult interface as the on-device path.
+ * The edge function uses Gemini Flash vision to detect people and faces.
+ * If people are found, returns a crop focusing on them; otherwise returns
+ * skipCrop: true so the full image is used. Same SmartCropResult interface
+ * as the on-device DETR path.
  */
 export async function getServerSmartCrop(
   _objectUrl: string,

@@ -133,12 +133,13 @@ You must respond with ONLY a JSON object in this exact format:
       console.error("Failed to parse AI response:", e);
       // Fallback to center crop
       cropData = {
-        x: 10,
-        y: 10,
-        width: 80,
-        height: 80,
-        confidence: 0.5,
-        subjects: "Unable to analyze, using center crop"
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        confidence: 0,
+        subjects: "Unable to analyze",
+        skipCrop: true,
       };
     }
 

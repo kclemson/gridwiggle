@@ -55,6 +55,7 @@ export interface CollageSettings {
   shape: 'auto' | 'landscape' | 'portrait' | 'square';
   gapColor: string;
   gapSize: number;
+  exportScale: 1 | 1.5 | 2;
 }
 
 export interface CollageLayout {

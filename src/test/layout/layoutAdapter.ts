@@ -158,6 +158,7 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     shape,
     gapColor: '#000000',
     gapSize: 4,
+    exportScale: 1,
   };
   
   const layout = generateCollageLayoutV3(photoItems, settings, {

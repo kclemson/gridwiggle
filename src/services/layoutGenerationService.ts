@@ -102,10 +102,11 @@ async function generateLayoutSync(
     originalHeight: 1000 / d.aspectRatio,
     smartCrop: null,
     manualCrop: null,
+    smartCropAttempted: false,
     isProcessing: false,
     error: null,
-    priority: d.weight > 1 ? 1 : 3,
-  })) as any[];
+    priority: (d.weight > 1 ? 1 : 3) as 1 | 2 | 3,
+  }));
   
   const photoWeights: Record<string, number> = {};
   for (const d of payload.dimensions) {

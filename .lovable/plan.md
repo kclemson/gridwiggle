@@ -1,53 +1,85 @@
 
 
-# Fix: Derive Row Jitter from Geometry
+# Fix: Dual-Hero Photo Count Scale Over-Tapering
 
-## What changes
+## The Problem
 
-**One formula replaces one tuning constant.** The fixed `row_arBudgetJitter = 0.6` (+-60%) becomes `effectiveJitter = 1.5 / avgPerRow`, plus a 2x max-row-size safety net.
-
-## Test matrix (current vs proposed)
+At 35 photos, `photoCountScale` returns 0.57, which was calibrated for single-hero layouts. In dual-hero, each hero already gets half the area fraction, so applying the same taper creates a double penalty:
 
 ```text
-Photos | Rows | Avg/Row | Current Jitter | Proposed Jitter | Current worst-case row sizes | Proposed worst-case row sizes
--------+------+---------+----------------+-----------------+------------------------------+------------------------------
-  5    |  2   |  2.5    |  +-60%         |  +-60%          |  1 - 4                       |  1 - 4
-  6    |  2   |  3.0    |  +-60%         |  +-50%          |  1 - 5                       |  2 - 5
-  8    |  3   |  2.7    |  +-60%         |  +-56%          |  1 - 4                       |  1 - 4
- 10    |  3   |  3.3    |  +-60%         |  +-45%          |  1 - 5                       |  2 - 5
- 12    |  3   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
- 14    |  4   |  3.5    |  +-60%         |  +-43%          |  1 - 6                       |  2 - 5
- 16    |  4   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
- 20    |  5   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
- 23    |  5   |  4.6    |  +-60%         |  +-33%          |  2 - 7                       |  3 - 6
- 25    |  6   |  4.2    |  +-60%         |  +-36%          |  2 - 7                       |  3 - 6
- 30    |  6   |  5.0    |  +-60%         |  +-30%          |  2 - 8                       |  4 - 7
- 35    |  7   |  5.0    |  +-60%         |  +-30%          |  2 - 8                       |  4 - 7
+Single hero at 35 photos:
+  effectiveMax = 0.40 * arScale * 0.57 = ~0.19
+  Hero gets ~19% of canvas -- acceptable
+
+Dual hero at 35 photos:
+  effectiveMax = 0.42 * arScale * 0.57 = ~0.20
+  Each hero gets ~10% of canvas -- stamp-sized
+  Actual result: 7.6% combined coverage (3.8% each)
 ```
 
-Small collages (5-10 photos): Virtually no change -- organic variety preserved.
-Large collages (25-35 photos): Worst-case row range shrinks from [2-8] to [4-7]. The 4-vs-17 split becomes geometrically impossible.
+The 0.050 floor score means ALL 5 candidates were equally bad -- weighted random selection had nothing good to pick from.
 
-## Technical changes
+## The Fix
 
-### `src/lib/v3/types.ts`
-- Remove `row_arBudgetJitter` from `V3Tuning` interface and `DEFAULT_V3_TUNING`
+Use a per-hero content ratio for the scale calculation instead of raw photo count. For dual-hero, each hero "owns" half the content pool, so the effective count per hero is lower:
 
-### `src/lib/v3/utils.ts` -- `distributeByARBudget`
-- Remove `const { row_arBudgetJitter: jitter } = tuning;`
-- Add derived jitter: `const effectiveJitter = 1.5 / avgPerRow;`
-- Add max-row-size guard: force row break when `currentRow.length >= Math.ceil(avgPerRow * 2)`
+```text
+Current:  photoCountScale(totalPhotos)        // 35 -> 0.57
+Proposed: photoCountScale(contentPerHero + 1) // (33/2)+1 = 17.5 -> 1.0
+```
 
-### Any other files referencing `row_arBudgetJitter`
-- Search and remove (likely just the tuning defaults and possibly LayoutTest UI)
+This means:
+- Single hero (35 photos): scale = clamp(20/35, 0.55, 1.0) = 0.57 (unchanged)
+- Dual hero (35 photos): scale = clamp(20/17.5, 0.55, 1.0) = 1.0 (no tapering)
+- Dual hero (50 photos): scale = clamp(20/25, 0.55, 1.0) = 0.80 (mild tapering)
 
-## Summary
+## Technical Changes
+
+### `src/lib/v4/engine.ts` -- `generateDualHeroCandidates`
+
+In the area fraction calculation (line ~591), compute `effectiveAreaFractionMax` using a per-hero photo count instead of the total:
+
+```typescript
+// Current:
+const totalPhotosDual = contentPhotos.length + 2;
+const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, totalPhotosDual);
+
+// Fixed:
+const contentPerHero = Math.ceil(contentPhotos.length / 2) + 1;
+const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, contentPerHero);
+```
+
+Similarly, update the prominence threshold calculation (line ~762):
+
+```typescript
+// Current:
+const countScaleDual = photoCountScale(contentPhotos.length + 2);
+
+// Fixed:
+const contentPerHero = Math.ceil(contentPhotos.length / 2) + 1;
+const countScaleDual = photoCountScale(contentPerHero);
+```
+
+### Impact Matrix
+
+```text
+Photos | Heroes | Current Scale | Proposed Scale | Hero Coverage Change
+-------+--------+---------------+----------------+--------------------
+ 10    |   2    | 1.00          | 1.00           | No change
+ 20    |   2    | 1.00          | 1.00           | No change
+ 25    |   2    | 0.80          | 1.00           | Heroes ~25% larger
+ 30    |   2    | 0.67          | 1.00           | Heroes ~50% larger
+ 35    |   2    | 0.57          | 1.00           | Heroes ~75% larger
+ 50    |   2    | 0.55          | 0.80           | Heroes ~45% larger
+ 10    |   1    | 1.00          | 1.00           | No change (untouched)
+ 35    |   1    | 0.57          | 0.57           | No change (untouched)
+```
+
+Single-hero path is completely untouched. Dual-hero gets appropriately scaled tapering that accounts for the area already being split between two heroes.
+
+## Files Changed
 
 | File | Change |
 |---|---|
-| `src/lib/v3/types.ts` | Remove `row_arBudgetJitter` from interface + defaults |
-| `src/lib/v3/utils.ts` | Derived jitter formula + max-row guard |
-| Other references | Remove dead tuning knob references |
-
-3 lines removed, ~6 lines added. Net: fewer tuning knobs, better behavior at scale.
+| `src/lib/v4/engine.ts` | Use per-hero content ratio for `effectiveAreaFractionMax` and `photoCountScale` in dual-hero path (~4 lines changed) |
 

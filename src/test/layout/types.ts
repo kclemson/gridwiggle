@@ -1,4 +1,4 @@
-import { CollageLayout, CollageSettings, LayoutTuning, PhotoPriority } from '@/types/collage';
+import { CollageLayout, CollageSettings, PhotoPriority } from '@/types/collage';
 
 /**
  * Tag constants for categorizing layout issues and qualities.
@@ -44,7 +44,6 @@ export interface LayoutTestCase {
   shape: CollageSettings['shape'];
   heroCount: number;         // 0, 1, 2, etc.
   orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
-  tuning?: Partial<LayoutTuning>;
 }
 
 /**

@@ -91,65 +91,6 @@ export interface PersistedCollageState {
   debugLogs?: LogEntry[];  // Optional for backwards compatibility
 }
 
-/**
- * Layout tuning parameters for real-time experimentation.
- * DEV-only feature for debugging and tuning the layout algorithm.
- */
-export interface LayoutTuning {
-  // Hero beside packing
-  maxBeside1Row: number;      // Max photos beside hero in 1-row mode (default 4)
-  maxBeside2Row: number;      // Max photos beside hero in 2-row mode (default 6)
-  maxBeside3Row: number;      // Max photos beside hero in 3-row mode (default 12)
-  // Content blocks
-  contentPhotosPerBlock: number;  // Photos per full-width content row block (default 4)
-  
-  // Hero fraction bounds
-  heroMinFraction: number;    // Minimum hero width fraction (default 0.30)
-  heroMaxFraction: number;    // Maximum hero width fraction (default 0.60)
-  
-  // Scale tolerance
-  scaleToleranceLow: number;  // Reject configs that scale below this (default 0.75)
-  scaleToleranceHigh: number; // Reject configs that scale above this (default 1.25)
-  
-  // Balance controls
-  maxBesideFraction: number;  // Hero beside can consume at most this % of total photos (default 0.6)
-  minContentPhotos: number;   // Reserve at least this many photos for content blocks (default 4)
-  minPhotosPerRow: number;    // Content rows must have at least this many photos (default 2)
-  
-  // Mathematical structure selection (unified aspect geometry)
-  baseMaxBesideFraction: number;  // Max % of non-hero photos in beside zone (default 0.40)
-  minBelowPhotos: number;         // Reserve this many for below zone (default 3)
-  aspectContrastFloor: number;    // Min aspect contrast modifier (default 0.8)
-  aspectContrastCap: number;      // Max aspect contrast modifier (default 1.3)
-  minHeroProminenceRatio: number; // Hero must be this much bigger than runner-up (default 1.3)
-  
-  // Canvas-level hero prominence
-  minHeroCoverage: number;        // Minimum hero area as % of total canvas (default 0.08 = 8%)
-}
-
-export const DEFAULT_TUNING: LayoutTuning = {
-  maxBeside1Row: 4,
-  maxBeside2Row: 6,
-  maxBeside3Row: 12,
-  contentPhotosPerBlock: 4,
-  heroMinFraction: 0.30,
-  heroMaxFraction: 0.60,
-  scaleToleranceLow: 0.75,
-  scaleToleranceHigh: 1.25,
-  maxBesideFraction: 0.6,
-  minContentPhotos: 4,
-  minPhotosPerRow: 2,
-  
-  // Mathematical structure selection
-  baseMaxBesideFraction: 0.40,
-  minBelowPhotos: 3,
-  aspectContrastFloor: 0.8,
-  aspectContrastCap: 1.3,
-  minHeroProminenceRatio: 1.3,
-  
-  // Canvas-level hero prominence
-  minHeroCoverage: 0.08,  // 8% of canvas
-};
 
 /**
  * Minimum photos required for each shape option.

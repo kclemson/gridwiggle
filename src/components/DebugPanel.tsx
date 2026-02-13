@@ -15,7 +15,7 @@ import {
   exportPendingCaptures, 
   downloadJson,
   clearCaptures,
-} from '@/lib/v3CaptureStorage';
+} from '@/lib/captureStorage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { PhotoItem } from '@/types/collage';
 import { toast } from 'sonner';

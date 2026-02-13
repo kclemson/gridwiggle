@@ -8,7 +8,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import { LogEntry } from '@/lib/devLogger';
-import { extractReasonFrequencies } from '@/lib/v3CaptureStorage';
+import { extractReasonFrequencies } from '@/lib/captureStorage';
 import { cn } from '@/lib/utils';
 import { RejectedLayoutPreview } from './RejectedLayoutPreview';
 

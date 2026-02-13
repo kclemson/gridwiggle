@@ -7,7 +7,7 @@
 
 import { LogEntry } from './devLogger';
 
-export interface V3LayoutCapture {
+export interface LayoutCapture {
   // Inputs
   photoCount: number;
   heroCount: number;
@@ -51,25 +51,33 @@ export interface V3LayoutCapture {
   exported: boolean;
 }
 
-interface V3CaptureStore {
-  captures: V3LayoutCapture[];
+interface CaptureStore {
+  captures: LayoutCapture[];
   lastExportedAt: string | null;
 }
 
-const STORAGE_KEY = 'v3-layout-captures';
+const STORAGE_KEY = 'layout-captures';
+const OLD_STORAGE_KEY = 'v3-layout-captures';
 
 /**
  * Load captures from localStorage.
  */
-export function loadCaptures(): V3CaptureStore {
+export function loadCaptures(): CaptureStore {
   try {
+    // Migration: check for old key first
+    const oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldRaw) {
+      localStorage.setItem(STORAGE_KEY, oldRaw);
+      localStorage.removeItem(OLD_STORAGE_KEY);
+    }
+    
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return { captures: [], lastExportedAt: null };
     }
-    return JSON.parse(raw) as V3CaptureStore;
+    return JSON.parse(raw) as CaptureStore;
   } catch {
-    console.warn('Failed to load V3 captures from localStorage');
+    console.warn('Failed to load captures from localStorage');
     return { captures: [], lastExportedAt: null };
   }
 }
@@ -77,18 +85,18 @@ export function loadCaptures(): V3CaptureStore {
 /**
  * Save captures to localStorage.
  */
-function saveStore(store: V3CaptureStore): void {
+function saveStore(store: CaptureStore): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch (e) {
-    console.warn('Failed to save V3 captures to localStorage', e);
+    console.warn('Failed to save captures to localStorage', e);
   }
 }
 
 /**
  * Save a new capture (sets exported: false).
  */
-export function saveCapture(capture: Omit<V3LayoutCapture, 'exported'>): void {
+export function saveCapture(capture: Omit<LayoutCapture, 'exported'>): void {
   const store = loadCaptures();
   store.captures.push({ ...capture, exported: false });
   saveStore(store);
@@ -97,7 +105,7 @@ export function saveCapture(capture: Omit<V3LayoutCapture, 'exported'>): void {
 /**
  * Export pending captures, mark them as exported, return data.
  */
-export function exportPendingCaptures(): { data: V3LayoutCapture[]; count: number } {
+export function exportPendingCaptures(): { data: LayoutCapture[]; count: number } {
   const store = loadCaptures();
   const pending = store.captures.filter(c => !c.exported);
   
@@ -190,8 +198,9 @@ export function getLastRejection(logs: LogEntry[]): { reason: string; details: R
 export function clearCaptures(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(OLD_STORAGE_KEY); // Clean up old key too
   } catch (e) {
-    console.warn('Failed to clear V3 captures from localStorage', e);
+    console.warn('Failed to clear captures from localStorage', e);
   }
 }
 

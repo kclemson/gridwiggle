@@ -31,8 +31,8 @@ import {
   getLastRejection,
   downloadJson,
   clearCaptures,
-  V3LayoutCapture,
-} from '@/lib/v3CaptureStorage';
+  LayoutCapture,
+} from '@/lib/captureStorage';
 import { SyntheticPhoto } from '@/test/layout/types';
 import { PhotoItem, CollageSettings, CollageLayout } from '@/types/collage';
 import type { RejectedLayout } from '@/lib/v3/types';
@@ -180,7 +180,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
 function buildCapture(
   photoSet: { photos: SyntheticPhoto[]; seed: number; orientationBias: number },
   result: LayoutResult
-): Omit<V3LayoutCapture, 'exported'> {
+): Omit<LayoutCapture, 'exported'> {
   const { photos, seed, orientationBias } = photoSet;
   const { layout, logs, durationMs, rejectedLayout } = result;
   
@@ -242,7 +242,7 @@ interface TestState {
   rejectedLayout: RejectedLayout | null;
 }
 
-export default function V3Test() {
+export default function LayoutTest() {
   // Consolidated state initialized with first generation
   const [state, setState] = useState<TestState>(() => {
     const photoSet = generateRandomSet();
@@ -428,7 +428,7 @@ export default function V3Test() {
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="text-2xl font-bold">V3 Layout Test</h1>
+          <h1 className="text-2xl font-bold">Layout Test</h1>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Photo Set Selector */}
             <div className="flex items-center gap-1">

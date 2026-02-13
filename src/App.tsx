@@ -5,7 +5,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import LayoutRating from "./pages/LayoutRating";
-import V3Test from "./pages/V3Test";
+import LayoutTest from "./pages/LayoutTest";
 import HeroFractionRating from "./pages/HeroFractionRating";
 import Help from "./pages/Help";
 import { remoteLogger } from "@/lib/remoteLogger";
@@ -37,7 +37,7 @@ const App = () => {
             {import.meta.env.DEV && (
               <>
                 <Route path="/layout-rating" element={<LayoutRating />} />
-                <Route path="/v3-test" element={<V3Test />} />
+                <Route path="/layout-test" element={<LayoutTest />} />
                 <Route path="/hero-fraction" element={<HeroFractionRating />} />
               </>
             )}

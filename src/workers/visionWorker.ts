@@ -139,7 +139,6 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     // Release pixel buffer immediately to reduce peak memory
     image = null as any;
     self.postMessage({ type: 'status', message: `Inference done: ${results.length} detections` });
-    self.postMessage({ type: 'status', message: `Inference done: ${results.length} detections` });
     
     // Calculate optimal crop
     const crop = calculateOptimalCrop(

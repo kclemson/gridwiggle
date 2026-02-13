@@ -1,35 +1,74 @@
 
 
-# Tune hero-row Template: Raise Minimum Hero AR
+# Add PWA Support (Mobile + Desktop)
 
-## What Changes for Users
+## What This Does
 
-Heroes that are only mildly landscape (AR 1.2 to 1.8) will no longer get the full-width row treatment on portrait canvases. Instead, they'll use corner-anchor, which splits content into two regions (beside + below the hero) rather than cramming all content photos into rows below. This produces more balanced layouts for heroes like the 1.39 AR hummingbird.
+Makes GridWiggle installable as a standalone app on phones AND PCs. On desktop browsers (Chrome, Edge), users get an install icon in the address bar. On mobile, the standard "Add to Home Screen" flow works. The app launches without browser chrome on all platforms.
 
-## Change
+## Changes
 
-**File:** `src/lib/v3/hero-constraints.ts`
+### 1. Install `vite-plugin-pwa`
 
-One value change in the `hero-row` template definition:
+New dev dependency.
 
+### 2. Update `vite.config.ts`
+
+Add VitePWA plugin with manifest and Workbox caching:
+
+```typescript
+import { VitePWA } from "vite-plugin-pwa";
+
+// In plugins array:
+VitePWA({
+  registerType: "autoUpdate",
+  workbox: {
+    navigateFallbackDenylist: [/^\/~oauth/],
+    globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+  },
+  manifest: {
+    name: "GridWiggle",
+    short_name: "GridWiggle",
+    description: "Turn any collection of photos into a perfectly arranged collage in seconds.",
+    theme_color: "#ffffff",
+    background_color: "#ffffff",
+    display: "standalone",
+    scope: "/",
+    start_url: "/",
+    icons: [
+      { src: "/favicon.png", sizes: "192x192", type: "image/png" },
+      { src: "/favicon.png", sizes: "512x512", type: "image/png" },
+      { src: "/favicon.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+    screenshots: [],
+  },
+})
 ```
-heroAR: { min: 1.2, max: 3.0 }  -->  heroAR: { min: 1.8, max: 3.0 }
+
+Key details for desktop support:
+- `display: "standalone"` -- launches without browser chrome on all platforms
+- `start_url: "/"` and `scope: "/"` -- required for Chrome/Edge desktop install prompt
+- `maskable` icon entry -- needed for adaptive icon rendering on some platforms
+
+### 3. Update `index.html`
+
+Add PWA meta tags in `<head>`:
+
+```html
+<meta name="theme-color" content="#ffffff" />
+<link rel="apple-touch-icon" href="/favicon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 ```
 
-## Impact
+### 4. No other files needed
 
-| Hero AR | Before | After |
-|---------|--------|-------|
-| 1.39 (hummingbird) | hero-row (full-width band) | corner-anchor (corner + 2 content regions) |
-| 1.60 | hero-row | corner-anchor |
-| 1.80 | hero-row | hero-row (unchanged) |
-| 2.50 (panoramic) | hero-row | hero-row (unchanged) |
+The vite-plugin-pwa auto-generates the service worker and injects the manifest link into the HTML at build time.
 
-Heroes in the 1.2-1.8 range on portrait canvases will fall through to corner-anchor (which accepts AR 0.4-3.0 on all canvas shapes), giving the content photos more room to distribute evenly.
+## How to Install
 
-## Technical Details
-
-- Single constant change in `hero-constraints.ts`, line for the `hero-row` template
-- No logic changes needed -- the template registry filtering in `findCandidateTemplates` already handles fallback naturally
-- Corner-anchor is the universal fallback and handles these ARs well
+- **Desktop Chrome/Edge**: Click the install icon in the address bar (or three-dot menu > "Install GridWiggle")
+- **macOS Safari**: Not natively supported for PWAs (Safari limitation)
+- **iOS**: Share > "Add to Home Screen"
+- **Android**: Browser menu > "Install app" or the automatic install banner
 

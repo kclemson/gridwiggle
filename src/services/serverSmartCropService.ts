@@ -113,7 +113,7 @@ export async function getServerSmartCrop(
       crop,
       confidence: confidence ?? 0.7,
       subjects: subjects ?? 'server analysis',
-      skipCrop: false,
+      skipCrop: data.skipCrop ?? false,
     };
   } catch (error) {
     remoteLogger.error('server-crop', 'Failed, falling back to full image', {

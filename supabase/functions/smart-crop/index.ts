@@ -53,15 +53,12 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an expert image composition analyzer. Your task is to analyze photos and determine the optimal crop region that focuses on the main subject(s) - typically faces, people, or central objects of interest.
+            content: `You are an image analyzer that detects PEOPLE and FACES.
 
-Rules:
-1. Identify faces, people, and main subjects in the image
-2. Return a crop region that keeps all important subjects visible
-3. The crop should be aesthetically pleasing with good composition
-4. Maintain some breathing room around subjects
-5. If there are faces, ensure they are NOT cut off
-6. Return coordinates as percentages (0-100) of the original image dimensions
+Your task:
+1. Determine if there are any people or human faces in the image
+2. If YES: return a crop region that keeps all people/faces visible with breathing room. Set skipCrop to false.
+3. If NO: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/100/100.
 
 You must respond with ONLY a JSON object in this exact format:
 {
@@ -70,7 +67,8 @@ You must respond with ONLY a JSON object in this exact format:
   "width": <percentage of image width>,
   "height": <percentage of image height>,
   "confidence": <0-1 confidence score>,
-  "subjects": "<description of detected subjects>"
+  "subjects": "<description of what you see>",
+  "skipCrop": <true if no people/faces detected, false if people found>
 }`
           },
           {
@@ -84,7 +82,7 @@ You must respond with ONLY a JSON object in this exact format:
               },
               {
                 type: "text",
-                text: `Analyze this ${width}x${height} image and provide the optimal smart crop region that focuses on the main subjects (faces, people, or central objects). Return ONLY the JSON object with percentage-based coordinates.`
+                text: `Analyze this ${width}x${height} image. Are there any people or human faces? If yes, provide the optimal crop region focusing on the people. If no people are found, set skipCrop to true. Return ONLY the JSON object.`
               }
             ],
           },
@@ -177,11 +175,28 @@ You must respond with ONLY a JSON object in this exact format:
 
     console.log("Smart crop result:", cropRegion, "Subjects:", cropData.subjects);
 
+    const skipCrop = cropData.skipCrop ?? false;
+
+    // If skipCrop, return full image as crop region
+    if (skipCrop) {
+      console.log("No people detected, skipCrop=true. Subjects:", cropData.subjects);
+      return new Response(
+        JSON.stringify({
+          crop: { x: 0, y: 0, width, height },
+          confidence: cropData.confidence ?? 0.5,
+          subjects: cropData.subjects,
+          skipCrop: true,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     return new Response(
       JSON.stringify({
         crop: cropRegion,
         confidence: cropData.confidence,
         subjects: cropData.subjects,
+        skipCrop: false,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -587,8 +587,8 @@ function generateDualHeroCandidates(
     const { heroAreaFraction } = template;
     
     for (const targetCanvasAR of canvasARSamples) {
-      const totalPhotosDual = contentPhotos.length + 2;
-      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, totalPhotosDual);
+      const contentPerHero = Math.ceil(contentPhotos.length / 2) + 1;
+      const maxFrac = effectiveAreaFractionMax(heroAreaFraction, targetCanvasAR, contentPerHero);
       const areaSamples = sampleAreaFractions(heroAreaFraction.min, maxFrac, 3);
       
       for (const areaFrac of areaSamples) {
@@ -759,7 +759,8 @@ function generateDualHeroCandidates(
         const prom1 = maxContentArea > 0 ? hero1Area / maxContentArea : Infinity;
         const prom2 = maxContentArea > 0 ? hero2Area / maxContentArea : Infinity;
         const minProm = Math.min(prom1, prom2);
-        const countScaleDual = photoCountScale(contentPhotos.length + 2);
+        const contentPerHero = Math.ceil(contentPhotos.length / 2) + 1;
+        const countScaleDual = photoCountScale(contentPerHero);
         const effectiveMinPromDual = tuning.hero_minProminence * countScaleDual;
         const prominencePenalty = minProm < effectiveMinPromDual
           ? Math.min(0.3, (effectiveMinPromDual - minProm) * 1.0)

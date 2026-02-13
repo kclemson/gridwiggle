@@ -1,141 +1,36 @@
 
 
-# Refactor Index.tsx into Custom Hooks
+# Remove Dead Code -- Safety-Verified Plan
 
-Extract three focused hooks from the 875-line Index.tsx, reducing it to a ~350-line orchestrator.
+All changes affect either unreferenced files or dev-only test tooling (gated behind `import.meta.env.DEV` in App.tsx). Zero production code paths are impacted.
 
-## Design
+## Deletions (zero importers)
 
-Three hooks, each owning a clear domain:
+- `src/lib/v3/entities/canvas.ts` -- no imports anywhere
+- `src/lib/v3/entities/content-pool.ts` -- no imports anywhere  
+- `src/lib/v3/entities/hero.ts` -- no imports anywhere
+- `src/lib/layoutMath.ts` -- only imported by dev-only test adapter; replaced by identical functions in `v3/utils.ts`
 
-```text
-Index.tsx (orchestrator, ~350 lines)
-  |-- useSmartCropProcessing (smart crop state + batch/single processing)
-  |-- useCollageGeneration (layout generation via worker, debug capture)
-  |-- useCollageExport (PNG export + share/download)
-```
+## Edits (dev-only files)
 
-## Hook 1: `useSmartCropProcessing`
+### `src/types/collage.ts`
+Remove the `LayoutTuning` interface and `DEFAULT_TUNING` constant (lines 96-149). Only consumed by the files being deleted/updated below.
 
-**File**: `src/hooks/useSmartCropProcessing.ts`
+### `src/test/layout/layoutAdapter.ts`
+- Change import from `@/lib/layoutMath` to `@/lib/v3/utils` (same `coefficientOfVariation` and `shuffleArray`)
+- Remove `randomMinPhotosPerRow` function
+- Remove `tuning` field from generated test cases
 
-**Moves out of Index.tsx**:
-- State: `smartCropProgress`, `isProcessingSmartCrop`, `processingStatus`, `currentlyProcessingId`, `smartCroppingPhotoId`
-- Functions: `processSmartCrops` (batch), `handleSingleSmartCrop`, `handleUndoSmartCrop`, `gcDelay`
-- The `processSmartCropsRef` pattern for recovery callback
+### `src/test/layout/types.ts`
+- Remove `LayoutTuning` from the import
+- Remove `tuning?: Partial<LayoutTuning>` from `LayoutTestCase`
 
-**Interface**:
-```typescript
-function useSmartCropProcessing(deps: {
-  photos: PhotoItem[];
-  layout: CollageLayout | null;
-  updatePhoto: (id: string, updates: Partial<PhotoItem>) => void;
-  regenerateCollage: () => void;
-}) => {
-  // State for UI
-  isProcessingSmartCrop: boolean;
-  smartCropProgress: number;
-  processingStatus: string;
-  currentlyProcessingId: string | null;
-  smartCroppingPhotoId: string | null;
-  // Callbacks
-  processSmartCrops: (photos: PhotoItem[]) => Promise<ProcessedDims[]>;
-  processSmartCropsRef: React.RefObject;
-  handleSingleSmartCrop: (photoId: string) => Promise<void>;
-  handleUndoSmartCrop: (photoId: string) => void;
-}
-```
+### `src/pages/LayoutRating.tsx`
+- Remove `tuning?` from the inline type that mirrors `LayoutTestCase`
 
-## Hook 2: `useCollageGeneration`
+## What stays untouched
 
-**File**: `src/hooks/useCollageGeneration.ts`
-
-**Moves out of Index.tsx**:
-- State: `debugLogs`, `lastDurationMs`, `layoutError`, `isGenerating`, `softRejection`, `layoutMeta`, `v3Tuning`
-- The entire `regenerateCollage` function (lines 117-284) including dev capture logic
-- `latestRequestIdRef` for stale detection
-- `handleV3TuningChange`
-
-**Interface**:
-```typescript
-function useCollageGeneration(deps: {
-  photos: PhotoItem[];
-  settings: CollageSettingsType;
-  layout: CollageLayout | null;
-  setLayout: (layout: CollageLayout | null) => void;
-}) => {
-  // State for UI
-  isGenerating: boolean;
-  layoutError: string | null;
-  softRejection: { reason: string; details: Record<string, unknown> } | null;
-  layoutMeta: Record<string, unknown> | null;
-  debugLogs: LogEntry[];
-  lastDurationMs: number | undefined;
-  v3Tuning: V3Tuning;
-  // Callbacks
-  regenerateCollage: (options?: RegenerateOptions) => Promise<void>;
-  handleV3TuningChange: (key: keyof V3Tuning, value: number) => void;
-}
-```
-
-The `RegenerateOptions` interface moves into this hook file (or into `types/collage.ts`).
-
-## Hook 3: `useCollageExport`
-
-**File**: `src/hooks/useCollageExport.ts`
-
-**Moves out of Index.tsx**:
-- State: `isExporting`, `exportError`
-- The `handleExport` function (lines 613-638)
-
-**Interface**:
-```typescript
-function useCollageExport(deps: {
-  photos: PhotoItem[];
-  layout: CollageLayout | null;
-  settings: CollageSettingsType;
-}) => {
-  isExporting: boolean;
-  exportError: string | null;
-  handleExport: () => Promise<void>;
-}
-```
-
-## What stays in Index.tsx
-
-- `useCollageState` initialization (with recovery wiring)
-- `editingPhotoId` / `navigatorOpen` (pure UI state)
-- `fileInputRef` and `handleFileInputChange`
-- Thin handler wrappers that coordinate between hooks: `handlePhotosAdded`, `handleRemovePhoto`, `handleSaveCrop`, `handleToggleHero`, `handleUpdateSettings`, `handleSwapPhotos`, `handleCreateCollage`
-- All JSX
-
-## Risk Mitigation
-
-- No logic changes -- every line of code moves verbatim into hooks
-- Each hook is tested by the existing app behavior (upload photos, generate, export)
-- The `photosRef` pattern stays intact inside `useCollageGeneration` to avoid stale closures
-- The `processSmartCropsRef` recovery pattern is preserved in `useSmartCropProcessing`
-
-## Technical Details
-
-### Dependency Flow
-```text
-useCollageState (existing)
-    |
-    v
-useCollageGeneration (needs: photos, settings, layout, setLayout)
-    |
-    v
-useSmartCropProcessing (needs: photos, layout, updatePhoto, regenerateCollage)
-    |
-    v
-useCollageExport (needs: photos, layout, settings)
-```
-
-Hooks are initialized in this order in Index.tsx. `useSmartCropProcessing` receives `regenerateCollage` from `useCollageGeneration` -- this is safe because it only calls it inside callbacks (not during render).
-
-### File Count
-- 3 new files created
-- 1 file edited (Index.tsx shrinks from 875 to ~350 lines)
-- 0 files deleted
+- `src/lib/v3/types.ts`, `utils.ts`, `row-pack.ts`, `normalized-pack.ts`, `hero-constraints.ts`, `intersection.ts` -- all actively used by V4 engine
+- `src/lib/layoutUtils.ts` -- `reflowAfterSwap` used by Index.tsx
+- All production routes (`/`, `/help`) and their dependencies
 

@@ -23,7 +23,46 @@ import {
 import { packToFillHeight, packToFillWidth, calculateBelowRowCount } from './normalized-pack';
 import { findValidRegionAssignment } from './region-search';
 import { calculateContentStats } from './utils';
-import { proposePositions, validateProminence, findHeroPhoto, getContentPhotos } from './entities/hero';
+
+// ============================================================================
+// Hero utilities (inlined from deleted entities/hero.ts)
+// ============================================================================
+
+function findHeroPhoto(photos: PhotoDimension[]): PhotoDimension | null {
+  return photos.find(p => p.weight > 1) ?? null;
+}
+
+function getContentPhotos(photos: PhotoDimension[]): PhotoDimension[] {
+  return photos.filter(p => p.weight <= 1);
+}
+
+function proposePositions(
+  heroPhoto: PhotoDimension,
+  _contentStats: ReturnType<typeof calculateContentStats>,
+  _tuning: V3Tuning
+): NormalizedHeroProposal[] {
+  const heroWidth = heroPhoto.aspectRatio;
+  const heroHeight = 1.0;
+  return [{
+    rect: { x: 0, y: 0, width: heroWidth, height: heroHeight },
+    mode: 'corner',
+    position: 'top-left',
+  }];
+}
+
+function validateProminence(
+  heroArea: number,
+  contentAreas: number[],
+  tuning: V3Tuning
+): { valid: boolean; ratio: number } {
+  if (contentAreas.length === 0) return { valid: true, ratio: Infinity };
+  const sorted = [...contentAreas].sort((a, b) => b - a);
+  const topCount = Math.max(1, Math.ceil(sorted.length * tuning.hero_prominenceTopFraction));
+  const topAreas = sorted.slice(0, topCount);
+  const avgTopArea = topAreas.reduce((s, v) => s + v, 0) / topAreas.length;
+  const ratio = heroArea / avgTopArea;
+  return { valid: ratio >= tuning.hero_minProminence, ratio };
+}
 import { devLogger } from '@/lib/devLogger';
 
 // ============================================================================

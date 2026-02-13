@@ -15,7 +15,7 @@ import {
   generatePhotoSet, 
   TEST_PHOTO_COUNTS 
 } from './photoGenerator';
-import { coefficientOfVariation, shuffleArray } from '@/lib/layoutMath';
+import { coefficientOfVariation, shuffleArray } from '@/lib/v3/utils';
 
 /**
  * Convert a synthetic photo to the PhotoItem format expected by the layout algorithm.
@@ -137,7 +137,7 @@ function calculateMetrics(
  * Run a test case through the V3 layout algorithm and compute metrics.
  */
 export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
-  const { photos, shape, tuning } = testCase;
+  const { photos, shape } = testCase;
   
   // Convert synthetic photos to PhotoItems
   const photoItems = photos.map(syntheticToPhotoItem);
@@ -197,15 +197,6 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
 }
 
 /**
- * Pick a random minPhotosPerRow tuning value.
- * This forces different row structures even with similar inputs.
- */
-function randomMinPhotosPerRow(): number {
-  const options = [2, 3, 4];
-  return options[Math.floor(Math.random() * options.length)];
-}
-
-/**
  * Generate a batch of diverse test cases for rating.
  * Hero layouts always use 'auto' shape (matches app UX constraint).
  * Non-hero layouts test all available shapes for regression coverage.
@@ -241,8 +232,6 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
     for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {
       const heroCount = sampleHeroCount(photoCount);
       const orientationBias = (Math.random() - 0.5) * 1.2;
-      const tuning = { minPhotosPerRow: randomMinPhotosPerRow() };
-      
       if (heroCount > 0) {
         // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
         cases.push({
@@ -250,7 +239,6 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
           shape: 'auto',
           heroCount,
           orientationBias,
-          tuning,
         });
       } else {
         // No-hero layouts can test all available shapes
@@ -265,7 +253,6 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
           shape,
           heroCount: 0,
           orientationBias,
-          tuning,
         });
       }
     }

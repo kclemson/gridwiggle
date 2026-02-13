@@ -19,7 +19,7 @@ const BATCH_SIZE = 44;
  */
 export default function LayoutRating() {
   // Generate test cases on mount
-  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; heroCount: number; orientationBias: number; tuning?: { minPhotosPerRow?: number } }[]>([]);
+  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; heroCount: number; orientationBias: number }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<RatedLayout[]>([]);
   const [selectedTags, setSelectedTags] = useState<LayoutTag[]>([]);

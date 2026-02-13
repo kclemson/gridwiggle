@@ -82,7 +82,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroCount: 1,
     canvasAR: { min: 0.50, max: 0.85 },
     heroAreaFraction: { min: 0.15, max: 0.35 },
-    heroAR: { min: 1.2, max: 3.0 },
+    heroAR: { min: 1.8, max: 3.0 },
     positions: ['top', 'bottom'],
     description: 'Full-width hero row; landscape hero on portrait canvas',
   },

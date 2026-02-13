@@ -1,7 +1,7 @@
 /**
- * V3 Layout Test Page
+ * Layout Test Page
  * 
- * Dev-only page for rapid V3 algorithm iteration.
+ * Dev-only page for rapid layout algorithm iteration.
  * Uses synthetic photos (CSS rectangles) for fast testing.
  * Auto-captures layout metadata to localStorage on every shuffle.
  */
@@ -391,7 +391,7 @@ export default function LayoutTest() {
     if (count === 0) return;
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    downloadJson(data, `v3-captures-${timestamp}.json`);
+    downloadJson(data, `layout-captures-${timestamp}.json`);
     setCaptureStats(getCaptureStats());
   }, []);
   

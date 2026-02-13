@@ -55,7 +55,7 @@ export function DebugPanel({
     setStats({ total: 0, pending: 0, pendingSuccessCount: 0 });
   }, []);
 
-  // Export photo ARs to clipboard for V3Test import
+  // Export photo ARs to clipboard for LayoutTest import
   const handleExportARs = useCallback(() => {
     if (!photos || photos.length === 0) {
       toast.error('No photos to export');

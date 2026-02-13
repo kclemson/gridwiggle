@@ -171,7 +171,7 @@ export default function Index() {
     remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
     
     try {
-      // Always use V3 worker for layout generation
+      // Use worker for layout generation
       const result = await generateLayoutInWorker({
         dimensions,
         normalizedGap,

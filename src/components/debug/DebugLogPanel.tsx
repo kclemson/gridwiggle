@@ -2,7 +2,7 @@
  * Shared Debug Log Panel Component
  * 
  * Color-coded, monospace log display with efficiency badges.
- * Used by both V3Test and main app DebugPanel.
+ * Used by both LayoutTest and main app DebugPanel.
  */
 
 import { ScrollArea } from '@/components/ui/scroll-area';

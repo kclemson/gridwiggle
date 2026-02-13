@@ -1,103 +1,53 @@
 
 
-# Cleanup Pass 2: Verified Dead Code Removal
+# Fix: Derive Row Jitter from Geometry
 
-Every item below has been individually verified via import search. Zero production code paths are affected.
+## What changes
 
-## 1. Dead Application Components (3 files)
+**One formula replaces one tuning constant.** The fixed `row_arBudgetJitter = 0.6` (+-60%) becomes `effectiveJitter = 1.5 / avgPerRow`, plus a 2x max-row-size safety net.
 
-| File | Evidence |
-|---|---|
-| `src/components/PhotoGrid.tsx` | Zero importers. Replaced by `PhotoStrip`/`ThumbnailNavigator`. |
-| `src/components/common/ImageContainer.tsx` | Zero importers anywhere in codebase. |
-| `src/components/V3TuningSection.tsx` | Zero importers. Was used by `LayoutTest.tsx` but that import was removed in prior cleanup. |
+## Test matrix (current vs proposed)
 
-## 2. Dead Hook + Sidebar (2 files)
+```text
+Photos | Rows | Avg/Row | Current Jitter | Proposed Jitter | Current worst-case row sizes | Proposed worst-case row sizes
+-------+------+---------+----------------+-----------------+------------------------------+------------------------------
+  5    |  2   |  2.5    |  +-60%         |  +-60%          |  1 - 4                       |  1 - 4
+  6    |  2   |  3.0    |  +-60%         |  +-50%          |  1 - 5                       |  2 - 5
+  8    |  3   |  2.7    |  +-60%         |  +-56%          |  1 - 4                       |  1 - 4
+ 10    |  3   |  3.3    |  +-60%         |  +-45%          |  1 - 5                       |  2 - 5
+ 12    |  3   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
+ 14    |  4   |  3.5    |  +-60%         |  +-43%          |  1 - 6                       |  2 - 5
+ 16    |  4   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
+ 20    |  5   |  4.0    |  +-60%         |  +-38%          |  2 - 6                       |  2 - 6
+ 23    |  5   |  4.6    |  +-60%         |  +-33%          |  2 - 7                       |  3 - 6
+ 25    |  6   |  4.2    |  +-60%         |  +-36%          |  2 - 7                       |  3 - 6
+ 30    |  6   |  5.0    |  +-60%         |  +-30%          |  2 - 8                       |  4 - 7
+ 35    |  7   |  5.0    |  +-60%         |  +-30%          |  2 - 8                       |  4 - 7
+```
 
-| File | Evidence |
-|---|---|
-| `src/hooks/use-mobile.tsx` | Only imported by `sidebar.tsx`, which itself has zero importers. |
-| `src/components/ui/sidebar.tsx` | Zero importers in any application code. |
+Small collages (5-10 photos): Virtually no change -- organic variety preserved.
+Large collages (25-35 photos): Worst-case row range shrinks from [2-8] to [4-7]. The 4-vs-17 split becomes geometrically impossible.
 
-## 3. Dead Exports in `src/lib/imageUtils.ts` (edit)
+## Technical changes
 
-Remove 3 functions that have zero callers outside the file:
-- `getCroppedImageDataUrl` (lines 21-50)
-- `blobToDataUrl` (lines 53-64)
-- `dataUrlToBase64` (lines 66-77)
+### `src/lib/v3/types.ts`
+- Remove `row_arBudgetJitter` from `V3Tuning` interface and `DEFAULT_V3_TUNING`
 
-Keep: `generateId`, `loadImage`, `getImageDimensions`, `createDisplayPreview`.
+### `src/lib/v3/utils.ts` -- `distributeByARBudget`
+- Remove `const { row_arBudgetJitter: jitter } = tuning;`
+- Add derived jitter: `const effectiveJitter = 1.5 / avgPerRow;`
+- Add max-row-size guard: force row break when `currentRow.length >= Math.ceil(avgPerRow * 2)`
 
-## 4. Dead Export in `src/lib/v3/utils.ts` (edit)
-
-Remove `regionArea` function -- a `width * height` wrapper with zero callers.
-
-Update file header docstring from "V3 Layout Utilities" to "Layout Utilities -- Shared math functions for the layout engine."
-
-## 5. Unused Shadcn UI Components (28 files)
-
-Each verified to have zero importers in any live application file (some only imported by other dead files like `sidebar.tsx`):
-
-| File | Why it's dead |
-|---|---|
-| `accordion.tsx` | Zero importers |
-| `alert.tsx` | Zero importers |
-| `alert-dialog.tsx` | Zero importers |
-| `aspect-ratio.tsx` | Zero importers |
-| `avatar.tsx` | Zero importers |
-| `breadcrumb.tsx` | Zero importers |
-| `calendar.tsx` | Zero importers |
-| `carousel.tsx` | Zero importers |
-| `chart.tsx` | Zero importers |
-| `collapsible.tsx` | Only imported by dead `V3TuningSection.tsx` |
-| `command.tsx` | Zero importers |
-| `context-menu.tsx` | Zero importers |
-| `drawer.tsx` | Zero importers |
-| `dropdown-menu.tsx` | Zero importers |
-| `form.tsx` | Zero importers |
-| `input.tsx` | Only imported by dead `V3TuningSection.tsx` and dead `sidebar.tsx` |
-| `input-otp.tsx` | Zero importers |
-| `menubar.tsx` | Zero importers |
-| `navigation-menu.tsx` | Zero importers |
-| `pagination.tsx` | Zero importers |
-| `popover.tsx` | Zero importers |
-| `radio-group.tsx` | Zero importers |
-| `resizable.tsx` | Zero importers |
-| `separator.tsx` | Only imported by dead `sidebar.tsx` |
-| `sheet.tsx` | Only imported by dead `sidebar.tsx` |
-| `table.tsx` | Zero importers |
-| `tabs.tsx` | Zero importers |
-| `toast.tsx` | Zero importers |
-| `toggle.tsx` | Only imported by dead `toggle-group.tsx` |
-| `toggle-group.tsx` | Zero importers |
-
-Note: the following UI components are **kept** because they have live importers:
-- `button.tsx` (17 files)
-- `badge.tsx` (4 files)
-- `card.tsx` (HeroFractionRating)
-- `checkbox.tsx` (TagCheckboxes)
-- `dialog.tsx` (CropEditor)
-- `hover-card.tsx` (DebugLogPanel)
-- `label.tsx` (CropEditor, TagCheckboxes)
-- `progress.tsx` (HeroFractionRating, LayoutRating)
-- `scroll-area.tsx` (ThumbnailNavigator, DebugLogPanel)
-- `select.tsx` (LayoutTest, HeroFractionRating)
-- `skeleton.tsx` (ThumbnailNavigator)
-- `slider.tsx` (CollageSettings)
-- `switch.tsx` (CropEditor)
-- `textarea.tsx` (HeroFractionRating)
-- `tooltip.tsx` (App.tsx)
+### Any other files referencing `row_arBudgetJitter`
+- Search and remove (likely just the tuning defaults and possibly LayoutTest UI)
 
 ## Summary
 
-| Action | Count | Lines removed (approx) |
-|---|---|---|
-| Delete application components | 3 | ~260 |
-| Delete hook + sidebar | 2 | ~730 |
-| Delete UI boilerplate | 28 | ~3,000 |
-| Edit `imageUtils.ts` | 1 | ~57 |
-| Edit `v3/utils.ts` | 1 | ~8 |
-| **Total** | **35 files deleted, 2 edited** | **~4,050 lines** |
+| File | Change |
+|---|---|
+| `src/lib/v3/types.ts` | Remove `row_arBudgetJitter` from interface + defaults |
+| `src/lib/v3/utils.ts` | Derived jitter formula + max-row guard |
+| Other references | Remove dead tuning knob references |
 
-All 28 UI components can be re-added in seconds via `npx shadcn-ui@latest add [component]` if ever needed.
+3 lines removed, ~6 lines added. Net: fewer tuning knobs, better behavior at scale.
 

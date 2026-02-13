@@ -89,7 +89,7 @@ async function generateLayoutSync(
   payload: LayoutGenerationPayload
 ): Promise<LayoutGenerationResult> {
   // Dynamic import to avoid bundling issues
-  const { generateCollageLayoutV3 } = await import('@/lib/v3');
+  const { generateCollageLayoutV4 } = await import('@/lib/v4');
   
   const startTime = performance.now();
   
@@ -113,7 +113,7 @@ async function generateLayoutSync(
     photoWeights[d.id] = d.weight;
   }
   
-  const layout = generateCollageLayoutV3(
+  const result = generateCollageLayoutV4(
     mockPhotos,
     { shape: 'auto', gapColor: '#ffffff', gapSize: payload.normalizedGap * 100 / 0.04, exportScale: 1 },
     { photoWeights, randomize: payload.randomize, tuning: payload.tuning }
@@ -121,10 +121,20 @@ async function generateLayoutSync(
   
   const durationMs = performance.now() - startTime;
   
+  if (!result) {
+    // V4 returned null — create a minimal fallback layout
+    return {
+      layout: { width: 0, height: 0, cells: [] },
+      durationMs,
+      usedWorker: false,
+    };
+  }
+  
   return {
-    layout,
+    layout: result.layout,
     durationMs,
     usedWorker: false,
+    layoutMeta: result.layoutMeta,
   };
 }
 

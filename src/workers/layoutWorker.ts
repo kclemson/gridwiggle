@@ -727,14 +727,15 @@ function generateDualHeroCandidates(
         const besideWidth0 = region0.result?.width ?? 0;
         const heroRow1Width = wH1 + (r0Count > 0 ? normalizedGap + besideWidth0 : 0);
         
-        // Region 1: middle band
-        const targetMiddleHeight = topology.regions[1].softDimension;
+        // Region 1: middle band — same codepath as hero-less packing.
+        // Don't constrain to leftover height — let the packer choose rows
+        // based on photo count and width, then height follows naturally.
         const r1TargetRows = r1Count > 0
-          ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, Math.max(0.01, targetMiddleHeight))
+          ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, heroRow1Width / r1MeanAR)
           : 0;
         let region1: PackableRegion = {
           constraint: 'width', targetDimension: heroRow1Width,
-          targetSoftDimension: targetMiddleHeight > 0.01 ? targetMiddleHeight : undefined,
+          // No targetSoftDimension — height is unconstrained, just like hero-less
           photos: r1Photos, targetRowCount: r1TargetRows,
           offset: topology.regions[1].offset, result: null,
         };

@@ -1,42 +1,37 @@
 
-# Clean Up Template / Boilerplate Code
+
+# Clean Up Code Quality Issues
 
 ## What Changes
 
-Remove files and code left over from Lovable's starter template that have no role in GridWiggle. This makes the repo clean and purposeful before syncing to GitHub.
+Fix four items that look sloppy to anyone browsing the repo.
 
-## Items to Remove
+## 1. Delete placeholder test -- `src/test/example.test.ts`
 
-### 1. `src/App.css` -- Vite starter CSS (dead file)
-This is the default Vite/React template stylesheet (`.logo`, `.logo-spin`, `.read-the-docs`). Nothing imports it. Delete the entire file.
+The `expect(true).toBe(true)` test is pure scaffolding. The project has real tests in `src/test/layout/` and `src/test/CroppedImage.test.tsx`. Delete this file entirely.
 
-### 2. `public/placeholder.svg` -- Lovable default placeholder image (dead file)
-The generic image placeholder SVG. Nothing references it. Delete.
+## 2. Remove duplicate postMessage -- `src/workers/visionWorker.ts`
 
-### 3. `src/components/NavLink.tsx` -- Unused wrapper component (dead file)
-A NavLink compatibility wrapper that nothing imports. Delete.
+Lines 141-142 send the exact same "Inference done" message twice. Remove the duplicate (line 142).
 
-### 4. `README.md` -- Replace Lovable boilerplate with project README
-Currently contains generic Lovable instructions with `REPLACE_WITH_PROJECT_ID` placeholders. Replace with a short GridWiggle-specific README (project name, one-line description, tech stack, dev instructions).
+## 3. Fix `as any[]` cast -- `src/services/layoutGenerationService.ts`
 
-### 5. `src/App.tsx` line 44 -- Remove template comment
-The comment `{/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}` is Lovable scaffolding. Remove it.
+Line 108 casts to `as any[]` to satisfy the `PhotoItem[]` type. Add the missing `smartCropAttempted` field to the stub object so it properly satisfies `PhotoItem` without the cast.
 
-## Items Reviewed and Kept
+## 4. Brand the 404 page -- `src/pages/NotFound.tsx`
 
-| File | Verdict |
-|---|---|
-| `index.html` | Already customized for GridWiggle (title, OG tags, favicon) -- keep as-is |
-| `src/index.css` | Fully customized dark theme -- keep |
-| `src/main.tsx` | Minimal, no boilerplate -- keep |
-| `src/pages/NotFound.tsx` | Functional 404 page -- keep |
-| `src/pages/Help.tsx` | Real content -- keep |
-| `public/robots.txt` | Fine as-is -- keep |
-| `src/lib/utils.ts` | Standard `cn()` utility -- keep |
-| shadcn/ui components | All in `src/components/ui/` -- keep (they're real dependencies) |
+- Remove unused `useLocation` import
+- Add GridWiggle branding (matching the header style from Help page)
+- Keep it minimal but consistent with the app's look
 
 ## Technical Details
 
-- **Files deleted:** `src/App.css`, `public/placeholder.svg`, `src/components/NavLink.tsx`
-- **Files edited:** `README.md` (full rewrite), `src/App.tsx` (remove one comment line)
-- No functional changes to the app
+| File | Change |
+|---|---|
+| `src/test/example.test.ts` | Delete |
+| `src/workers/visionWorker.ts` | Remove duplicate line 142 |
+| `src/services/layoutGenerationService.ts` | Add `smartCropAttempted: false` to stub, remove `as any[]` |
+| `src/pages/NotFound.tsx` | Remove unused import, add GridWiggle branding, dark background |
+
+No functional changes to the app.
+

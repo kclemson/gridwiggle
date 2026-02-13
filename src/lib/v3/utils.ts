@@ -177,12 +177,15 @@ export function distributeByARBudget(
   const avgPerRow = n / targetRowCount;
   const minPerRow = Math.max(2, Math.floor(avgPerRow * 0.7));
   
-  // Step 3: Greedy pack with jitter
+  // Step 3: Greedy pack with jitter + look-ahead guard
   const rows: PhotoDimension[][] = [];
   let currentRow: PhotoDimension[] = [];
   let currentAR = 0;
+  let consumed = 0; // total photos placed in finalized rows
   
-  for (const photo of photos) {
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    
     // Calculate jittered target for this decision point
     // Only apply jitter when randomizing for variety
     const jitterMultiplier = randomize 
@@ -193,9 +196,16 @@ export function distributeByARBudget(
     // Should we start a new row?
     // Only if: row has minimum photos AND current AR has reached jittered budget
     if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
-      rows.push(currentRow);
-      currentRow = [];
-      currentAR = 0;
+      const rowsStillNeeded = targetRowCount - rows.length - 1; // excluding this row
+      const photosLeft = n - consumed - currentRow.length;       // not yet in any row
+      
+      // Look-ahead guard: only break if remaining photos can fill remaining rows
+      if (rowsStillNeeded <= 0 || photosLeft >= rowsStillNeeded * minPerRow) {
+        rows.push(currentRow);
+        consumed += currentRow.length;
+        currentRow = [];
+        currentAR = 0;
+      }
     }
     
     // Add photo to current row

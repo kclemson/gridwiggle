@@ -8,7 +8,9 @@ Auto-layout photo collage maker. Upload photos, pick a hero, and get a beautiful
 
 - **Auto-layout** — constraint-based packing produces balanced, beautiful grids automatically
 - **Hero photos** — mark one or two photos as heroes for visual prominence
-- **AI smart crop** — on-device vision model detects faces and subjects for optimal cropping
+- **AI smart crop** — detects people/faces and crops to keep them visible; skips cropping for non-person photos
+  - Desktop: on-device DETR model via Web Worker (Hugging Face Transformers.js)
+  - Mobile: server-side Gemini Flash vision (edge function) to avoid Safari ONNX crashes
 - **Shuffle** — regenerate layouts instantly for variety
 - **Export** — download high-resolution PNG collages
 
@@ -17,7 +19,7 @@ Auto-layout photo collage maker. Upload photos, pick a hero, and get a beautiful
 - React + TypeScript + Vite
 - Tailwind CSS + shadcn/ui
 - Web Worker for non-blocking layout generation
-- On-device vision model (Hugging Face Transformers.js)
+- On-device vision model (Hugging Face Transformers.js) + server-side Gemini Flash fallback
 
 ## How It Works
 

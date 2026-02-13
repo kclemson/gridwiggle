@@ -57,7 +57,7 @@ export function V3TuningSection({ tuning, onTuningChange, heroPct }: V3TuningSec
       <CollapsibleTrigger className="flex items-center justify-between w-full px-3 py-1.5 hover:bg-muted/50 transition-colors">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Settings2 className="h-3.5 w-3.5" />
-          <span>V3 Tuning</span>
+          <span>Layout Tuning</span>
         </div>
         <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isOpen ? '' : '-rotate-90'}`} />
       </CollapsibleTrigger>

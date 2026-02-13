@@ -21,7 +21,7 @@ import {
   SavedPhotoSet,
 } from '@/test/layout/photoGenerator';
 import { generateCollageLayoutV4 } from '@/lib/v4/index';
-import { getLastRejectedLayout, clearRejectedLayout } from '@/lib/v3/intersection';
+import { getLastRejectedLayout, clearRejectedLayout } from '@/lib/v3/rejected-layout-store';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { 
   saveCapture, 

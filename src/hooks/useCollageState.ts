@@ -391,17 +391,6 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
     });
   }, [debouncedSaveMetadata]);
 
-  const updateLayoutCells = useCallback((cells: CollageLayout['cells']) => {
-    setState((prev) => {
-      const next = {
-        ...prev,
-        layout: prev.layout ? { ...prev.layout, cells } : null,
-      };
-      debouncedSaveMetadata(next);
-      return next;
-    });
-  }, [debouncedSaveMetadata]);
-
   const clearAll = useCallback(async () => {
     // Revoke all Object URLs (original, preview, thumbnail)
     state.photos.forEach((p) => {
@@ -435,7 +424,6 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
     updatePhoto,
     updateSettings,
     setLayout,
-    updateLayoutCells,
     clearAll,
   };
 }

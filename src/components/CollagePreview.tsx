@@ -137,7 +137,7 @@ export function CollagePreview({
   onCellClick,
   onToggleHero,
 }: CollagePreviewProps) {
-  const collageRef = useRef<HTMLDivElement>(null); // Kept for potential future use (e.g., exporting)
+  
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
@@ -286,7 +286,7 @@ export function CollagePreview({
     >
       {/* CSS handles responsive scaling via max-width and aspect-ratio */}
       <div
-        ref={collageRef}
+        
         className="relative mx-auto"
         style={{
           maxWidth: effectiveMaxWidth,

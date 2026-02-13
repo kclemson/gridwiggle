@@ -5,8 +5,8 @@
  * SIMPLIFIED: Removed effective threshold functions and row merging.
  */
 
-import { PhotoDimension, ContentStats, V3Tuning } from './types';
-import { devLogger } from '@/lib/devLogger';
+import { PhotoDimension, V3Tuning } from './types';
+
 
 // ============================================================================
 // Statistical Functions
@@ -41,23 +41,6 @@ export function coefficientOfVariation(values: number[]): number {
   return Math.sqrt(v) / avg;
 }
 
-/**
- * Calculate content statistics from photo dimensions.
- */
-export function calculateContentStats(photos: PhotoDimension[]): ContentStats {
-  if (photos.length === 0) {
-    return { count: 0, meanAR: 1, arVariance: 0 };
-  }
-  
-  const aspectRatios = photos.map(p => p.aspectRatio);
-  
-  return {
-    count: photos.length,
-    meanAR: mean(aspectRatios),
-    arVariance: variance(aspectRatios),
-  };
-}
-
 // ============================================================================
 // Geometry Functions
 // ============================================================================
@@ -67,46 +50,6 @@ export function calculateContentStats(photos: PhotoDimension[]): ContentStats {
  */
 export function regionArea(width: number, height: number): number {
   return width * height;
-}
-
-/**
- * Estimate typical content photo area given canvas width and content stats.
- * 
- * This is derived from geometry:
- * - If we pack photos in rows to fill canvas width
- * - Row height = canvasWidth / (photosPerRow * avgAR)
- * - Photo area ≈ rowHeight² * avgAR
- * 
- * We estimate photosPerRow from the region width and a target cell width.
- */
-export function estimateContentPhotoArea(
-  canvasWidth: number,
-  gap: number,
-  contentStats: ContentStats
-): number {
-  // Estimate ~3-4 photos per row as typical
-  const estPhotosPerRow = 3.5;
-  const availableWidth = canvasWidth - (estPhotosPerRow - 1) * gap;
-  const cellWidth = availableWidth / estPhotosPerRow;
-  const cellHeight = cellWidth / contentStats.meanAR;
-  
-  return cellWidth * cellHeight;
-}
-
-// ============================================================================
-// Validation Functions
-// ============================================================================
-
-/**
- * Check if a region meets minimum viability requirements.
- */
-export function isRegionViable(
-  width: number,
-  height: number,
-  minWidth: number,
-  minHeight: number
-): boolean {
-  return width >= minWidth && height >= minHeight;
 }
 
 // ============================================================================
@@ -422,34 +365,3 @@ export function deriveTargetRowCount(
   return clamped;
 }
 
-// ============================================================================
-// Simplified Distribution (replaced stratified sampling)
-// ============================================================================
-
-/**
- * Distribute photos to two regions using simple slice.
- * 
- * SIMPLIFIED: Previous stratified sampling enforced proportional AR representation,
- * which created "sameness". Now just slice - the input order (shuffled or sorted)
- * determines which photos go where. Let randomization create variety.
- * 
- * @param photos - All content photos (should already be ordered/shuffled)
- * @param besideCount - Target number for BESIDE region
- * @param _randomize - Unused (kept for API compatibility)
- * @returns [besidePhotos, belowPhotos]
- */
-export function stratifiedARDistribution(
-  photos: PhotoDimension[],
-  besideCount: number,
-  _randomize: boolean
-): [PhotoDimension[], PhotoDimension[]] {
-  // Edge cases
-  if (besideCount <= 0) return [[], photos];
-  if (besideCount >= photos.length) return [photos, []];
-  
-  // Simple slice - input order determines distribution
-  const beside = photos.slice(0, besideCount);
-  const below = photos.slice(besideCount);
-  
-  return [beside, below];
-}

@@ -26,7 +26,7 @@ import {
   saveCapture, 
   extractReasonFrequencies,
   getLastRejection,
-} from '@/lib/v3CaptureStorage';
+} from '@/lib/captureStorage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { 

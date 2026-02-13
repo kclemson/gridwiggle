@@ -1,4 +1,4 @@
-import { generateCollageLayoutV3 } from '@/lib/v3';
+import { generateCollageLayoutV4 } from '@/lib/v4/index';
 import { 
   CollageSettings, 
   PhotoItem, 
@@ -150,10 +150,10 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
   }
   
-  // Build V3 tuning with test case overrides (currently no direct mapping)
+  // Build tuning with test case overrides
   const v3Tuning: Partial<V3Tuning> = {};
   
-  // Run the V3 layout algorithm
+  // Run the V4 layout algorithm
   const settings: CollageSettings = {
     shape,
     gapColor: '#000000',
@@ -161,13 +161,15 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     exportScale: 1,
   };
   
-  const layout = generateCollageLayoutV3(photoItems, settings, {
+  const result = generateCollageLayoutV4(photoItems, settings, {
     photoWeights,
     randomize: false, // Deterministic for testing
     tuning: v3Tuning,
   });
   
-  // Handle null layouts (V3 returns null on failure)
+  const layout = result?.layout ?? null;
+  
+  // Handle null layouts
   if (!layout) {
     return {
       testCase,

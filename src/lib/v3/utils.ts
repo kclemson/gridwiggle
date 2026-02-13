@@ -200,7 +200,8 @@ export function distributeByARBudget(
       const photosLeft = n - consumed - currentRow.length;       // not yet in any row
       
       // Look-ahead guard: only break if remaining photos can fill remaining rows
-      if (rowsStillNeeded <= 0 || photosLeft >= rowsStillNeeded * minPerRow) {
+      const minPerRemainingRow = Math.max(minPerRow, Math.ceil(currentRow.length * 0.5));
+      if (rowsStillNeeded <= 0 || photosLeft >= rowsStillNeeded * minPerRemainingRow) {
         rows.push(currentRow);
         consumed += currentRow.length;
         currentRow = [];

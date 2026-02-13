@@ -2,7 +2,7 @@
  * Capture Controls Component
  * 
  * Displays pending capture count with success rate, plus export/reset buttons.
- * Used by both V3Test header and DebugPanel.
+ * Used by both LayoutTest header and DebugPanel.
  */
 
 import { Badge } from '@/components/ui/badge';

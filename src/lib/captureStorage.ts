@@ -1,7 +1,7 @@
 /**
- * V3 Layout Capture Storage
+ * Layout Capture Storage
  * 
- * Manages localStorage persistence for V3 layout generation metadata.
+ * Manages localStorage persistence for layout generation metadata.
  * Captures are saved on every shuffle for later bulk analysis.
  */
 

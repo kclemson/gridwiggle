@@ -2,7 +2,7 @@
  * RejectionBadge Component
  * 
  * Displays rejection reason and detailed metrics for failed layouts.
- * Used in V3Test to visualize why a layout was rejected.
+ * Used in LayoutTest to visualize why a layout was rejected.
  */
 
 import { AlertTriangle } from 'lucide-react';

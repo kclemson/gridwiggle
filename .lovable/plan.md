@@ -1,91 +1,82 @@
 
 
-# Speed Up Smart Crop Processing Pipeline
+# Fix: Server Smart Crop Should Only Crop When a Person Is Detected
 
-## Current Bottleneck
+## The Problem
 
-Each photo goes through 3 phases sequentially, and no work starts on photo N+1 until photo N is completely done:
+The desktop DETR path has an explicit person-detection gate: `skipCrop = !hasPerson`. The server edge function prompt tells Gemini to crop around "main subjects" which includes everything -- dogs, Legos, text documents, UI screenshots. It always returns a crop and never signals `skipCrop`.
 
-```text
-Photo 1: [dims+preview 80ms] [inference 2000ms] [update]
-Photo 2:                                                  [dims+preview 80ms] [inference 2000ms] [update]
-Photo 3:                                                                                                  [dims+preview 80ms] ...
+## The Fix
 
-Total for 32 photos: ~32 x 2.1s = ~67 seconds
-```
+Two changes to `supabase/functions/smart-crop/index.ts`:
 
-## Proposed: Two-Stage Pipeline
+### 1. Update the system prompt to match DETR behavior
 
-Split the loop into a **producer** (prepares previews) that runs ahead of a **consumer** (runs inference). The preview for photo N+1 is created while inference runs on photo N:
+Replace the current system prompt with one that explicitly gates on person/face detection:
 
-```text
-Photo 1: [dims+preview] [inference ~~~~~~~~]
-Photo 2:                 [dims+preview] wait [inference ~~~~~~~~]
-Photo 3:                                      [dims+preview] wait [inference ~~~~~~~~]
+- Tell Gemini to first determine if there are **people or faces** in the image
+- If yes: return the optimal crop region focusing on the people
+- If no: return a special response indicating no crop should be applied (e.g., `"skipCrop": true`)
+- Add `skipCrop` boolean to the required JSON response format
 
-Total for 32 photos: ~80ms + 32 x 2.0s = ~64s (minor gain on desktop)
-```
+### 2. Pass `skipCrop` through the response
 
-The preview overlap saves ~80ms per photo (~2.5s total for 32 photos on desktop). Small but free.
+The edge function currently only returns `{ crop, confidence, subjects }`. Add `skipCrop` to the response so the client can respect it. The client (`serverSmartCropService.ts`) currently hardcodes `skipCrop: false` -- update it to use the server's value.
 
-### The Big Win: Server-Side Parallelism (Mobile)
+## Technical Details
 
-On mobile, inference goes to the edge function (HTTP call). These are **completely independent** -- no shared worker, no memory constraint. We can run 3 concurrently:
+### `supabase/functions/smart-crop/index.ts`
+
+Update the system prompt to:
 
 ```text
-Current (mobile, sequential):
-Photo 1: [resize+upload 200ms] [server inference 1500ms]
-Photo 2:                                                  [resize+upload 200ms] [server inference 1500ms]
-...
-Total for 32 photos: ~32 x 1.7s = ~54 seconds
+You are an image analyzer that detects PEOPLE and FACES.
 
-Proposed (mobile, 3-concurrent):
-Batch 1: [photo 1] [photo 2] [photo 3]  -- all in parallel
-Batch 2: [photo 4] [photo 5] [photo 6]  -- all in parallel
-...
-Total for 32 photos: ~11 batches x 1.7s = ~19 seconds (2.8x faster)
+Your task:
+1. Determine if there are any people or human faces in the image
+2. If YES: return a crop region that keeps all people/faces visible with breathing room
+3. If NO: set skipCrop to true -- do NOT crop non-person subjects
+
+You must respond with ONLY a JSON object:
+{
+  "x": <percentage from left edge>,
+  "y": <percentage from top edge>,
+  "width": <percentage of image width>,
+  "height": <percentage of image height>,
+  "confidence": <0-1>,
+  "subjects": "<what you see>",
+  "skipCrop": <true if no people/faces detected, false if people found>
+}
 ```
 
-## Technical Changes
+Update the response handling to pass through the `skipCrop` field from the AI response, defaulting to `false` for backwards compatibility. Include it in the returned JSON alongside `crop`, `confidence`, and `subjects`.
 
-### 1. `src/hooks/useSmartCropProcessing.ts` -- Add preview pipelining
+### `src/services/serverSmartCropService.ts`
 
-Replace the single `for` loop with a two-stage approach:
-- **Stage 1 (lookahead)**: Kick off `getImageDimensions` + `createDisplayPreview` for the next photo while inference is running on the current one. Use a simple "prefetch one ahead" pattern with a Promise that's awaited when needed.
-- **Stage 2 (inference)**: Same as today, but consumes pre-computed dimensions/previews instead of computing them inline.
+Change the hardcoded `skipCrop: false` to use the server's returned value:
 
-This keeps the sequential GC-pause-between-photos pattern intact (important for iOS memory) while overlapping CPU work with inference wait time.
-
-### 2. `src/services/smartCropService.ts` -- Add concurrent server path
-
-Add a new export `getSmartCropBatch` that:
-- Takes an array of photo inputs
-- On mobile (server path): runs up to 3 `getServerSmartCrop` calls concurrently using a simple semaphore
-- On desktop (worker path): falls back to sequential (single worker constraint)
-- Yields results via a callback as each completes (for progress updates)
-
-### 3. `src/hooks/useSmartCropProcessing.ts` -- Use batch for mobile
-
-When `isMobileDevice()` is true, switch from the sequential loop to the batch API. Progress dots update as each result arrives. The GC delay is inserted between result callbacks.
-
-## Impact Summary
-
-| Platform | Current (32 photos) | Proposed (32 photos) | Speedup |
-|---|---|---|---|
-| Desktop (worker) | ~67s | ~64s | ~1.05x (preview overlap only) |
-| Mobile (server) | ~54s | ~19s | ~2.8x (3-concurrent) |
-
-Desktop gains are modest because the worker is the true bottleneck and can't be parallelized (ONNX memory). Mobile gains are significant because server calls are stateless and independent.
+```typescript
+return {
+  crop,
+  confidence: confidence ?? 0.7,
+  subjects: subjects ?? 'server analysis',
+  skipCrop: data.skipCrop ?? false,  // was: skipCrop: false
+};
+```
 
 ## Files Changed
 
 | File | Change |
 |---|---|
-| `src/hooks/useSmartCropProcessing.ts` | Preview pipelining (lookahead), mobile batch path |
-| `src/services/smartCropService.ts` | Add `getSmartCropBatch` with concurrency control for server path |
+| `supabase/functions/smart-crop/index.ts` | Person-gated system prompt + pass `skipCrop` in response |
+| `src/services/serverSmartCropService.ts` | Use server's `skipCrop` value instead of hardcoded `false` |
 
-## Risk
+## Expected Behavior After Fix
 
-- Desktop: Near-zero risk, just reorders existing work
-- Mobile: Concurrent server calls could hit edge function rate limits. The 3-concurrency cap is conservative and well within typical limits. Fail-forward still applies per-photo.
+| Image content | Desktop (DETR) | Mobile (Server) Current | Mobile (Server) Fixed |
+|---|---|---|---|
+| Person photo | Crops to person | Crops to person | Crops to person (same) |
+| Dog photo | skipCrop=true | Crops to dog | skipCrop=true (matches desktop) |
+| Screenshot/text | skipCrop=true | Crops to content | skipCrop=true (matches desktop) |
+| Landscape | skipCrop=true | Crops to "subject" | skipCrop=true (matches desktop) |
 

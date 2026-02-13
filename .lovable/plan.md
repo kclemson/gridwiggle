@@ -1,33 +1,50 @@
 
 
-# Fix: Two-Pass Visual Flicker on Mobile Upload
+# Pre-Publish Cleanup
 
-## The Problem
+## 1. `.gitignore` -- Add missing entries
 
-On mobile, the processing pipeline has two sequential phases that both update the "currently processing" indicator, causing the progress dots to cycle through all photos twice:
+Add `.env` and `.lovable/` to prevent Supabase credentials and internal planning notes from being committed.
 
-1. **Preview preparation** (fast, ~80ms/photo): Creates thumbnails and loads dimensions. Updates `currentlyProcessingId` for each photo.
-2. **Batch inference** (slow, ~1.7s/photo): Sends to server for smart crop analysis. Updates `currentlyProcessingId` again for each photo.
-
-Users see the highlight zip through all thumbnails quickly, then restart and crawl through them a second time.
-
-## The Fix
-
-Stop updating `currentlyProcessingId` during the preview preparation loop (phase 1). Only update it during the inference phase (phase 2), which is the meaningful progress the user cares about.
-
-## Technical Change
-
-### `src/hooks/useSmartCropProcessing.ts`
-
-Remove the `setCurrentlyProcessingId(photo.id)` call from the preview preparation loop (line 95). The inference callback (line 115) already sets it correctly.
-
-```typescript
-// Current (line 94-95):
-for (const photo of photosToProcess) {
-  setCurrentlyProcessingId(photo.id);  // <-- remove this line
-  try {
-    const { width, height } = await preparePhoto(photo);
+```
+.env
+.lovable/
 ```
 
-One line removed. The progress indicator will only advance as inference results come back, giving users a single smooth pass through the thumbnails.
+## 2. Edge function parse-failure fallback should skip crop
+
+In `supabase/functions/smart-crop/index.ts` lines 133-142, when Gemini returns unparseable JSON, the fallback creates an 80% center crop with no `skipCrop` field. This means a garbled response on a dog photo still produces a crop. Change the fallback to:
+
+```typescript
+cropData = {
+  x: 0,
+  y: 0,
+  width: 100,
+  height: 100,
+  confidence: 0,
+  subjects: "Unable to analyze",
+  skipCrop: true,
+};
+```
+
+This matches the fail-safe philosophy: when in doubt, don't crop.
+
+## 3. Stale JSDoc in `serverSmartCropService.ts`
+
+Update the doc comment (lines 71-76) from "detect subjects" to "detect people/faces", matching the actual behavior after the prompt change.
+
+## 4. README update
+
+Update the "AI smart crop" bullet and Tech Stack to mention the dual-path architecture:
+- Desktop: on-device DETR model via Web Worker
+- Mobile: server-side Gemini Flash vision (edge function)
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `.gitignore` | Add `.env` and `.lovable/` |
+| `supabase/functions/smart-crop/index.ts` | Parse-failure fallback uses `skipCrop: true` |
+| `src/services/serverSmartCropService.ts` | Update JSDoc comment |
+| `README.md` | Mention server-side smart crop path for mobile |
 

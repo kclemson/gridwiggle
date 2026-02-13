@@ -1,61 +1,103 @@
 
 
-# GitHub-Ready Code Cleanup
+# Cleanup Pass 2: Verified Dead Code Removal
 
-## The Real Architecture
+Every item below has been individually verified via import search. Zero production code paths are affected.
 
-The **V4 engine** (`src/lib/v4/engine.ts`) is the production layout engine. It imports shared primitives from `src/lib/v3/` -- these are foundational math/packing modules, not a separate engine. The old V3 *orchestrator* (`intersection.ts`, `region-search.ts`) has been fully replaced by V4 but was never cleaned up.
+## 1. Dead Application Components (3 files)
 
-## Tier 1: Dead Code Removal (~1,050 lines)
+| File | Evidence |
+|---|---|
+| `src/components/PhotoGrid.tsx` | Zero importers. Replaced by `PhotoStrip`/`ThumbnailNavigator`. |
+| `src/components/common/ImageContainer.tsx` | Zero importers anywhere in codebase. |
+| `src/components/V3TuningSection.tsx` | Zero importers. Was used by `LayoutTest.tsx` but that import was removed in prior cleanup. |
 
-### 1.1 Delete `src/lib/v3/intersection.ts` (578 lines)
-The old V3 orchestrator. Its main export `findValidConfiguration` has zero callers. Only `LayoutTest.tsx` imports two tiny helper functions from it (`getLastRejectedLayout`, `clearRejectedLayout`).
+## 2. Dead Hook + Sidebar (2 files)
 
-**Fix**: Extract those 2 functions (10 lines) into a new `src/lib/v3/rejected-layout-store.ts`, then delete `intersection.ts`.
+| File | Evidence |
+|---|---|
+| `src/hooks/use-mobile.tsx` | Only imported by `sidebar.tsx`, which itself has zero importers. |
+| `src/components/ui/sidebar.tsx` | Zero importers in any application code. |
 
-### 1.2 Delete `src/lib/v3/region-search.ts` (473 lines)
-Only imported by `intersection.ts`. Zero external consumers.
+## 3. Dead Exports in `src/lib/imageUtils.ts` (edit)
 
-### 1.3 Remove dead exports from `src/lib/v3/utils.ts`
-These functions are only called by the files being deleted above -- V4 never uses them:
-- `stratifiedARDistribution` (only caller: `region-search.ts`)
-- `calculateContentStats` (only caller: `intersection.ts`)
-- `estimateContentPhotoArea` (only caller: `intersection.ts`)
-- `isRegionViable` (only caller: `intersection.ts`)
+Remove 3 functions that have zero callers outside the file:
+- `getCroppedImageDataUrl` (lines 21-50)
+- `blobToDataUrl` (lines 53-64)
+- `dataUrlToBase64` (lines 66-77)
 
-The following stay because V4 and/or `row-pack.ts` use them: `mean`, `variance`, `coefficientOfVariation`, `shuffleArray`, `distributeByARBudget`, `deriveRegionCounts`, `deriveRegionCountsThreeWay`, `sampleCanvasARValues`, `sampleAreaFractions`, `deriveTargetRowCount`, `randomInt`, `regionArea`.
+Keep: `generateId`, `loadImage`, `getImageDimensions`, `createDisplayPreview`.
 
-### 1.4 Remove dead export from `src/hooks/useCollageState.ts`
-`updateLayoutCells` is defined and exported but never imported anywhere.
+## 4. Dead Export in `src/lib/v3/utils.ts` (edit)
 
-### 1.5 Remove dead ref from `src/components/CollagePreview.tsx`
-`collageRef` with "Kept for potential future use" comment -- classic YAGNI.
+Remove `regionArea` function -- a `width * height` wrapper with zero callers.
 
-### 1.6 Rename "V3 Tuning" label in `src/components/V3TuningSection.tsx`
-Change `<span>V3 Tuning</span>` to `<span>Layout Tuning</span>`. This label is visible in the dev debug panel.
+Update file header docstring from "V3 Layout Utilities" to "Layout Utilities -- Shared math functions for the layout engine."
 
-## Tier 2: Naming Cleanup (mechanical rename, separate pass)
+## 5. Unused Shadcn UI Components (28 files)
 
-Rename `src/lib/v3/` to `src/lib/layout/` and update all imports. This is a large but purely mechanical change -- every file that imports from `@/lib/v3/...` switches to `@/lib/layout/...`. No logic changes.
+Each verified to have zero importers in any live application file (some only imported by other dead files like `sidebar.tsx`):
 
-Affected import sites (~15 files): `v4/engine.ts`, `v4/index.ts`, `useCollageGeneration.ts`, `layoutGenerationService.ts`, `V3TuningSection.tsx`, `DebugPanel.tsx`, `layoutWorker.ts`, `LayoutTest.tsx`, `layoutAdapter.ts`, `types.ts` (test), `deriveRegionCounts.test.ts`, `heroFractionGenerator.ts`, `CollageSettings.tsx`, `Index.tsx`, `LayoutRating.tsx`.
+| File | Why it's dead |
+|---|---|
+| `accordion.tsx` | Zero importers |
+| `alert.tsx` | Zero importers |
+| `alert-dialog.tsx` | Zero importers |
+| `aspect-ratio.tsx` | Zero importers |
+| `avatar.tsx` | Zero importers |
+| `breadcrumb.tsx` | Zero importers |
+| `calendar.tsx` | Zero importers |
+| `carousel.tsx` | Zero importers |
+| `chart.tsx` | Zero importers |
+| `collapsible.tsx` | Only imported by dead `V3TuningSection.tsx` |
+| `command.tsx` | Zero importers |
+| `context-menu.tsx` | Zero importers |
+| `drawer.tsx` | Zero importers |
+| `dropdown-menu.tsx` | Zero importers |
+| `form.tsx` | Zero importers |
+| `input.tsx` | Only imported by dead `V3TuningSection.tsx` and dead `sidebar.tsx` |
+| `input-otp.tsx` | Zero importers |
+| `menubar.tsx` | Zero importers |
+| `navigation-menu.tsx` | Zero importers |
+| `pagination.tsx` | Zero importers |
+| `popover.tsx` | Zero importers |
+| `radio-group.tsx` | Zero importers |
+| `resizable.tsx` | Zero importers |
+| `separator.tsx` | Only imported by dead `sidebar.tsx` |
+| `sheet.tsx` | Only imported by dead `sidebar.tsx` |
+| `table.tsx` | Zero importers |
+| `tabs.tsx` | Zero importers |
+| `toast.tsx` | Zero importers |
+| `toggle.tsx` | Only imported by dead `toggle-group.tsx` |
+| `toggle-group.tsx` | Zero importers |
 
-Optionally also rename `V3Tuning` to `LayoutTuning` and `v3Tuning` to `layoutTuning` across hooks and components.
+Note: the following UI components are **kept** because they have live importers:
+- `button.tsx` (17 files)
+- `badge.tsx` (4 files)
+- `card.tsx` (HeroFractionRating)
+- `checkbox.tsx` (TagCheckboxes)
+- `dialog.tsx` (CropEditor)
+- `hover-card.tsx` (DebugLogPanel)
+- `label.tsx` (CropEditor, TagCheckboxes)
+- `progress.tsx` (HeroFractionRating, LayoutRating)
+- `scroll-area.tsx` (ThumbnailNavigator, DebugLogPanel)
+- `select.tsx` (LayoutTest, HeroFractionRating)
+- `skeleton.tsx` (ThumbnailNavigator)
+- `slider.tsx` (CollageSettings)
+- `switch.tsx` (CropEditor)
+- `textarea.tsx` (HeroFractionRating)
+- `tooltip.tsx` (App.tsx)
 
 ## Summary
 
-| Action | File | Lines removed |
+| Action | Count | Lines removed (approx) |
 |---|---|---|
-| Delete | `src/lib/v3/intersection.ts` | 578 |
-| Delete | `src/lib/v3/region-search.ts` | 473 |
-| Create | `src/lib/v3/rejected-layout-store.ts` | +10 |
-| Edit | `src/lib/v3/utils.ts` | ~55 (4 dead functions) |
-| Edit | `src/hooks/useCollageState.ts` | ~15 (1 dead function) |
-| Edit | `src/components/CollagePreview.tsx` | ~3 (dead ref) |
-| Edit | `src/components/V3TuningSection.tsx` | 1 (label text) |
-| Edit | `src/pages/LayoutTest.tsx` | 1 (import path) |
+| Delete application components | 3 | ~260 |
+| Delete hook + sidebar | 2 | ~730 |
+| Delete UI boilerplate | 28 | ~3,000 |
+| Edit `imageUtils.ts` | 1 | ~57 |
+| Edit `v3/utils.ts` | 1 | ~8 |
+| **Total** | **35 files deleted, 2 edited** | **~4,050 lines** |
 
-**Net reduction**: ~1,100 lines of dead code removed.
-
-I'd recommend doing Tier 1 now and Tier 2 (the directory rename) as a follow-up, since they're independent and Tier 1 is the high-signal cleanup.
+All 28 UI components can be re-added in seconds via `npx shadcn-ui@latest add [component]` if ever needed.
 

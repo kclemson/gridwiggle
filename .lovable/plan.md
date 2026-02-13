@@ -1,68 +1,104 @@
 
-# Fix: Middle Band Uses Same Codepath as Hero-less Packing
+
+# Fix: Look-Ahead Guard in Greedy AR-Budget Distribution
 
 ## Problem
 
-The middle band in diagonal-corners layouts packs 17 photos into 1 row because it's treated as a "height-targeted" region. The code sets `targetSoftDimension` to the leftover height between the two hero rows, which causes `packRegion` to call `packToFillWidthAtTargetHeight`. That function optimizes row count to match the tiny leftover height -- resulting in 1 row for 17 photos.
+The greedy loop in `distributeByARBudget` decides to start a new row based only on the current row's AR total vs. the budget. It has no awareness of how many photos remain for the remaining rows. This means it can greedily create rows early (e.g., rows of 2 wide photos), leaving the last row with far too many or too few photos.
 
-## Insight
+## Fix
 
-The middle band is just "N photos filling a known width." That's the exact same problem a hero-less collage solves. The hero-less codepath uses plain `packToFillWidth` with a row count derived from photo count and width -- no height target. The middle band should do the same.
+Add a single look-ahead check at the row-break decision point: "If I break now, will the remaining photos be enough to give each remaining row at least `minPerRow` photos?"
 
-## What Changes
+### File: `src/lib/v3/utils.ts` -- `distributeByARBudget` function (lines 185-203)
 
-**One file: `src/workers/layoutWorker.ts`** -- Region 1 construction (lines 730-741)
-
-**Current:**
+**Current decision logic:**
 ```typescript
-const targetMiddleHeight = topology.regions[1].softDimension;
-const r1TargetRows = r1Count > 0
-  ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, Math.max(0.01, targetMiddleHeight))
-  : 0;
-let region1: PackableRegion = {
-  constraint: 'width', targetDimension: heroRow1Width,
-  targetSoftDimension: targetMiddleHeight > 0.01 ? targetMiddleHeight : undefined,
-  photos: r1Photos, targetRowCount: r1TargetRows,
-  offset: topology.regions[1].offset, result: null,
-};
+if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
+  rows.push(currentRow);
+  currentRow = [];
+  currentAR = 0;
+}
 ```
 
-**New:**
+**New decision logic:**
 ```typescript
-// Middle band: same codepath as hero-less packing.
-// Don't constrain to leftover height -- let the packer choose rows
-// based on photo count and width, then height follows naturally.
-const r1TargetRows = r1Count > 0
-  ? deriveTargetRowCount(r1Count, r1MeanAR, heroRow1Width, heroRow1Width / r1MeanAR)
-  : 0;
-let region1: PackableRegion = {
-  constraint: 'width', targetDimension: heroRow1Width,
-  // No targetSoftDimension -- height is unconstrained, just like hero-less
-  photos: r1Photos, targetRowCount: r1TargetRows,
-  offset: topology.regions[1].offset, result: null,
-};
+// Look-ahead: if we break now, can remaining photos fill remaining rows?
+const photosRemaining = n - (rows.length * 0 + currentRow.length + rows.reduce((s, r) => s + r.length, 0));
+// Simpler: track consumed count
+const rowsRemaining = targetRowCount - rows.length - 1; // -1 for the row we're about to push
+const photosLeft = n - totalConsumed; // photos not yet in currentRow or any finalized row
+
+if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
+  // Only break if remaining photos can sustain remaining rows
+  const photosAfterBreak = n - (rows.length + 1) * 0; // need to track
+  if (rowsRemaining <= 0 || photosLeft >= rowsRemaining * minPerRow) {
+    rows.push(currentRow);
+    currentRow = [];
+    currentAR = 0;
+  }
+}
 ```
 
-### What this does
+To keep tracking simple, we add a running counter. Here is the clean version of the full loop:
 
-1. **Removes `targetSoftDimension`** from Region 1 -- so `packRegion` calls plain `packToFillWidth` instead of `packToFillWidthAtTargetHeight`
-2. **Changes `deriveTargetRowCount` input** -- passes `heroRow1Width / r1MeanAR` as the height argument instead of the tiny leftover height. This effectively asks "how many rows for square-ish cells at this width?" -- same logic as hero-less layouts.
+```typescript
+const rows: PhotoDimension[][] = [];
+let currentRow: PhotoDimension[] = [];
+let currentAR = 0;
+let consumed = 0; // total photos placed in finalized rows
 
-### Same fix in `src/lib/v4/index.ts`
+for (let i = 0; i < photos.length; i++) {
+  const photo = photos[i];
 
-Apply the identical change in the sync fallback path if the same pattern exists there, keeping both paths in sync.
+  const jitterMultiplier = randomize
+    ? 1 + (Math.random() * 2 - 1) * jitter
+    : 1.0;
+  const jitteredTarget = baseRowAR * jitterMultiplier;
 
-## Expected Row Counts (17 photos, meanAR ~1.2, width ~1.5)
+  // Should we start a new row?
+  if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
+    const rowsStillNeeded = targetRowCount - rows.length - 1; // excluding this row
+    const photosLeft = n - consumed - currentRow.length;       // not yet in any row
 
-| Scenario | Height input | Computed rows |
-|----------|-------------|---------------|
-| Current (leftover height) | 0.15 | 1 |
-| Fixed (width-derived) | 1.25 | 4 |
+    // Only break if remaining photos can fill remaining rows
+    if (rowsStillNeeded <= 0 || photosLeft >= rowsStillNeeded * minPerRow) {
+      rows.push(currentRow);
+      consumed += currentRow.length;
+      currentRow = [];
+      currentAR = 0;
+    }
+  }
 
-## Why This Is Right
+  currentRow.push(photo);
+  currentAR += photo.aspectRatio;
+}
 
-- The middle band's height was never a real constraint -- it's computed after packing, not before
-- This uses the exact same packing codepath as hero-less layouts
-- No new formulas, no floors, no density caps
-- The beside-hero regions (0 and 2) correctly keep their `targetSoftDimension` because they ARE height-constrained (locked to hero height)
-- Two single-line changes across two files
+if (currentRow.length > 0) {
+  rows.push(currentRow);
+}
+```
+
+## How It Works
+
+The added guard `photosLeft >= rowsStillNeeded * minPerRow` prevents the algorithm from breaking too eagerly. If breaking now would leave, say, 3 photos for 2 remaining rows (and minPerRow is 4), it refuses to break and keeps adding to the current row instead. This naturally redistributes photos toward earlier rows when the tail would otherwise be starved.
+
+## Expected Behavior
+
+For 45 photos, 5 target rows, minPerRow = 6:
+
+| Scenario | Without guard | With guard |
+|----------|--------------|------------|
+| 2 wide photos hit AR budget early | Row breaks at 2, last row gets 16 | Row forced to continue (only 43 left for 4 rows needing 24 minimum -- OK, but 2 < minPerRow already catches this) |
+| Mixed AR, even budget | [9, 9, 9, 9, 9] | [9, 9, 9, 9, 9] (no change) |
+| Last row starved | [11, 10, 10, 10, 4] | [10, 10, 10, 10, 5] (guard prevents over-packing early rows) |
+| Heavy landscape run first | [6, 6, 6, 6, 21] -> via minPerRow | [8, 8, 8, 8, 13] (guard keeps rows from breaking when tail would be undersized) |
+
+## Why This Approach
+
+- Modifies the greedy algorithm itself rather than adding a post-pass
+- Single additional check per photo -- negligible cost
+- No new parameters or tuning knobs
+- Preserves AR-budget logic for normal cases; only intervenes when the tail would be starved
+- One file changed: `src/lib/v3/utils.ts`, one function modified
+

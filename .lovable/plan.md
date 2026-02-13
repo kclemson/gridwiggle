@@ -1,76 +1,32 @@
 
 
-# Open-Source Cleanup and README
+# Clean Up Remaining V3 References
+
+Update comments and strings that still reference "V3" to reflect the current engine naming.
 
 ## Changes
 
-### 1. `.gitignore` updates
+### 1. `src/pages/Index.tsx` (line 174)
+- Change comment `// Always use V3 worker for layout generation` to `// Use worker for layout generation`
 
-Add two entries:
-- `.env` -- prevent backend keys from being pushed
-- `.lovable/` -- keep internal AI notes local-only
+### 2. `src/pages/LayoutTest.tsx`
+- Update docstring (lines 1-6): "V3 Layout Test Page" / "rapid V3 algorithm iteration" to "Layout Test Page" / "rapid layout algorithm iteration"
+- Update export filename (line 394): `v3-captures-${timestamp}.json` to `layout-captures-${timestamp}.json`
 
-### 2. Delete dead V3 entry point
+### 3. `src/lib/captureStorage.ts` (lines 1-5)
+- Update docstring: "V3 Layout Capture Storage" / "V3 layout generation metadata" to "Layout Capture Storage" / "layout generation metadata"
 
-Delete `src/lib/v3/index.ts`. Its only consumer is `layoutAdapter.ts`, which will be switched to V4.
+### 4. `src/components/debug/CaptureControls.tsx` (line 5)
+- Change `Used by both V3Test header and DebugPanel` to `Used by both LayoutTest header and DebugPanel`
 
-### 3. Update `src/test/layout/layoutAdapter.ts`
+### 5. `src/components/debug/DebugLogPanel.tsx` (line 5)
+- Change `Used by both V3Test and main app DebugPanel` to `Used by both LayoutTest and main app DebugPanel`
 
-Switch from `generateCollageLayoutV3` to `generateCollageLayoutV4` (from `@/lib/v4`). Adapt the options object shape to match V4's API.
+### 6. `src/components/debug/RejectionBadge.tsx` (line 5)
+- Change `Used in V3Test to visualize` to `Used in LayoutTest to visualize`
 
-### 4. Rename capture storage (remove "V3" branding)
+### 7. `src/components/DebugPanel.tsx` (line 58)
+- Change comment `// Export photo ARs to clipboard for V3Test import` to `// Export photo ARs to clipboard for LayoutTest import`
 
-Rename `src/lib/v3CaptureStorage.ts` to `src/lib/captureStorage.ts`. Inside the file:
-- `V3LayoutCapture` becomes `LayoutCapture`
-- `V3CaptureStore` becomes `CaptureStore`
-- localStorage key `v3-layout-captures` becomes `layout-captures`
-- Add migration: on load, check for old key, copy data to new key, delete old key
-
-Update all importers:
-- `src/pages/V3Test.tsx`
-- `src/pages/Index.tsx`
-- `src/components/DebugPanel.tsx`
-- `src/components/debug/DebugLogPanel.tsx`
-- `src/components/debug/CaptureControls.tsx`
-
-### 5. Rename V3Test page
-
-- Rename `src/pages/V3Test.tsx` to `src/pages/LayoutTest.tsx`
-- Update page title from "V3 Layout Test" to "Layout Test"
-- Update route and import in `src/App.tsx` (route changes from `/v3-test` to `/layout-test`)
-
-### 6. Rewrite README.md
-
-New README with:
-- Project name and one-line description
-- Screenshot thumbnail using `![GridWiggle screenshot](./public/og-image.png)`
-- Features list (auto-layout, hero photos, smart crop, shuffle, export)
-- Tech stack (React, TypeScript, Vite, Tailwind, shadcn/ui)
-- Brief architecture note (V4 layout engine, Web Worker, constraint-based packing)
-- Dev setup instructions (`npm i && npm run dev`)
-- MIT license note
-
-### 7. What stays as-is
-
-- `.lovable/plan.md` -- kept locally, gitignored
-- `src/lib/v3/` directory (types, utils, packing primitives) -- actively used by V4
-- `src/components/V3TuningSection.tsx` -- references `V3Tuning` type, cosmetic rename not worth the churn
-- Dev-only pages (LayoutRating, HeroFractionRating) -- good open-source dev tooling
-- `remoteLogger.ts` -- production logging, fine to keep
-
-## File summary
-
-| File | Action |
-|---|---|
-| `.gitignore` | Add `.env` and `.lovable/` |
-| `src/lib/v3/index.ts` | Delete |
-| `src/lib/v3CaptureStorage.ts` | Rename to `src/lib/captureStorage.ts`, rename types |
-| `src/pages/V3Test.tsx` | Rename to `src/pages/LayoutTest.tsx` |
-| `src/test/layout/layoutAdapter.ts` | Switch V3 import to V4 |
-| `src/App.tsx` | Update LayoutTest import and route |
-| `src/pages/Index.tsx` | Update captureStorage import |
-| `src/components/DebugPanel.tsx` | Update captureStorage import |
-| `src/components/debug/DebugLogPanel.tsx` | Update captureStorage import |
-| `src/components/debug/CaptureControls.tsx` | Update captureStorage import |
-| `README.md` | Full rewrite with screenshot |
+All changes are comment/string-only -- no logic changes, no risk of breakage.
 

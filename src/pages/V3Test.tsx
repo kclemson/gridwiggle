@@ -149,6 +149,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     shape: 'auto',
     gapColor: '#ffffff',
     gapSize: GAP_SIZE,
+    exportScale: 1,
   };
   
   // Build photo weights (hero = priority 1 gets weight 2)

@@ -30,6 +30,7 @@ const defaultSettings: CollageSettings = {
   shape: 'auto',
   gapColor: '#000000',
   gapSize: 30,
+  exportScale: 1,
 };
 
 const defaultState: CollageState = {

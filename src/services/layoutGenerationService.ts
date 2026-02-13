@@ -114,7 +114,7 @@ async function generateLayoutSync(
   
   const layout = generateCollageLayoutV3(
     mockPhotos,
-    { shape: 'auto', gapColor: '#ffffff', gapSize: payload.normalizedGap * 100 / 0.04 },
+    { shape: 'auto', gapColor: '#ffffff', gapSize: payload.normalizedGap * 100 / 0.04, exportScale: 1 },
     { photoWeights, randomize: payload.randomize, tuning: payload.tuning }
   );
   

@@ -99,8 +99,6 @@ export function distributeByARBudget(
   if (n === 1) return [[photos[0]]];
   if (targetRowCount <= 1) return [photos];
   
-  const { row_arBudgetJitter: jitter } = tuning;
-  
   // Step 1: Calculate AR budget per row
   const totalAR = photos.reduce((sum, p) => sum + p.aspectRatio, 0);
   const baseRowAR = totalAR / targetRowCount;
@@ -109,6 +107,11 @@ export function distributeByARBudget(
   // 0.7× average ensures jitter can't create jarring count imbalances (e.g. 6,2,5)
   const avgPerRow = n / targetRowCount;
   const minPerRow = Math.max(2, Math.floor(avgPerRow * 0.7));
+  const maxPerRow = Math.ceil(avgPerRow * 2);
+  
+  // Derive jitter from geometry: target +-1.5 photos of wiggle room per row
+  // At 2.5 avg/row → +-60%, at 5.0 avg/row → +-30%. No tuning constant needed.
+  const effectiveJitter = 1.5 / avgPerRow;
   
   // Step 3: Greedy pack with jitter + look-ahead guard
   const rows: PhotoDimension[][] = [];
@@ -122,12 +125,20 @@ export function distributeByARBudget(
     // Calculate jittered target for this decision point
     // Only apply jitter when randomizing for variety
     const jitterMultiplier = randomize 
-      ? 1 + (Math.random() * 2 - 1) * jitter  // random in [1-jitter, 1+jitter]
-      : 1.0;  // No jitter when deterministic
+      ? 1 + (Math.random() * 2 - 1) * effectiveJitter
+      : 1.0;
     const jitteredTarget = baseRowAR * jitterMultiplier;
     
     // Should we start a new row?
     // Only if: row has minimum photos AND current AR has reached jittered budget
+    // Max-row-size guard: no row exceeds 2x average (catches edge cases)
+    if (currentRow.length >= maxPerRow) {
+      rows.push(currentRow);
+      consumed += currentRow.length;
+      currentRow = [];
+      currentAR = 0;
+    }
+    
     if (currentRow.length >= minPerRow && currentAR >= jitteredTarget) {
       const rowsStillNeeded = targetRowCount - rows.length - 1; // excluding this row
       const photosLeft = n - consumed - currentRow.length;       // not yet in any row

@@ -37,10 +37,6 @@ export interface V3Tuning {
   /** Maximum canvas aspect ratio (most landscape allowed), e.g. 2.25 = 9:4 */
   canvas_maxAR: number;
   
-  // === Row Distribution ===
-  /** AR budget jitter for organic variation (0.6 = +/- 60%) */
-  row_arBudgetJitter: number;
-  
   // === Prominence Calculation ===
   /** Top fraction of content photos used for prominence comparison (0.25 = top 25%) */
   hero_prominenceTopFraction: number;
@@ -58,7 +54,7 @@ export const DEFAULT_V3_TUNING: V3Tuning = {
   row_flexPercent: 0.10,
   canvas_minAR: 0.5,
   canvas_maxAR: 2.25,
-  row_arBudgetJitter: 0.6,
+  
   hero_prominenceTopFraction: 0.25,
   tier_baseSpreadLimit: 15,
 };

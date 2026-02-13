@@ -1,20 +1,35 @@
 
 
-# Reduce PNG Export Scale to 1x
+# Fix PNG Export Scale
 
-## What Changes
+## The Problem
 
-Downloaded collage PNGs will be smaller -- roughly 1000px wide instead of ~2000-4000px. This makes files lighter and faster to share. We can always bump it back up if the quality isn't sufficient.
+The default `scale` parameter in `exportCollageAsPng` is `1`, but the call site in `src/pages/Index.tsx` (line 625) hardcodes `2`:
 
-## Change
-
-**File:** `src/lib/exportCollage.ts`
-
-In the `exportCollageAsPng` function, change the default `scale` parameter from `2` to `1`:
-
+```typescript
+const blob = await exportCollageAsPng(
+  state.photos,
+  state.layout,
+  state.settings.gapColor,
+  2  // <-- overrides the default
+);
 ```
-scale: number = 2  -->  scale: number = 1
+
+That is why the exported PNG is ~3384px wide (the layout width x2) despite the function default being 1.
+
+## Fix
+
+**File:** `src/pages/Index.tsx`, line 625
+
+Remove the hardcoded `2` so the function uses its default scale of `1`:
+
+```typescript
+const blob = await exportCollageAsPng(
+  state.photos,
+  state.layout,
+  state.settings.gapColor
+);
 ```
 
-Single line change, line ~10.
+One-line change.
 

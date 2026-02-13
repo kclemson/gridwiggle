@@ -92,7 +92,6 @@ export function useSmartCropProcessing(deps: {
       // Prepare previews sequentially (memory-safe on mobile)
       const batchInputs: SmartCropInput[] = [];
       for (const photo of photosToProcess) {
-        setCurrentlyProcessingId(photo.id);
         try {
           const { width, height } = await preparePhoto(photo);
           batchInputs.push({ id: photo.id, objectUrl: photo.objectUrl, blob: photo.blob, width, height });

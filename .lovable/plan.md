@@ -1,31 +1,42 @@
 
-# Add Portfolio Footer
+# Clean Up Template / Boilerplate Code
 
-## What Users See
+## What Changes
 
-A subtle footer below the settings row showing "made by kcloadletter.com" as a centered link, matching the muted style from the reference image. Clicking it opens the portfolio site in a new tab without stripping the HTTP referrer.
+Remove files and code left over from Lovable's starter template that have no role in GridWiggle. This makes the repo clean and purposeful before syncing to GitHub.
 
-## Technical Changes
+## Items to Remove
 
-### File: `src/pages/Index.tsx`
+### 1. `src/App.css` -- Vite starter CSS (dead file)
+This is the default Vite/React template stylesheet (`.logo`, `.logo-spin`, `.read-the-docs`). Nothing imports it. Delete the entire file.
 
-Add a footer element after the `</main>` closing tag (around line 833), before the crop editor conditional block:
+### 2. `public/placeholder.svg` -- Lovable default placeholder image (dead file)
+The generic image placeholder SVG. Nothing references it. Delete.
 
-```html
-<footer className="py-4 text-center">
-  <a
-    href="https://kcloadletter.com"
-    target="_blank"
-    rel="noopener"
-    className="text-sm text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-  >
-    made by kcloadletter.com
-  </a>
-</footer>
-```
+### 3. `src/components/NavLink.tsx` -- Unused wrapper component (dead file)
+A NavLink compatibility wrapper that nothing imports. Delete.
 
-Key detail: uses `rel="noopener"` only -- deliberately omits `noreferrer` so the destination site receives the HTTP Referer header. This ensures your analytics can see traffic coming from GridWiggle.
+### 4. `README.md` -- Replace Lovable boilerplate with project README
+Currently contains generic Lovable instructions with `REPLACE_WITH_PROJECT_ID` placeholders. Replace with a short GridWiggle-specific README (project name, one-line description, tech stack, dev instructions).
 
-### No other files changed
+### 5. `src/App.tsx` line 44 -- Remove template comment
+The comment `{/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}` is Lovable scaffolding. Remove it.
 
-Single insertion, no new components or dependencies.
+## Items Reviewed and Kept
+
+| File | Verdict |
+|---|---|
+| `index.html` | Already customized for GridWiggle (title, OG tags, favicon) -- keep as-is |
+| `src/index.css` | Fully customized dark theme -- keep |
+| `src/main.tsx` | Minimal, no boilerplate -- keep |
+| `src/pages/NotFound.tsx` | Functional 404 page -- keep |
+| `src/pages/Help.tsx` | Real content -- keep |
+| `public/robots.txt` | Fine as-is -- keep |
+| `src/lib/utils.ts` | Standard `cn()` utility -- keep |
+| shadcn/ui components | All in `src/components/ui/` -- keep (they're real dependencies) |
+
+## Technical Details
+
+- **Files deleted:** `src/App.css`, `public/placeholder.svg`, `src/components/NavLink.tsx`
+- **Files edited:** `README.md` (full rewrite), `src/App.tsx` (remove one comment line)
+- No functional changes to the app

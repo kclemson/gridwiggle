@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
+import { SampleGallery } from '@/components/SampleGallery';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { isMobileDevice } from '@/lib/platform';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
@@ -404,6 +405,8 @@ export default function Index() {
           </a>
         </footer>
       </div>
+
+      {state.photos.length === 0 && <SampleGallery />}
 
       {/* Crop Editor - Conditional rendering so component unmounts on close */}
       {editingPhotoId && editingPhoto && (

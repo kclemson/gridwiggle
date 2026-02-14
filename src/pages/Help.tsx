@@ -23,24 +23,14 @@ const Help = () => {
         <main className="py-6 px-4 space-y-6">
           <h2 className="text-xl font-semibold text-foreground">How It Works</h2>
           <ul className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-            <li>
-              Create a great-looking photo collage in seconds — just upload your photos and hit shuffle.
-            </li>
-            <li>
-              Upload as many photos as you like. There's no limit.
-            </li>
-            <li>
-              Photos with people are automatically cropped to keep faces in frame. You can fine-tune the crop on any photo by tapping it.
-            </li>
-            <li>
-              Mark one or two photos as a "hero" using the star icon to give them extra prominence in the layout.
-            </li>
-            <li>
-              Tap the shuffle button to generate a new layout. Keep going until you find one you love.
-            </li>
-            <li>
-              When you're happy, tap download to save your collage as a PNG.
-            </li>
+            <li>Upload your photos and a collage is generated automatically. Tap shuffle to try a new layout.</li>
+            <li>Photos with people are automatically cropped to keep faces in frame. Tap any photo to fine-tune its crop or remove it.</li>
+            <li>Mark one or two photos as a "hero" using the star icon to give them extra prominence in the layout.</li>
+            <li>Drag photos in the collage to swap their positions.</li>
+            <li>With 10 or more photos, use the shape slider to push the collage toward portrait, square, or landscape.</li>
+            <li>Adjust spacing, colors, and other settings below the collage.</li>
+            <li>Tap the download button to save your collage as a high-resolution PNG.</li>
+            <li>Your photos and collage are saved locally in your browser so you can pick up where you left off.</li>
           </ul>
         </main>
       </div>

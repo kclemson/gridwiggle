@@ -70,6 +70,9 @@ export function useCollageGeneration(deps: {
   // Track shuffle count per session for telemetry
   const shuffleCountRef = useRef(0);
 
+  // Track last-logged photo count to deduplicate telemetry
+  const lastLoggedCountRef = useRef(0);
+
   const regenerateCollage = useCallback(async (options: RegenerateOptions = {}) => {
     const {
       photos: optPhotos = photosRef.current,
@@ -230,7 +233,8 @@ export function useCollageGeneration(deps: {
           count: dimensions.length,
           shuffleNum: shuffleCountRef.current,
         });
-      } else {
+      } else if (dimensions.length !== lastLoggedCountRef.current) {
+        lastLoggedCountRef.current = dimensions.length;
         remoteLogger.info('telemetry', 'photos', {
           count: dimensions.length,
           aspectRatios: dimensions.map(d => +d.aspectRatio.toFixed(2)),

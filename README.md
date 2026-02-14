@@ -1,6 +1,6 @@
 # GridWiggle
 
-Auto-layout photo collage maker. Upload photos, pick a hero, and get a beautiful grid collage — no manual arranging needed.
+Auto-layout photo collage maker. Upload photos, photos with people in them are auto-cropped, pick a photo or two to feature, and get a beautifully laid out grid collage — no manual arranging needed.
 
 ![GridWiggle screenshot](./public/og-image.png)
 

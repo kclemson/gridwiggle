@@ -18,7 +18,7 @@
  * - Only numeric data (photo counts, aspect ratios) and event categories
  *
  * LOG FORMAT:
- *   [s:<6-char session prefix>] YY-MM-DD HH:MM:SS <event> | <details>
+ *   [s:<6-char session prefix>] MMM DD, h:MM:SS AM/PM <event> | <details>
  *
  * EXPECTED EVENTS (category=telemetry):
  *   session   — app loaded, includes platform (mobile/desktop)
@@ -55,17 +55,18 @@ interface LogPayload {
 }
 
 /**
- * Format a timestamp as "YY-MM-DD HH:MM:SS" for compact, scannable output.
+ * Format a timestamp as "MMM DD, h:MM:SS AM/PM" in Pacific Time.
  */
 function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  const yy = String(d.getFullYear()).slice(2);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${yy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+  return new Date(ts).toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'short',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
 }
 
 /**

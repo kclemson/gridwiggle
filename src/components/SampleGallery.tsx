@@ -43,11 +43,7 @@ export function SampleGallery() {
   // All 4 items stay in DOM; featured gets col-span-2 row-span-2
   return (
     <div className="w-full max-w-md mx-auto mt-6 px-4">
-      <p className="text-sm text-muted-foreground text-center mb-3">
-        See what's possible
-      </p>
-
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-6">
         {samples.map((src, i) => {
           const isFeatured = i === featuredIndex;
           return (
@@ -55,7 +51,7 @@ export function SampleGallery() {
               key={i}
               onClick={() => openLightbox(i)}
               className={`
-                aspect-square overflow-hidden relative
+                overflow-hidden relative
                 transition-transform duration-500 ease-in-out
                 ${isFeatured ? 'scale-110 z-10' : 'scale-100'}
               `}

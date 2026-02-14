@@ -82,8 +82,10 @@ function formatTelemetryLog(prefix: string, ts: string, log: LogEntry): string {
   const count = data.count !== undefined ? `:${data.count}` : '';
 
   switch (log.message) {
-    case 'session':
-      return `${prefix} ${ts} session | ${data.platform ?? 'unknown'}`;
+    case 'session': {
+      const devTag = data.isDev ? ' [DEV]' : '';
+      return `${prefix} ${ts} session | ${data.platform ?? 'unknown'}${devTag}`;
+    }
 
     case 'photos': {
       const ars = Array.isArray(data.aspectRatios)

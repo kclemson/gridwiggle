@@ -97,7 +97,7 @@ function formatTelemetryLog(prefix: string, ts: string, log: LogEntry): string {
       return `${prefix} ${ts} shuffle${count} | #${data.shuffleNum ?? '?'}`;
 
     case 'export':
-      return `${prefix} ${ts} export${count}`;
+      return `${prefix} ${ts} export collage with ${data.count ?? '?'} photos`;
 
     default:
       // Unknown telemetry event — print raw data as fallback

@@ -3,7 +3,6 @@ import { Upload, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { generateId } from '@/lib/imageUtils';
 import { PhotoItem } from '@/types/collage';
-import { SampleGallery } from '@/components/SampleGallery';
 
 interface PhotoUploaderProps {
   onPhotosAdded: (photos: PhotoItem[]) => void;
@@ -101,7 +100,6 @@ export function PhotoUploader({ onPhotosAdded, hasPhotos }: PhotoUploaderProps) 
           </div>
         </div>
       </button>
-      <SampleGallery />
     </div>
   );
 }

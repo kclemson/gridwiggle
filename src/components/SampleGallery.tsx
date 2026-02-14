@@ -52,7 +52,7 @@ export function SampleGallery() {
   // Build grid order: featured takes position 0, others fill 1-3
   // All 4 items stay in DOM; featured gets col-span-2 row-span-2
   return (
-    <div className="w-full mt-6 px-4">
+    <div className="w-full mt-6 px-2">
       <div className="flex items-center justify-center gap-6">
         {samples.map((src, i) => {
           const isFeatured = i === featuredIndex;

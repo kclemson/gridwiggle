@@ -38,10 +38,13 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
         />
       </div>
 
-      <div className={cn(
-        "flex items-center justify-center gap-1.5",
-        shapeDisabled && "opacity-40 pointer-events-none"
-      )}>
+      <div
+        className={cn(
+          "flex items-center justify-center gap-1.5",
+          shapeDisabled && "opacity-40"
+        )}
+        title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
+      >
         <ShapeIndicator position={displayPosition} />
         <Slider
           value={[displayPosition]}

@@ -9,12 +9,11 @@ import {
 } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 
-import sample1 from '@/assets/samples/sample-collage-1.png';
 import sample2 from '@/assets/samples/sample-collage-2.png';
 import sample3 from '@/assets/samples/sample-collage-3.png';
 import sample4 from '@/assets/samples/sample-collage-4.png';
 
-const samples = [sample1, sample2, sample3, sample4];
+const samples = [sample2, sample3, sample4];
 
 export function SampleGallery() {
   const [featuredIndex, setFeaturedIndex] = useState(0);
@@ -38,6 +37,17 @@ export function SampleGallery() {
       i !== null ? (i + dir + samples.length) % samples.length : null
     );
   }, []);
+
+  // Keyboard navigation for lightbox
+  useEffect(() => {
+    if (selectedIndex === null) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') navigate(-1);
+      else if (e.key === 'ArrowRight') navigate(1);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [selectedIndex, navigate]);
 
   // Build grid order: featured takes position 0, others fill 1-3
   // All 4 items stay in DOM; featured gets col-span-2 row-span-2

@@ -16,7 +16,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { 
@@ -105,11 +105,15 @@ export default function Index() {
   // ---- Handlers ----
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
+    const remainingPhotos = state.photos.filter(p => p.id !== photoId);
+    // Reset shape constraint if dropping below threshold
+    if (remainingPhotos.length < MIN_PHOTOS_FOR_SHAPE_SLIDER && state.settings.shapeSlider !== null) {
+      updateSettings({ shapeSlider: null });
+    }
     if (state.layout) {
-      const remainingPhotos = state.photos.filter(p => p.id !== photoId);
       regenerateCollage({ photos: remainingPhotos });
     }
-  }, [removePhoto, state.layout, state.photos, regenerateCollage]);
+  }, [removePhoto, state.layout, state.photos, state.settings.shapeSlider, updateSettings, regenerateCollage]);
 
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
@@ -356,6 +360,7 @@ export default function Index() {
                     <CollageSettings
                       settings={state.settings}
                       layout={state.layout}
+                      photoCount={state.photos.length}
                       onUpdate={handleUpdateSettings}
                     />
 

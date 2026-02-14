@@ -17,7 +17,7 @@ export function ShapeIndicator({ position }: ShapeIndicatorProps) {
 
   return (
     <div
-      className="border border-muted-foreground/50 rounded-sm flex-shrink-0 transition-all duration-150"
+      className="border border-muted-foreground/50 flex-shrink-0 transition-all duration-150"
       style={{ width: `${w}px`, height: `${h}px` }}
     />
   );

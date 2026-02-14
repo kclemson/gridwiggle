@@ -50,7 +50,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
     <div
       data-photo-id={photo.id}
       className={cn(
-        "absolute overflow-hidden transition-opacity group",
+        "absolute overflow-hidden group",
         !mobile && "cursor-grab active:cursor-grabbing",
         isBeingDragged && "opacity-50 scale-95",
         isDragTarget && "ring-4 ring-primary ring-offset-2 ring-offset-background"

@@ -1,38 +1,20 @@
 
 
-# HTML Tooltip on Disabled Shape Slider
+# Raise Shape Slider Threshold to 10
 
-## What changes
+## Why 10
 
-Replace the planned Radix Tooltip import with a simple `title` attribute on the shape control wrapper. This provides native browser hover tooltips on desktop and long-press tooltips on mobile, with zero extra imports or components.
+The shape slider covers the full range from portrait through square to landscape. Square has the tightest tolerance (plus/minus 5%), requiring the most photos for the engine to reliably hit. Since the slider can reach square positions, the threshold should match the hardest case: 10 photos.
 
-## Technical change
+This avoids a situation where a user with 8-9 photos drags the slider to a square-ish position and gets a poor layout.
 
-**`src/components/CollageSettings.tsx`** (line ~38-42): Add a `title` attribute to the shape control's wrapper `div`, conditionally set when disabled.
+## Change
 
-```tsx
-<div
-  className={cn(
-    "flex items-center justify-center gap-1.5",
-    shapeDisabled && "opacity-40 pointer-events-none"
-  )}
-  title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
->
+**`src/types/collage.ts`**: Update the constant:
+
+```typescript
+export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 10;
 ```
 
-One line added, no new imports. The `pointer-events-none` class needs to be removed (since it blocks hover/tap from reaching the element for the title to show). Instead, rely solely on the `disabled` prop on the Slider and the `opacity-40` for visual indication.
-
-Updated approach:
-
-```tsx
-<div
-  className={cn(
-    "flex items-center justify-center gap-1.5",
-    shapeDisabled && "opacity-40"
-  )}
-  title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
->
-```
-
-This way the `title` tooltip works on hover, while the slider's own `disabled` prop prevents interaction.
+Single-line change. All UI logic (disabled state, tooltip message, auto-reset on photo removal) already references this constant, so everything updates automatically.
 

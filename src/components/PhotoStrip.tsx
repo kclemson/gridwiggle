@@ -1,5 +1,7 @@
 import { PhotoItem } from '@/types/collage';
 import { Button } from '@/components/ui/button';
+import { CroppedImage } from '@/components/common/CroppedImage';
+import { getDisplayCrop } from '@/lib/cropUtils';
 import { Crop, Loader2, Wand2, Plus, Trash2 } from 'lucide-react';
 
 interface PhotoStripProps {
@@ -45,14 +47,41 @@ export function PhotoStrip({
         className="h-14 w-full overflow-hidden rounded-lg bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
       >
         <div className="flex h-full gap-0.5">
-          {photos.map((photo) => (
-            <img
-              key={photo.id}
-              src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
-              alt=""
-              className="h-full w-auto flex-shrink-0 object-cover"
-            />
-          ))}
+          {photos.map((photo) => {
+            const crop = getDisplayCrop(photo);
+            const hasSize = photo.originalWidth > 0 && photo.originalHeight > 0;
+            const aspectRatio = crop
+              ? crop.width / crop.height
+              : hasSize
+                ? photo.originalWidth / photo.originalHeight
+                : 1;
+
+            return (
+              <div
+                key={photo.id}
+                className="h-full flex-shrink-0 overflow-hidden"
+                style={{ width: `${56 * aspectRatio}px` }}
+              >
+                {hasSize ? (
+                  <CroppedImage
+                    src={photo.objectUrl}
+                    thumbnailSrc={photo.thumbnailUrl ?? photo.previewUrl}
+                    crop={crop}
+                    originalWidth={photo.originalWidth}
+                    originalHeight={photo.originalHeight}
+                    fit="cover"
+                  />
+                ) : (
+                  <img
+                    src={photo.thumbnailUrl ?? photo.previewUrl ?? photo.objectUrl}
+                    alt=""
+                    className="h-full w-auto object-cover"
+                    draggable={false}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       </button>
 

@@ -45,6 +45,7 @@ export const CroppedImage = memo(function CroppedImage({
           className
         )}
         draggable={false}
+        decoding="async"
       />
     );
   }
@@ -61,6 +62,7 @@ export const CroppedImage = memo(function CroppedImage({
           className
         )}
         draggable={false}
+        decoding="async"
       />
     );
   }
@@ -77,6 +79,7 @@ export const CroppedImage = memo(function CroppedImage({
           className
         )}
         draggable={false}
+        decoding="async"
       />
     );
   }
@@ -100,6 +103,7 @@ export const CroppedImage = memo(function CroppedImage({
         src={displaySrc}
         alt=""
         draggable={false}
+        decoding="async"
         style={{
           width: `${scaleX}%`,
           height: `${scaleY}%`,

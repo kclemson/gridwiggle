@@ -61,7 +61,7 @@ export function SampleGallery() {
               key={i}
               onClick={() => openLightbox(i)}
               className={`
-                overflow-hidden relative h-56
+                overflow-hidden relative h-56 sm:h-44
                 transition-transform duration-500 ease-in-out
                 ${isFeatured ? 'scale-125 z-10' : 'scale-100'}
               `}

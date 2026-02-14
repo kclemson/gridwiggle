@@ -1,19 +1,27 @@
 
 
-# Bigger Sample Thumbnails on All Screen Sizes
+# Remove Padding Constraints from Sample Gallery
 
-## Changes in `src/components/SampleGallery.tsx`
+## Problem
+The sample thumbnails are squeezed because they're nested inside multiple layers of padding:
+- Index.tsx wraps everything in `max-w-lg mx-auto` (max 512px)
+- PhotoUploader adds `p-8` padding
+- SampleGallery adds its own `px-4`
 
-1. **Remove max-width constraint**: Change `max-w-lg` to just `w-full` so thumbnails aren't artificially squeezed on any screen size.
+The thumbnails end up with very little room despite the screen being much wider.
 
-2. **Increase thumbnail height universally**: Change `h-40` to `h-56` so all thumbnails are visibly larger on both mobile and desktop.
-
-## Technical Details
+## Solution
+Move the SampleGallery outside the `max-w-lg` container so it can use the full screen width, and reduce its horizontal padding.
 
 ### File: `src/components/SampleGallery.tsx`
+- Change `px-4` to `px-2` on the outer div to minimize side padding
 
-- Outer container (line ~55): Change `max-w-lg mx-auto` to `w-full` (keep `mt-6 px-4`)
-- Button height (line ~59): Change `h-40` to `h-56`
+### File: `src/components/PhotoUploader.tsx`
+- Remove `<SampleGallery />` from inside the uploader (it's trapped in the padded container)
 
-No other files change.
+### File: `src/pages/Index.tsx`
+- Add `<SampleGallery />` below the `max-w-lg` container div but still inside the outer `min-h-screen` div, so it renders at full width when no photos are uploaded
+- Import SampleGallery
+- Conditionally render it only when `state.photos.length === 0`
 
+This way the upload prompt stays centered in the narrow column, but the sample thumbnails stretch across the full viewport.

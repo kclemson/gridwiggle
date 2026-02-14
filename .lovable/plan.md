@@ -1,42 +1,38 @@
 
 
-# Disable Shape Slider Below Photo Count Threshold
+# HTML Tooltip on Disabled Shape Slider
 
-## Design intent
+## What changes
 
-With few photos (2-5), the layout engine has very limited row-packing options. Constraining it to a specific aspect ratio often results in soft rejections or layouts far from the target. The slider should only be interactive when there are enough photos for the constraint to be meaningful.
+Replace the planned Radix Tooltip import with a simple `title` attribute on the shape control wrapper. This provides native browser hover tooltips on desktop and long-press tooltips on mobile, with zero extra imports or components.
 
-## User experience
+## Technical change
 
-- With fewer than 6 photos: the shape slider is visually disabled (grayed out, non-interactive). The ShapeIndicator still reflects the current layout's AR, but the user can't drag.
-- With 6+ photos: full slider interaction as currently implemented.
-- If the user has a shape constraint active and removes photos below the threshold, `shapeSlider` resets to `null` (same pattern as the old system).
+**`src/components/CollageSettings.tsx`** (line ~38-42): Add a `title` attribute to the shape control's wrapper `div`, conditionally set when disabled.
 
-## Threshold choice: 6 photos
-
-- 2-3 photos: only 1-2 possible row arrangements
-- 4-5 photos: a handful of arrangements, AR mostly dictated by photo orientations
-- 6+: enough combinatorial flexibility that AR constraints are achievable within the +/-20% tolerance window
-
-## Technical changes
-
-### 1. `src/types/collage.ts`
-Add constant:
-```typescript
-export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 6;
+```tsx
+<div
+  className={cn(
+    "flex items-center justify-center gap-1.5",
+    shapeDisabled && "opacity-40 pointer-events-none"
+  )}
+  title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
+>
 ```
 
-### 2. `src/components/CollageSettings.tsx`
-- Accept `photoCount: number` as a new prop
-- Compute `const shapeDisabled = photoCount < MIN_PHOTOS_FOR_SHAPE_SLIDER`
-- Pass `disabled={shapeDisabled}` to the shape Slider
-- When disabled, add `opacity-40 pointer-events-none` to the ShapeIndicator + Slider wrapper
-- Slider still displays the current layout AR (truthful) but is non-interactive
+One line added, no new imports. The `pointer-events-none` class needs to be removed (since it blocks hover/tap from reaching the element for the title to show). Instead, rely solely on the `disabled` prop on the Slider and the `opacity-40` for visual indication.
 
-### 3. `src/pages/Index.tsx`
-- Pass `photoCount={state.photos.length}` to `CollageSettings`
-- In `handleRemovePhoto` (or wherever photos are removed): if the remaining count drops below 6 and `shapeSlider` is not null, reset it: `updateSettings({ shapeSlider: null })`
+Updated approach:
 
-### 4. No other changes
-The generation hook already handles `shapeSlider: null` correctly (no constraint). The ShapeIndicator and display position logic remain unchanged.
+```tsx
+<div
+  className={cn(
+    "flex items-center justify-center gap-1.5",
+    shapeDisabled && "opacity-40"
+  )}
+  title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
+>
+```
+
+This way the `title` tooltip works on hover, while the slider's own `disabled` prop prevents interaction.
 

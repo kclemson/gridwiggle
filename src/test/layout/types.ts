@@ -1,4 +1,4 @@
-import { CollageLayout, CollageSettings, PhotoPriority } from '@/types/collage';
+import { CollageLayout, PhotoPriority } from '@/types/collage';
 
 /**
  * Tag constants for categorizing layout issues and qualities.
@@ -41,7 +41,7 @@ export interface SyntheticPhoto {
  */
 export interface LayoutTestCase {
   photos: SyntheticPhoto[];
-  shape: CollageSettings['shape'];
+  shapeSlider: number | null;
   heroCount: number;         // 0, 1, 2, etc.
   orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
 }
@@ -75,7 +75,7 @@ export interface RatedLayout {
   // Inputs
   photoCount: number;
   orientationBias: number;  // -1 (portrait) to +1 (landscape), 0 = balanced
-  shape: CollageSettings['shape'];
+  shapeSlider: number | null;
   heroCount: number;
   
   // Layout metrics

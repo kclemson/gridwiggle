@@ -1,8 +1,11 @@
-import { CollageSettings as CollageSettingsType } from '@/types/collage';
+import { CollageSettings as CollageSettingsType, CollageLayout } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
+import { ShapeIndicator } from '@/components/ShapeIndicator';
+import { arToSliderPosition } from '@/lib/shapeSlider';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
+  layout: CollageLayout | null;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
@@ -12,12 +15,16 @@ const SIZE_OPTIONS: { label: string; value: 1 | 1.5 | 2 }[] = [
   { label: 'L', value: 2 },
 ];
 
-export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, layout, onUpdate }: CollageSettingsProps) {
+  // Slider always reflects the current layout AR (truthful display)
+  const displayPosition = layout
+    ? arToSliderPosition(layout.width / layout.height)
+    : 50; // Default to center when no layout
+
   return (
-    <div className="flex items-center py-2 px-1">
-      {/* Left: Background color */}
-      <div className="flex-1 flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Background</span>
+    <div className="grid grid-cols-4 gap-x-3 py-2 px-1">
+      {/* Row 1: Controls */}
+      <div className="flex items-center justify-center">
         <input
           type="color"
           value={settings.gapColor}
@@ -27,22 +34,30 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
         />
       </div>
 
-      {/* Center: Spacing */}
-      <div className="flex-1 flex items-center justify-center gap-2">
-        <span className="text-sm text-muted-foreground">Spacing</span>
+      <div className="flex items-center justify-center gap-1.5">
+        <ShapeIndicator position={displayPosition} />
+        <Slider
+          value={[displayPosition]}
+          onValueChange={([value]) => onUpdate({ shapeSlider: value })}
+          min={0}
+          max={100}
+          step={5}
+          className="w-16 [&>span:first-child]:bg-muted-foreground/30"
+        />
+      </div>
+
+      <div className="flex items-center justify-center">
         <Slider
           value={[settings.gapSize]}
           onValueChange={([value]) => onUpdate({ gapSize: value })}
           min={0}
           max={100}
           step={5}
-          className="w-20 [&>span:first-child]:bg-muted-foreground/30"
+          className="w-14 [&>span:first-child]:bg-muted-foreground/30"
         />
       </div>
 
-      {/* Right: Export size */}
-      <div className="flex-1 flex items-center justify-end gap-2">
-        <span className="text-sm text-muted-foreground">Size</span>
+      <div className="flex items-center justify-center">
         <div className="flex rounded-md border border-muted-foreground/30 overflow-hidden">
           {SIZE_OPTIONS.map((opt) => (
             <button
@@ -60,6 +75,12 @@ export function CollageSettings({ settings, onUpdate }: CollageSettingsProps) {
           ))}
         </div>
       </div>
+
+      {/* Row 2: Labels */}
+      <span className="text-[10px] text-muted-foreground text-center">Background</span>
+      <span className="text-[10px] text-muted-foreground text-center">Shape</span>
+      <span className="text-[10px] text-muted-foreground text-center">Spacing</span>
+      <span className="text-[10px] text-muted-foreground text-center">Size</span>
     </div>
   );
 }

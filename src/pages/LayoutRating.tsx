@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { cn } from '@/lib/utils';
+
 import { LayoutVisualization } from '@/components/layout-rating/LayoutVisualization';
 import { MetricsBadges } from '@/components/layout-rating/MetricsBadges';
 import { RatingControls } from '@/components/layout-rating/RatingControls';
@@ -19,7 +19,7 @@ const BATCH_SIZE = 44;
  */
 export default function LayoutRating() {
   // Generate test cases on mount
-  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shape: 'auto' | 'landscape' | 'portrait' | 'square'; heroCount: number; orientationBias: number }[]>([]);
+  const [testCases, setTestCases] = useState<{ photos: { id: string; aspectRatio: number; priority: 1 | 2 | 3; originalWidth: number; originalHeight: number }[]; shapeSlider: number | null; heroCount: number; orientationBias: number }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<RatedLayout[]>([]);
   const [selectedTags, setSelectedTags] = useState<LayoutTag[]>([]);
@@ -70,7 +70,7 @@ export default function LayoutRating() {
     const ratedLayout: RatedLayout = {
       photoCount: currentResult.testCase.photos.length,
       orientationBias: currentResult.testCase.orientationBias,
-      shape: currentResult.testCase.shape,
+      shapeSlider: currentResult.testCase.shapeSlider,
       heroCount: currentResult.testCase.heroCount,
       rowCount: currentResult.rowCount,
       rowSizes: currentResult.rowSizes,
@@ -201,15 +201,13 @@ export default function LayoutRating() {
         
         {/* Shape indicator banner */}
         {(() => {
-          const { heroCount, shape, photos, orientationBias } = currentResult.testCase;
+          const { heroCount, shapeSlider, photos, orientationBias } = currentResult.testCase;
           const photoCount = photos.length;
           
-          // Show bias direction
           const biasLabel = orientationBias > 0.2 ? '→L' 
                           : orientationBias < -0.2 ? '→P' 
-                          : '→M';  // L=landscape, P=portrait, M=mixed
+                          : '→M';
           
-          // For hero layouts, show input (auto) and resulting aspect
           if (heroCount > 0) {
             const resultAspect = currentResult.canvasAspect > 1.2 ? 'landscape'
               : currentResult.canvasAspect < 0.85 ? 'portrait'
@@ -222,16 +220,10 @@ export default function LayoutRating() {
             );
           }
           
-          // For non-hero layouts, show the explicit shape being tested
+          const shapeLabel = shapeSlider === null ? 'AUTO' : `SLIDER ${shapeSlider}`;
           return (
-            <div className={cn(
-              "text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider",
-              shape === 'landscape' && "bg-blue-500/20 text-blue-400",
-              shape === 'portrait' && "bg-purple-500/20 text-purple-400",
-              shape === 'square' && "bg-green-500/20 text-green-400",
-              shape === 'auto' && "bg-muted text-muted-foreground",
-            )}>
-              {(shape === 'square' ? 'SQUARE-ISH' : shape.toUpperCase())} ({photoCount}) {biasLabel}
+            <div className="text-center py-3 px-4 rounded-lg font-bold text-xl uppercase tracking-wider bg-muted text-muted-foreground">
+              {shapeLabel} ({photoCount}) {biasLabel}
             </div>
           );
         })()}

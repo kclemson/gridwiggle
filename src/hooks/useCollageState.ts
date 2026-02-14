@@ -17,6 +17,7 @@ import {
 } from '@/lib/photoStorage';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { devLogger } from '@/lib/devLogger';
+import { isMobileDevice } from '@/lib/platform';
 
 interface UseCollageStateOptions {
   /** Called directly from initialization when photos need dimension recovery */
@@ -182,8 +183,6 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
     let mounted = true;
 
     async function initialize() {
-      remoteLogger.info('indexeddb', 'Starting initialization', {});
-      
       // Check if IndexedDB is available
       const available = await isStorageAvailable();
       if (!available) {
@@ -193,13 +192,11 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
 
       // Load metadata from localStorage
       const persisted = loadMetadataFromStorage();
-      remoteLogger.info('indexeddb', 'Metadata loaded', { photoCount: persisted.photos.length });
 
       // Load blobs from IndexedDB
       let storedPhotos: StoredPhoto[] = [];
       try {
         storedPhotos = await getAllPhotos();
-        remoteLogger.info('indexeddb', 'Blobs loaded', { blobCount: storedPhotos.length });
       } catch (e) {
         console.error('Failed to load photos from IndexedDB:', e);
         remoteLogger.error('indexeddb', 'Load failed', { 
@@ -240,11 +237,6 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
       const needsRecovery = photos.filter(p => p.originalWidth === 0 || p.originalHeight === 0);
       
       if (needsRecovery.length > 0) {
-        remoteLogger.warn('recovery', 'Photos need dimension recovery', {
-          count: needsRecovery.length,
-          ids: needsRecovery.map(p => p.id),
-        });
-        
         // Mark them as processing (so UI shows spinner)
         needsRecovery.forEach(p => { p.isProcessing = true; });
         
@@ -257,11 +249,10 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
         settings: persisted.settings,
         layout: persisted.layout,
       });
-      remoteLogger.info('indexeddb', 'Initialization complete', { 
-        hydratedCount: photos.length,
-        hasLayout: !!persisted.layout,
-        needsRecovery: needsRecovery.length,
-      });
+
+      // Session telemetry: log once per app load with platform info
+      remoteLogger.info('telemetry', 'session', { platform: isMobileDevice() ? 'mobile' : 'desktop' });
+
       setIsLoading(false);
     }
 

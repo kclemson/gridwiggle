@@ -84,7 +84,6 @@ export async function getServerSmartCrop(
   height: number,
   onStatus?: WorkerStatusCallback,
 ): Promise<SmartCropResult> {
-  remoteLogger.info('server-crop', 'Entry', { blobSize: blob.size, width, height });
   onStatus?.('Uploading to server for analysis...');
 
   try {
@@ -108,8 +107,6 @@ export async function getServerSmartCrop(
     }
 
     const { crop, confidence, subjects } = data;
-
-    remoteLogger.info('server-crop', 'Result', { crop, confidence, subjects });
 
     return {
       crop,

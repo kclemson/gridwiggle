@@ -48,12 +48,10 @@ export function useSmartCropProcessing(deps: {
     let height = currentPhoto?.originalHeight || photo.originalHeight;
 
     if (width === 0 || height === 0) {
-      remoteLogger.info('smartcrop', 'Phase: loading dimensions', { photoId: photo.id });
       const dimensions = await getImageDimensions(photo.objectUrl);
       width = dimensions.width;
       height = dimensions.height;
 
-      remoteLogger.info('smartcrop', 'Phase: creating previews', { photoId: photo.id, width, height });
       const [preview, thumbnail] = await Promise.all([
         createDisplayPreview(photo.blob, 1200),
         createDisplayPreview(photo.blob, 480),
@@ -87,7 +85,6 @@ export function useSmartCropProcessing(deps: {
 
     // ---- Mobile path: prepare all previews, then batch inference ----
     if (isMobileDevice()) {
-      remoteLogger.info('smartcrop', 'Mobile batch path', { count: total });
 
       // Prepare previews sequentially (memory-safe on mobile)
       const batchInputs: SmartCropInput[] = [];
@@ -129,7 +126,6 @@ export function useSmartCropProcessing(deps: {
     for (let i = 0; i < photosToProcess.length; i++) {
       const photo = photosToProcess[i];
       setCurrentlyProcessingId(photo.id);
-      remoteLogger.info('smartcrop', 'Phase: start', { photoId: photo.id });
 
       try {
         // Use lookahead result if available, otherwise prepare inline
@@ -146,18 +142,12 @@ export function useSmartCropProcessing(deps: {
           lookaheadPromise = preparePhoto(photosToProcess[i + 1]);
         }
 
-        remoteLogger.info('smartcrop', 'Phase: running detection', { photoId: photo.id });
-
         const result = await getSmartCrop(
           photo.objectUrl, photo.blob, dims.width, dims.height,
           (status) => setProcessingStatus(status),
         );
 
         const smartCropToApply = result.skipCrop ? null : result.crop;
-
-        remoteLogger.info('smartcrop', 'Phase: complete', {
-          photoId: photo.id, skipCrop: result.skipCrop, confidence: result.confidence,
-        });
 
         updatePhoto(photo.id, { smartCrop: smartCropToApply, smartCropAttempted: true, isProcessing: false });
         processedDims.push({ id: photo.id, width: dims.width, height: dims.height });
@@ -191,36 +181,16 @@ export function useSmartCropProcessing(deps: {
     const photo = photos.find(p => p.id === photoId);
     if (!photo || photo.smartCrop) return;  // Already has crop
 
-    remoteLogger.info('smartcrop-manual', 'Entry', {
-      photoId,
-      blobSize: photo.blob?.size ?? -1,
-      blobType: photo.blob?.type ?? 'none',
-      width: photo.originalWidth,
-      height: photo.originalHeight,
-      hasObjectUrl: !!photo.objectUrl,
-    });
-
     setSmartCroppingPhotoId(photoId);
 
     try {
-      remoteLogger.info('smartcrop-manual', 'Pre-getSmartCrop', { photoId });
       const result = await getSmartCrop(
         photo.objectUrl,
         photo.blob,
         photo.originalWidth,
         photo.originalHeight,
-        (status) => {
-          remoteLogger.info('smartcrop-manual', 'Status update', { photoId, status });
-          setProcessingStatus(status);
-        }
+        (status) => setProcessingStatus(status),
       );
-
-      remoteLogger.info('smartcrop-manual', 'Result received', {
-        photoId,
-        skipCrop: result.skipCrop,
-        confidence: result.confidence,
-        subjects: result.subjects,
-      });
 
       const smartCropToApply = result.skipCrop ? null : result.crop;
 
@@ -239,7 +209,6 @@ export function useSmartCropProcessing(deps: {
       });
       // Silent fail - photo still works
     } finally {
-      remoteLogger.info('smartcrop-manual', 'Finally', { photoId });
       setSmartCroppingPhotoId(null);
     }
   }, [photos, layout, updatePhoto, regenerateCollage]);

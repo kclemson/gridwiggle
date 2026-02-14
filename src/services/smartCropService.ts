@@ -40,16 +40,10 @@ let worker: Worker | null = null;
 function getWorker(): Worker | null {
   if (!worker) {
     try {
-      remoteLogger.info('vision', 'Creating worker', {
-        moduleSupport: typeof Worker !== 'undefined',
-      });
-      
       worker = new Worker(
         new URL('../workers/visionWorker.ts', import.meta.url),
         { type: 'module' }
       );
-      
-      remoteLogger.info('vision', 'Worker created successfully', {});
     } catch (e) {
       remoteLogger.error('vision', 'Worker creation failed', {
         error: e instanceof Error ? e.message : String(e),
@@ -86,21 +80,13 @@ export async function getSmartCrop(
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
   // Mobile devices route to server-side inference to avoid Safari WASM crashes
+  // Mobile devices route to server-side inference to avoid Safari WASM crashes
   if (isMobileDevice()) {
-    remoteLogger.info('vision-svc', 'Routing to server (mobile device)', { width, height });
     return getServerSmartCrop(objectUrl, blob, width, height, onStatus);
   }
 
-  remoteLogger.info('vision-svc', 'getSmartCrop entry', {
-    blobSize: blob?.size ?? -1,
-    blobType: blob?.type ?? 'none',
-    width,
-    height,
-  });
-
   // Check worker availability first - fail fast with fallback
   const currentWorker = getWorker();
-  remoteLogger.info('vision-svc', 'Worker check', { available: !!currentWorker });
   
   if (!currentWorker) {
     onStatus?.('Using full image (AI unavailable)');
@@ -131,11 +117,6 @@ export async function getSmartCrop(
     
     const handleMessage = (e: MessageEvent) => {
       if (e.data.type === 'result') {
-        remoteLogger.info('vision-svc', 'Result received', {
-          skipCrop: e.data.skipCrop ?? false,
-          confidence: e.data.confidence,
-          subjects: e.data.subjects,
-        });
         cleanup();
         resolve({
           crop: e.data.crop,
@@ -174,8 +155,6 @@ export async function getSmartCrop(
     
     currentWorker.addEventListener('message', handleMessage);
     currentWorker.addEventListener('error', handleError);
-    
-    remoteLogger.info('vision-svc', 'Pre-postMessage', { blobSize: blob?.size ?? -1 });
     
     // Send blob directly - no base64 conversion needed
     // Blobs are structured-cloneable and passed efficiently
@@ -221,11 +200,6 @@ export async function getSmartCropBatch(
   }
 
   // Mobile: concurrent server calls with semaphore
-  remoteLogger.info('batch-crop', 'Starting batch', {
-    count: inputs.length,
-    concurrency: MOBILE_CONCURRENCY,
-  });
-
   let active = 0;
   let nextIdx = 0;
   const total = inputs.length;
@@ -272,5 +246,4 @@ export async function getSmartCropBatch(
     }
   });
 
-  remoteLogger.info('batch-crop', 'Batch complete', { count: total });
 }

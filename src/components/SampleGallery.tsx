@@ -16,6 +16,20 @@ const samples = [sample2, sample3, sample4];
 
 export function SampleGallery() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Auto-rotate through samples
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setActiveIndex((i) => (i + 1) % samples.length);
+        setIsTransitioning(false);
+      }, 400);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const openLightbox = useCallback((index: number) => {
     setSelectedIndex(index);
@@ -40,22 +54,21 @@ export function SampleGallery() {
 
   return (
     <div className="w-full mt-6 mb-8 px-2">
-      <div className="flex items-center justify-center gap-1.5">
-        {samples.map((src, i) => (
-          <button
-            key={i}
-            onClick={() => openLightbox(i)}
-            className="overflow-hidden relative h-56 sm:h-44"
-          >
-            <img
-              src={src}
-              alt={`Sample collage ${i + 1}`}
-              className="h-full w-auto object-contain"
-              draggable={false}
-              decoding="async"
-            />
-          </button>
-        ))}
+      <div className="flex items-center justify-center h-56 sm:h-44">
+        <button
+          onClick={() => openLightbox(activeIndex)}
+          className={`overflow-hidden relative h-56 sm:h-44 transition-all duration-[400ms] ease-in-out ${
+            isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+          }`}
+        >
+          <img
+            src={samples[activeIndex]}
+            alt={`Sample collage ${activeIndex + 1}`}
+            className="h-full w-auto object-contain"
+            draggable={false}
+            decoding="async"
+          />
+        </button>
       </div>
 
       {/* Lightbox */}

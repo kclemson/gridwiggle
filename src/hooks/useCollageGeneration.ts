@@ -232,6 +232,7 @@ export function useCollageGeneration(deps: {
         remoteLogger.info('telemetry', 'shuffle', {
           count: dimensions.length,
           shuffleNum: shuffleCountRef.current,
+          isDev: import.meta.env.DEV,
         });
       } else if (dimensions.length !== lastLoggedCountRef.current) {
         lastLoggedCountRef.current = dimensions.length;
@@ -239,6 +240,7 @@ export function useCollageGeneration(deps: {
           count: dimensions.length,
           aspectRatios: dimensions.map(d => +d.aspectRatio.toFixed(2)),
           heroCount: dimensions.filter(d => d.weight > 1).length,
+          isDev: import.meta.env.DEV,
         });
       }
     } catch (error) {

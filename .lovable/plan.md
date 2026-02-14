@@ -1,20 +1,54 @@
 
 
-# Raise Shape Slider Threshold to 10
+# Identify Dev Sessions in Client Logs
 
-## Why 10
+## What this solves
 
-The shape slider covers the full range from portrait through square to landscape. Square has the tightest tolerance (plus/minus 5%), requiring the most photos for the engine to reliably hit. Since the slider can reach square positions, the threshold should match the hardest case: 10 photos.
+Right now, every session log looks the same in the edge function output -- you can't tell which ones are from your local dev environment vs. real production users. This makes it hard to filter out your own activity when reviewing telemetry.
 
-This avoids a situation where a user with 8-9 photos drags the slider to a square-ish position and gets a poor layout.
+## What changes for you
 
-## Change
+Dev-mode sessions will be tagged in the logs:
 
-**`src/types/collage.ts`**: Update the constant:
-
-```typescript
-export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 10;
+```
+[s:a1b2c3] 26-02-14 18:50:14 session | desktop [DEV]
 ```
 
-Single-line change. All UI logic (disabled state, tooltip message, auto-reset on photo removal) already references this constant, so everything updates automatically.
+Production sessions remain unchanged:
+
+```
+[s:d4e5f6] 26-02-14 18:50:14 session | desktop
+```
+
+You can then scan or search for `[DEV]` in the edge function logs to find (or exclude) your own sessions.
+
+## Technical details
+
+Two small changes:
+
+### 1. Client: include `isDev` flag in session telemetry
+
+**`src/hooks/useCollageState.ts`** (line ~262): Add `isDev: import.meta.env.DEV` to the session event data:
+
+```typescript
+remoteLogger.info('telemetry', 'session', {
+  platform: isMobileDevice() ? 'mobile' : 'desktop',
+  isDev: import.meta.env.DEV,
+});
+```
+
+In production builds, `import.meta.env.DEV` is `false` (Vite statically replaces it). No privacy concern since it's a boolean flag about the build mode, not about the user.
+
+### 2. Edge function: append `[DEV]` tag to session log line
+
+**`supabase/functions/client-logs/index.ts`** in the `formatTelemetryLog` function, `session` case: check `data.isDev` and append a tag:
+
+```typescript
+case 'session': {
+  const devTag = data.isDev ? ' [DEV]' : '';
+  return `${prefix} ${ts} session | ${data.platform ?? 'unknown'}${devTag}`;
+}
+```
+
+No changes to other event types needed -- once you see a `[DEV]` session line, you know every subsequent log with the same `[s:______]` prefix is yours.
 

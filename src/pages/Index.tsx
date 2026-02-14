@@ -114,40 +114,37 @@ export default function Index() {
   const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
     updatePhoto(photoId, { manualCrop: crop, priority });
     setEditingPhotoId(null);
-    if (priority === 1 && state.settings.shape !== 'auto') {
-      updateSettings({ shape: 'auto' });
-    }
     if (state.layout) {
       regenerateCollage({
         priorityOverride: { photoId, priority },
         cropOverride: { photoId, crop },
-        settings: priority === 1 ? { ...state.settings, shape: 'auto' } : undefined,
       });
     }
-  }, [updatePhoto, state.layout, state.settings, updateSettings, regenerateCollage]);
+  }, [updatePhoto, state.layout, regenerateCollage]);
 
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
     if (!photo) return;
     const newPriority: PhotoPriority = photo.priority === 1 ? 3 : 1;
     updatePhoto(photoId, { priority: newPriority });
-    if (newPriority === 1) {
-      if (state.settings.shape !== 'auto') {
-        updateSettings({ shape: 'auto' });
-      }
-      if (state.layout) {
-        regenerateCollage({
-          priorityOverride: { photoId, priority: newPriority },
-          settings: { ...state.settings, shape: 'auto' },
-          randomize: true,
-        });
-      }
+    if (state.layout) {
+      regenerateCollage({
+        priorityOverride: { photoId, priority: newPriority },
+        randomize: newPriority === 1,
+      });
     }
-  }, [state.photos, state.layout, state.settings, updatePhoto, updateSettings, regenerateCollage]);
+  }, [state.photos, state.layout, updatePhoto, regenerateCollage]);
 
   const handleCreateCollage = useCallback(() => {
-    regenerateCollage({ randomize: state.layout !== null });
-  }, [state.layout, regenerateCollage]);
+    const isReshuffle = state.layout !== null;
+    if (isReshuffle) {
+      // Shuffle resets shape constraint
+      updateSettings({ shapeSlider: null });
+      regenerateCollage({ randomize: true, settings: { ...state.settings, shapeSlider: null } });
+    } else {
+      regenerateCollage();
+    }
+  }, [state.layout, state.settings, updateSettings, regenerateCollage]);
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
     const { succeeded } = await addPhotos(newPhotos);
@@ -202,7 +199,7 @@ export default function Index() {
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
     setLayoutError(null);
-    if (state.layout && ('gapSize' in updates || 'shape' in updates)) {
+    if (state.layout && ('gapSize' in updates || 'shapeSlider' in updates)) {
       const newSettings = { ...state.settings, ...updates };
       regenerateCollage({ settings: newSettings });
     }
@@ -367,6 +364,7 @@ export default function Index() {
 
                     <CollageSettings
                       settings={state.settings}
+                      layout={state.layout}
                       onUpdate={handleUpdateSettings}
                     />
                   </>

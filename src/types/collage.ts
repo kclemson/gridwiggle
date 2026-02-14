@@ -52,7 +52,7 @@ export interface PhotoMetadata {
 }
 
 export interface CollageSettings {
-  shape: 'auto' | 'landscape' | 'portrait' | 'square';
+  shapeSlider: number | null;  // null = auto (no constraint), 0-100 = AR constraint
   gapColor: string;
   gapSize: number;
   exportScale: 1 | 1.5 | 2;
@@ -92,30 +92,3 @@ export interface PersistedCollageState {
 }
 
 
-/**
- * Minimum photos required for each shape option.
- * Square is hardest to satisfy, requiring more photos.
- */
-export const MIN_PHOTOS_FOR_SHAPE: Record<'landscape' | 'portrait' | 'square', number> = {
-  landscape: 8,
-  portrait: 8,
-  square: 10,
-};
-
-/**
- * Minimum photos required to allow any shape control (the lowest threshold).
- * With fewer photos, aspect ratio constraints are too hard to satisfy.
- */
-export const MIN_PHOTOS_FOR_SHAPE_CONTROL = 8;
-
-/**
- * Check if a shape is available for a given photo count.
- * 'auto' is always available.
- */
-export function isShapeAvailable(
-  shape: 'auto' | 'landscape' | 'portrait' | 'square',
-  photoCount: number
-): boolean {
-  if (shape === 'auto') return true;
-  return photoCount >= MIN_PHOTOS_FOR_SHAPE[shape];
-}

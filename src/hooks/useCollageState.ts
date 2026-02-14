@@ -28,7 +28,7 @@ const STORAGE_KEY = 'smart-collage-state';
 const SAVE_DEBOUNCE_MS = 300;
 
 const defaultSettings: CollageSettings = {
-  shape: 'auto',
+  shapeSlider: null,
   gapColor: '#000000',
   gapSize: 30,
   exportScale: 1,
@@ -48,10 +48,18 @@ function loadMetadataFromStorage(): PersistedCollageState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // One-time migration from orientation to shape
+      // One-time migration from orientation to shape, then shape to shapeSlider
       if ('orientation' in parsed.settings && !('shape' in parsed.settings)) {
         parsed.settings.shape = parsed.settings.orientation;
         delete parsed.settings.orientation;
+      }
+      // Migrate shape enum to shapeSlider
+      if ('shape' in parsed.settings) {
+        const shapeMap: Record<string, number | null> = {
+          auto: null, portrait: 15, square: 50, landscape: 85,
+        };
+        parsed.settings.shapeSlider = shapeMap[parsed.settings.shape] ?? null;
+        delete parsed.settings.shape;
       }
       return {
         photos: parsed.photos || [],

@@ -3,7 +3,6 @@ import {
   CollageSettings, 
   PhotoItem, 
   CollageLayout,
-  isShapeAvailable,
 } from '@/types/collage';
 import { V3Tuning, DEFAULT_V3_TUNING } from '@/lib/v3/types';
 import { 
@@ -21,11 +20,10 @@ import { coefficientOfVariation, shuffleArray } from '@/lib/v3/utils';
  * Convert a synthetic photo to the PhotoItem format expected by the layout algorithm.
  */
 export function syntheticToPhotoItem(photo: SyntheticPhoto): PhotoItem {
-  // Create a minimal PhotoItem with dummy values for fields we don't need
   return {
     id: photo.id,
-    objectUrl: '', // Not needed for layout calculation
-    blob: new Blob(), // Not needed for layout calculation
+    objectUrl: '',
+    blob: new Blob(),
     originalWidth: photo.originalWidth,
     originalHeight: photo.originalHeight,
     smartCropAttempted: false,
@@ -48,25 +46,20 @@ function calculateMetrics(
   'rowCount' | 'rowSizes' | 'rowHeroAdjacent' | 'canvasAspect' | 'areaCoefficientOfVariation' | 
   'largestToSmallestRatio' | 'heroCoverage' | 'cellAreaPercents' | 'heroToRunnerUpRatio'
 > {
-  // Find hero photo ID if present
   const heroPhoto = photos.find(p => p.priority === 1);
   const heroId = heroPhoto?.id ?? null;
   
-  // Calculate cell areas (all photos for cellAreaPercents)
   const allAreas = layout.cells.map(cell => cell.width * cell.height);
   const canvasArea = layout.width * layout.height;
   
-  // Calculate supporting photo areas (excludes hero for balance metrics)
   const supportingAreas = heroId 
     ? layout.cells.filter(c => c.photoId !== heroId).map(c => c.width * c.height)
     : allAreas;
   
-  // Calculate all cell area percentages, sorted descending
   const cellAreaPercents = layout.cells
     .map(cell => Math.round((cell.width * cell.height) / canvasArea * 100))
     .sort((a, b) => b - a);
   
-  // Find hero coverage and ratio
   let heroCoverage: number | null = null;
   let heroToRunnerUpRatio: number | null = null;
   
@@ -76,7 +69,6 @@ function calculateMetrics(
       const heroArea = heroCell.width * heroCell.height;
       heroCoverage = heroArea / canvasArea;
       
-      // Calculate ratio to largest non-hero cell
       const nonHeroCells = layout.cells.filter(c => c.photoId !== heroPhoto.id);
       if (nonHeroCells.length > 0) {
         const runnerUpArea = Math.max(...nonHeroCells.map(c => c.width * c.height));
@@ -85,7 +77,6 @@ function calculateMetrics(
     }
   }
   
-  // Group cells into rows based on Y position
   const cellsByY = new Map<number, typeof layout.cells>();
   for (const cell of layout.cells) {
     const roundedY = Math.round(cell.y);
@@ -95,11 +86,9 @@ function calculateMetrics(
     cellsByY.get(roundedY)!.push(cell);
   }
   
-  // Sort rows by Y position and count photos per row
   const sortedYs = Array.from(cellsByY.keys()).sort((a, b) => a - b);
   const rowSizes = sortedYs.map(y => cellsByY.get(y)!.length);
   
-  // Determine which rows overlap with the hero cell's Y range
   let heroYMin = 0, heroYMax = 0;
   if (heroPhoto) {
     const heroCell = layout.cells.find(c => c.photoId === heroPhoto.id);
@@ -114,7 +103,6 @@ function calculateMetrics(
     const rowCells = cellsByY.get(y)!;
     const rowHeight = Math.max(...rowCells.map(c => c.height));
     const rowYMax = y + rowHeight;
-    // Row overlaps with hero if Y ranges intersect
     return y < heroYMax && rowYMax > heroYMin;
   });
   
@@ -134,28 +122,22 @@ function calculateMetrics(
 }
 
 /**
- * Run a test case through the V3 layout algorithm and compute metrics.
+ * Run a test case through the layout algorithm and compute metrics.
  */
 export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
-  const { photos, shape } = testCase;
+  const { photos, shapeSlider } = testCase;
   
-  // Convert synthetic photos to PhotoItems
   const photoItems = photos.map(syntheticToPhotoItem);
   
-  // Convert priority to photoWeights
-  // Priority 1 = hero → weight 2.0
-  // Priority 2, 3 = standard → weight 1.0
   const photoWeights: Record<string, number> = {};
   for (const photo of photos) {
     photoWeights[photo.id] = photo.priority === 1 ? 2.0 : 1.0;
   }
   
-  // Build tuning with test case overrides
   const v3Tuning: Partial<V3Tuning> = {};
   
-  // Run the V4 layout algorithm
   const settings: CollageSettings = {
-    shape,
+    shapeSlider,
     gapColor: '#000000',
     gapSize: 4,
     exportScale: 1,
@@ -163,13 +145,12 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   
   const result = generateCollageLayoutV4(photoItems, settings, {
     photoWeights,
-    randomize: false, // Deterministic for testing
+    randomize: false,
     tuning: v3Tuning,
   });
   
   const layout = result?.layout ?? null;
   
-  // Handle null layouts
   if (!layout) {
     return {
       testCase,
@@ -186,7 +167,6 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     };
   }
   
-  // Calculate metrics
   const metrics = calculateMetrics(layout, photos);
   
   return {
@@ -198,15 +178,12 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
 
 /**
  * Generate a batch of diverse test cases for rating.
- * Hero layouts always use 'auto' shape (matches app UX constraint).
- * Non-hero layouts test all available shapes for regression coverage.
- * Generates 5 variations per photo count for variety.
+ * All cases use shapeSlider: null (auto) since shape is now a continuous slider.
  */
 export function generateTestBatch(count: number): LayoutTestCase[] {
   const cases: LayoutTestCase[] = [];
   const VARIATIONS_PER_COMBO = 5;
   
-  // Hero count distribution matching V3Test HERO_MIX
   const HERO_MIX: Record<number, number> = {
     0: 0.05,
     1: 0.45,
@@ -232,32 +209,14 @@ export function generateTestBatch(count: number): LayoutTestCase[] {
     for (let v = 0; v < VARIATIONS_PER_COMBO; v++) {
       const heroCount = sampleHeroCount(photoCount);
       const orientationBias = (Math.random() - 0.5) * 1.2;
-      if (heroCount > 0) {
-        // Hero layouts ALWAYS use 'auto' (matches app UX constraint)
-        cases.push({
-          photos: generatePhotoSet(photoCount, orientationBias, heroCount),
-          shape: 'auto',
-          heroCount,
-          orientationBias,
-        });
-      } else {
-        // No-hero layouts can test all available shapes
-        const shapes: CollageSettings['shape'][] = ['auto'];
-        if (isShapeAvailable('landscape', photoCount)) shapes.push('landscape');
-        if (isShapeAvailable('portrait', photoCount)) shapes.push('portrait');
-        if (isShapeAvailable('square', photoCount)) shapes.push('square');
-        
-        const shape = shapes[Math.floor(Math.random() * shapes.length)];
-        cases.push({
-          photos: generatePhotoSet(photoCount, orientationBias, 0),
-          shape,
-          heroCount: 0,
-          orientationBias,
-        });
-      }
+      cases.push({
+        photos: generatePhotoSet(photoCount, orientationBias, heroCount),
+        shapeSlider: null,
+        heroCount,
+        orientationBias,
+      });
     }
   }
   
-  // Shuffle for variety in rating session
   return shuffleArray(cases).slice(0, count);
 }

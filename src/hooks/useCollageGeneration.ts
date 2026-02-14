@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { generateLayoutInWorker } from '@/services/layoutGenerationService';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { devLogger, LogEntry } from '@/lib/devLogger';
+import { sliderToARBounds } from '@/lib/shapeSlider';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { 
   saveCapture, 
@@ -118,6 +119,12 @@ export function useCollageGeneration(deps: {
     // Map slider (0-100) directly to normalized gap (0 to 0.04)
     const normalizedGap = (optSettings.gapSize / 100) * 0.04;
 
+    // Apply shape slider AR constraint if active
+    const arBounds = sliderToARBounds(optSettings.shapeSlider);
+    const effectiveTuning = arBounds
+      ? { ...tuningOverride, canvas_minAR: arBounds.minAR, canvas_maxAR: arBounds.maxAR }
+      : tuningOverride;
+
     // Track this request to detect stale responses
     const requestId = ++latestRequestIdRef.current;
 
@@ -134,7 +141,7 @@ export function useCollageGeneration(deps: {
       const result = await generateLayoutInWorker({
         dimensions,
         normalizedGap,
-        tuning: tuningOverride,
+        tuning: effectiveTuning,
         randomize,
       });
 

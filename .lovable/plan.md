@@ -1,31 +1,14 @@
 
 
-# Simplified Sample Gallery: Single Row with Scale Transform
+# Sample Gallery Tweaks
 
-## What Users Will See
-Four thumbnails in a single horizontal row, all the same base size. Every 3 seconds, one thumbnail smoothly scales up (e.g., `scale(1.15)`), holds briefly, then scales back down as the next one scales up. Tapping any thumbnail opens the lightbox.
+## Changes (all in `src/components/SampleGallery.tsx`)
 
-## Layout
-- Single row: `grid grid-cols-4 gap-1.5` inside a `max-w-md` container
-- All cells are equal size, square aspect ratio via `aspect-square`
-- No rounded corners
-- `object-cover` on all images
+1. **Remove "See what's possible" text** -- Delete the `<p>` element with that label and its bottom margin.
 
-## Animation
-- `featuredIndex` cycles 0-3 every 3 seconds (existing `setInterval` logic, already pauses when lightbox is open)
-- The featured thumbnail gets `scale-110` (or similar), others stay at `scale-100`
-- Each thumbnail has `transition-transform duration-500 ease-in-out` so the scale change animates smoothly
-- This is purely a transform -- no layout shift, no grid reflow, no reordering
+2. **Increase gap 4x** -- Change `gap-1.5` to `gap-6` on the grid container, giving the scale animation room to breathe.
 
-## Technical Details
+3. **Show natural aspect ratios** -- Remove `aspect-square` from thumbnail buttons so each collage displays at its native proportions (landscape vs portrait). The images already use `object-cover`, so they'll fill their natural bounds.
 
-### File: `src/components/SampleGallery.tsx`
-- Replace the entire grid container (the `div` with `grid grid-cols-3 grid-rows-2`) with a `grid grid-cols-4 gap-1.5` container
-- Remove `order`, `col-span-*`, `row-span-*`, and `transition-[grid-area]` classes
-- Each button gets a fixed style: `aspect-square overflow-hidden`
-- Conditionally apply `scale-110` (featured) vs `scale-100` (others) plus `transition-transform duration-500 ease-in-out`
-- Add `z-10` to the featured thumbnail so it renders above neighbors when scaled
-- No other logic changes -- `featuredIndex` state, `setInterval`, lightbox all stay the same
-
-### No other files need changes
+## No other files change.
 

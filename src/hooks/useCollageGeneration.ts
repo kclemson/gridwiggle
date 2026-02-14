@@ -66,6 +66,9 @@ export function useCollageGeneration(deps: {
   // Request ID for stale response detection (worker-based generation)
   const latestRequestIdRef = useRef(0);
 
+  // Track shuffle count per session for telemetry
+  const shuffleCountRef = useRef(0);
+
   const regenerateCollage = useCallback(async (options: RegenerateOptions = {}) => {
     const {
       photos: optPhotos = photosRef.current,
@@ -118,9 +121,13 @@ export function useCollageGeneration(deps: {
     // Track this request to detect stale responses
     const requestId = ++latestRequestIdRef.current;
 
+    // Track shuffles for telemetry
+    if (randomize) {
+      shuffleCountRef.current++;
+    }
+
     setIsGenerating(true);
     devLogger.clear();
-    remoteLogger.info('layout', 'Regenerating collage', { photoCount: photosToUse.length });
 
     try {
       // Use worker for layout generation
@@ -210,12 +217,19 @@ export function useCollageGeneration(deps: {
           usedWorker: result.usedWorker ?? false,
         } : null,
       });
-      remoteLogger.info('layout', 'Layout generated', {
-        cells: resultLayout.cells.length,
-        durationMs: result.durationMs,
-        usedWorker: result.usedWorker ?? false,
-        hasSoftRejection: !!result.softRejection,
-      });
+      // Telemetry: log photo count + aspect ratios (privacy-safe, no image data)
+      if (randomize) {
+        remoteLogger.info('telemetry', 'shuffle', {
+          count: dimensions.length,
+          shuffleNum: shuffleCountRef.current,
+        });
+      } else {
+        remoteLogger.info('telemetry', 'photos', {
+          count: dimensions.length,
+          aspectRatios: dimensions.map(d => +d.aspectRatio.toFixed(2)),
+          heroCount: dimensions.filter(d => d.weight > 1).length,
+        });
+      }
     } catch (error) {
       // Check for stale response
       if (requestId !== latestRequestIdRef.current) return;

@@ -16,8 +16,6 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
-import { remoteLogger } from '@/lib/remoteLogger';
-import { isMobileDevice } from '@/lib/platform';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -155,7 +153,6 @@ export default function Index() {
     const { succeeded } = await addPhotos(newPhotos);
     if (succeeded.length === 0) return;
 
-    remoteLogger.info('upload', 'Photos added', { count: succeeded.length, isMobile: isMobileDevice() });
     const wasLayoutEmpty = state.layout === null;
 
     let processedDims: { id: string; width: number; height: number }[] = [];

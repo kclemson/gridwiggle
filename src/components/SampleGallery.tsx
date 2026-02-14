@@ -47,7 +47,7 @@ export function SampleGallery() {
         See what's possible
       </p>
 
-      <div className="grid grid-cols-3 grid-rows-2 gap-1.5 aspect-[3/2]">
+      <div className="grid grid-cols-4 gap-1.5">
         {samples.map((src, i) => {
           const isFeatured = i === featuredIndex;
           return (
@@ -55,17 +55,10 @@ export function SampleGallery() {
               key={i}
               onClick={() => openLightbox(i)}
               className={`
-                overflow-hidden relative
-                transition-[grid-area] duration-500 ease-in-out
-                ${isFeatured
-                  ? 'col-span-2 row-span-2'
-                  : 'col-span-1 row-span-1'
-                }
+                aspect-square overflow-hidden relative
+                transition-transform duration-500 ease-in-out
+                ${isFeatured ? 'scale-110 z-10' : 'scale-100'}
               `}
-              style={{
-                // Fixed grid positions: featured always first in flow
-                order: isFeatured ? -1 : i,
-              }}
             >
               <img
                 src={src}

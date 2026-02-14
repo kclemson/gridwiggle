@@ -259,7 +259,7 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
       });
 
       // Session telemetry: log once per app load with platform info
-      remoteLogger.info('telemetry', 'session', { platform: isMobileDevice() ? 'mobile' : 'desktop' });
+      remoteLogger.info('telemetry', 'session', { platform: isMobileDevice() ? 'mobile' : 'desktop', isDev: import.meta.env.DEV });
 
       setIsLoading(false);
     }

@@ -26,7 +26,7 @@ export function SampleGallery() {
       setTimeout(() => {
         setActiveIndex((i) => (i + 1) % samples.length);
         setIsTransitioning(false);
-      }, 400);
+      }, 700);
     }, 4000);
     return () => clearInterval(interval);
   }, []);
@@ -57,7 +57,7 @@ export function SampleGallery() {
       <div className="flex items-center justify-center h-56 sm:h-44">
         <button
           onClick={() => openLightbox(activeIndex)}
-          className={`overflow-hidden relative h-56 sm:h-44 transition-all duration-[400ms] ease-in-out ${
+          className={`overflow-hidden relative h-56 sm:h-44 transition-all duration-700 ease-in-out ${
             isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
           }`}
         >

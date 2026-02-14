@@ -394,19 +394,20 @@ export default function Index() {
           </div>
           )}
         </main>
-        <footer className="py-4 text-center">
-          <a
-            href="https://kcloadletter.com"
-            target="_blank"
-            rel="noopener"
-            className="text-sm text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-          >
-            made by kcloadletter.com
-          </a>
-        </footer>
       </div>
 
       {state.photos.length === 0 && <SampleGallery />}
+
+      <footer className="py-4 text-center">
+        <a
+          href="https://kcloadletter.com"
+          target="_blank"
+          rel="noopener"
+          className="text-sm text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
+          made by kcloadletter.com
+        </a>
+      </footer>
 
       {/* Crop Editor - Conditional rendering so component unmounts on close */}
       {editingPhotoId && editingPhoto && (

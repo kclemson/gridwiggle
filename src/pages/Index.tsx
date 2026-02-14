@@ -353,6 +353,12 @@ export default function Index() {
                       )}
                     </div>
 
+                    <CollageSettings
+                      settings={state.settings}
+                      layout={state.layout}
+                      onUpdate={handleUpdateSettings}
+                    />
+
                     {/* Dev-only layout info panel */}
                     {import.meta.env.DEV && (layoutMeta || softRejection) && (
                       <LayoutInfoPanel
@@ -361,12 +367,6 @@ export default function Index() {
                         details={softRejection?.details}
                       />
                     )}
-
-                    <CollageSettings
-                      settings={state.settings}
-                      layout={state.layout}
-                      onUpdate={handleUpdateSettings}
-                    />
                   </>
                 ) : null}
                 </div>

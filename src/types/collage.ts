@@ -1,6 +1,6 @@
 import type { LogEntry } from '@/lib/devLogger';
 
-export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 6;
+export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 10;
 
 export interface CropRegion {
   x: number;

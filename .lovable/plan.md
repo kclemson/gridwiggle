@@ -1,11 +1,14 @@
 
 
-# Tighten Thumbnail Gap
+# Slow Down the Fade Animation
 
-Change the gap between sample thumbnails from `gap-3` (12px) to `gap-1.5` (6px). The container already has `px-2` (8px) side padding, so a 6px gap will be visibly smaller than the left/right padding on mobile.
+## What Changes
+Make the fade-out/fade-in transition slower so it feels more gentle and pleasing. Currently the transition duration is 400ms -- increasing it to 700ms will give it a more relaxed, cinematic feel.
 
 ## Technical Details
 
 ### File: `src/components/SampleGallery.tsx`
-- Line 43: Change `gap-3` to `gap-1.5`
+
+1. **Line 25**: Increase the `setTimeout` delay from `400` to `700` so the index swap waits for the longer fade-out to complete
+2. **Line 61**: Change the Tailwind duration class from `duration-[400ms]` to `duration-700`
 

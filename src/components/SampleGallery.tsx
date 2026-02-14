@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import {
   Dialog,
-  DialogContent,
   DialogOverlay,
   DialogPortal,
   DialogTitle,
@@ -16,17 +15,7 @@ import sample4 from '@/assets/samples/sample-collage-4.png';
 const samples = [sample2, sample3, sample4];
 
 export function SampleGallery() {
-  const [featuredIndex, setFeaturedIndex] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-
-  // Rotate featured thumbnail every 3s, pause when lightbox is open
-  useEffect(() => {
-    if (selectedIndex !== null) return;
-    const id = setInterval(() => {
-      setFeaturedIndex((i) => (i + 1) % samples.length);
-    }, 3000);
-    return () => clearInterval(id);
-  }, [selectedIndex]);
 
   const openLightbox = useCallback((index: number) => {
     setSelectedIndex(index);
@@ -49,33 +38,24 @@ export function SampleGallery() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [selectedIndex, navigate]);
 
-  // Build grid order: featured takes position 0, others fill 1-3
-  // All 4 items stay in DOM; featured gets col-span-2 row-span-2
   return (
     <div className="w-full mt-6 mb-8 px-2">
       <div className="flex items-center justify-center gap-6">
-        {samples.map((src, i) => {
-          const isFeatured = i === featuredIndex;
-          return (
-            <button
-              key={i}
-              onClick={() => openLightbox(i)}
-              className={`
-                overflow-hidden relative h-56 sm:h-44
-                transition-transform duration-500 ease-in-out
-                ${isFeatured ? 'scale-125 z-10' : 'scale-100'}
-              `}
-            >
-              <img
-                src={src}
-                alt={`Sample collage ${i + 1}`}
-                className="h-full w-auto object-contain"
-                draggable={false}
-                decoding="async"
-              />
-            </button>
-          );
-        })}
+        {samples.map((src, i) => (
+          <button
+            key={i}
+            onClick={() => openLightbox(i)}
+            className="overflow-hidden relative h-56 sm:h-44"
+          >
+            <img
+              src={src}
+              alt={`Sample collage ${i + 1}`}
+              className="h-full w-auto object-contain"
+              draggable={false}
+              decoding="async"
+            />
+          </button>
+        ))}
       </div>
 
       {/* Lightbox */}
@@ -86,9 +66,9 @@ export function SampleGallery() {
         }}
       >
         <DialogPortal>
-          <DialogOverlay className="bg-black/90" />
+          <DialogOverlay className="bg-black/60" />
           <DialogPrimitive.Content
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
             onPointerDownOutside={() => setSelectedIndex(null)}
             onEscapeKeyDown={() => setSelectedIndex(null)}
           >
@@ -96,42 +76,45 @@ export function SampleGallery() {
               Sample collage {selectedIndex !== null ? selectedIndex + 1 : ''}
             </DialogTitle>
 
-            {/* Close */}
-            <button
-              onClick={() => setSelectedIndex(null)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white z-10"
-              aria-label="Close"
-            >
-              <X className="h-6 w-6" />
-            </button>
+            {/* Inner container for image + controls */}
+            <div className="relative inline-flex items-center">
+              {/* Close */}
+              <button
+                onClick={() => setSelectedIndex(null)}
+                className="absolute -top-3 -right-3 z-10 bg-black/70 hover:bg-black/90 text-white rounded-full p-1.5"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
 
-            {/* Prev */}
-            <button
-              onClick={() => navigate(-1)}
-              className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 text-white/70 hover:text-white z-10"
-              aria-label="Previous"
-            >
-              <ChevronLeft className="h-8 w-8" />
-            </button>
+              {/* Prev */}
+              <button
+                onClick={() => navigate(-1)}
+                className="absolute -left-10 sm:-left-12 top-1/2 -translate-y-1/2 text-white/70 hover:text-white z-10"
+                aria-label="Previous"
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </button>
 
-            {/* Image */}
-            {selectedIndex !== null && (
-              <img
-                src={samples[selectedIndex]}
-                alt={`Sample collage ${selectedIndex + 1}`}
-                className="max-w-full max-h-full object-contain"
-                draggable={false}
-              />
-            )}
+              {/* Image */}
+              {selectedIndex !== null && (
+                <img
+                  src={samples[selectedIndex]}
+                  alt={`Sample collage ${selectedIndex + 1}`}
+                  className="max-h-[70vh] max-w-[90vw] object-contain rounded-lg"
+                  draggable={false}
+                />
+              )}
 
-            {/* Next */}
-            <button
-              onClick={() => navigate(1)}
-              className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 text-white/70 hover:text-white z-10"
-              aria-label="Next"
-            >
-              <ChevronRight className="h-8 w-8" />
-            </button>
+              {/* Next */}
+              <button
+                onClick={() => navigate(1)}
+                className="absolute -right-10 sm:-right-12 top-1/2 -translate-y-1/2 text-white/70 hover:text-white z-10"
+                aria-label="Next"
+              >
+                <ChevronRight className="h-8 w-8" />
+              </button>
+            </div>
           </DialogPrimitive.Content>
         </DialogPortal>
       </Dialog>

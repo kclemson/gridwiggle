@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { CollageSettings as CollageSettingsType, CollageLayout, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import { ShapeIndicator } from '@/components/ShapeIndicator';
@@ -18,12 +19,15 @@ const SIZE_OPTIONS: { label: string; value: 1 | 1.5 | 2 }[] = [
 ];
 
 export function CollageSettings({ settings, layout, photoCount, onUpdate }: CollageSettingsProps) {
+  const [draggingValue, setDraggingValue] = useState<number | null>(null);
+
   // Slider always reflects the current layout AR (truthful display)
   const displayPosition = layout
     ? arToSliderPosition(layout.width / layout.height)
     : 50; // Default to center when no layout
 
   const shapeDisabled = photoCount < MIN_PHOTOS_FOR_SHAPE_SLIDER;
+  const shapeValue = draggingValue ?? displayPosition;
 
   return (
     <div className="grid grid-cols-4 gap-x-3 py-2 px-1">
@@ -45,10 +49,14 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
         )}
         title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
       >
-        <ShapeIndicator position={displayPosition} />
+        <ShapeIndicator position={shapeValue} />
         <Slider
-          value={[displayPosition]}
-          onValueChange={([value]) => onUpdate({ shapeSlider: value })}
+          value={[shapeValue]}
+          onValueChange={([value]) => setDraggingValue(value)}
+          onValueCommit={([value]) => {
+            setDraggingValue(null);
+            onUpdate({ shapeSlider: value });
+          }}
           disabled={shapeDisabled}
           min={0}
           max={100}

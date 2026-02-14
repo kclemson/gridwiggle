@@ -40,7 +40,7 @@ export function SampleGallery() {
 
   return (
     <div className="w-full mt-6 mb-8 px-2">
-      <div className="flex items-center justify-center gap-6">
+      <div className="flex items-center justify-center gap-3">
         {samples.map((src, i) => (
           <button
             key={i}

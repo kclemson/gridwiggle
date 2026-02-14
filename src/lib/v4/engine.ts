@@ -341,13 +341,21 @@ function generateCandidates(
           const canvasArea = canvasWidth * canvasHeight;
           const heroCoverage = heroArea / canvasArea;
           
-          if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
-            const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-            devLogger.warn('v4-reject', 'Canvas AR out of bounds', {
+          // Soft penalty for canvas AR outside bounds (instead of hard reject)
+          let arBoundsPenalty = 0;
+          if (canvasAR < tuning.canvas_minAR) {
+            const overshoot = (tuning.canvas_minAR - canvasAR) / tuning.canvas_minAR;
+            arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+          } else if (canvasAR > tuning.canvas_maxAR) {
+            const overshoot = (canvasAR - tuning.canvas_maxAR) / tuning.canvas_maxAR;
+            arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+          }
+          if (arBoundsPenalty > 0) {
+            devLogger.warn('v4-penalty', 'Canvas AR bounds penalty', {
               template: template.id, canvasAR: +canvasAR.toFixed(3),
               min: tuning.canvas_minAR, max: tuning.canvas_maxAR,
-            }, geometry);
-            continue;
+              penalty: +arBoundsPenalty.toFixed(3),
+            });
           }
           
           const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
@@ -373,7 +381,7 @@ function generateCandidates(
           const allAreas = [heroArea, ...allContentAreas];
           const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
           const rawScore = balanceResult.score;
-          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
+          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty);
           
           const corner = randomize
             ? corners[Math.floor(Math.random() * 4)]
@@ -425,13 +433,21 @@ function generateCandidates(
         const canvasArea = canvasWidth * canvasHeight;
         const heroCoverage = heroArea / canvasArea;
         
-        if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) {
-          const geometry = buildRejectionGeometry(topologyHero, regions, canvasWidth, canvasHeight);
-          devLogger.warn('v4-reject', 'Canvas AR out of bounds', {
+        // Soft penalty for canvas AR outside bounds (instead of hard reject)
+        let arBoundsPenalty = 0;
+        if (canvasAR < tuning.canvas_minAR) {
+          const overshoot = (tuning.canvas_minAR - canvasAR) / tuning.canvas_minAR;
+          arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+        } else if (canvasAR > tuning.canvas_maxAR) {
+          const overshoot = (canvasAR - tuning.canvas_maxAR) / tuning.canvas_maxAR;
+          arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+        }
+        if (arBoundsPenalty > 0) {
+          devLogger.warn('v4-penalty', 'Canvas AR bounds penalty', {
             template: template.id, canvasAR: +canvasAR.toFixed(3),
             min: tuning.canvas_minAR, max: tuning.canvas_maxAR,
-          }, geometry);
-          continue;
+            penalty: +arBoundsPenalty.toFixed(3),
+          });
         }
         
         const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
@@ -494,7 +510,7 @@ function generateCandidates(
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty);
         
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
@@ -735,8 +751,15 @@ function generateDualHeroCandidates(
         const canvasArea = canvasWidth * canvasHeight;
         const combinedCoverage = (hero1Area + hero2Area) / canvasArea;
         
-        // Canvas AR bounds: hard reject
-        if (canvasAR < tuning.canvas_minAR || canvasAR > tuning.canvas_maxAR) continue;
+        // Soft penalty for canvas AR outside bounds (instead of hard reject)
+        let arBoundsPenalty = 0;
+        if (canvasAR < tuning.canvas_minAR) {
+          const overshoot = (tuning.canvas_minAR - canvasAR) / tuning.canvas_minAR;
+          arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+        } else if (canvasAR > tuning.canvas_maxAR) {
+          const overshoot = (canvasAR - tuning.canvas_maxAR) / tuning.canvas_maxAR;
+          arBoundsPenalty = Math.min(0.5, overshoot * 2.0);
+        }
         
         const arDeviation = Math.abs(canvasAR - targetCanvasAR) / targetCanvasAR;
         // Soft penalties (not hard rejects) for dual-hero
@@ -777,7 +800,7 @@ function generateDualHeroCandidates(
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = (r0Count > 0 ? 0.33 : 0) + (r1Count > 0 ? 0.34 : 0) + (r2Count > 0 ? 0.33 : 0);
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty);
         
         const corner = randomize
           ? diagonalCorners[Math.floor(Math.random() * 2)]

@@ -42,16 +42,22 @@ export function useCollageGeneration(deps: {
 }) {
   const { photos, settings, layout, setLayout } = deps;
 
-  const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
-  const [lastDurationMs, setLastDurationMs] = useState<number | undefined>(undefined);
   const [v3Tuning, setV3Tuning] = useState<V3Tuning>(DEFAULT_V3_TUNING);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [softRejection, setSoftRejection] = useState<{
-    reason: string;
-    details: Record<string, unknown>;
-  } | null>(null);
-  const [layoutMeta, setLayoutMeta] = useState<Record<string, unknown> | null>(null);
+
+  // Batched into single state to minimize render passes after worker returns
+  const [genMeta, setGenMeta] = useState<{
+    debugLogs: LogEntry[];
+    lastDurationMs: number | undefined;
+    softRejection: { reason: string; details: Record<string, unknown> } | null;
+    layoutMeta: Record<string, unknown> | null;
+  }>({
+    debugLogs: [],
+    lastDurationMs: undefined,
+    softRejection: null,
+    layoutMeta: null,
+  });
 
   // Ref to access latest photos (avoids stale closure in async callbacks)
   const photosRef = useRef<PhotoItem[]>(photos);
@@ -140,8 +146,6 @@ export function useCollageGeneration(deps: {
       }
 
       const currentLogs = devLogger.getLogs();
-      setDebugLogs(currentLogs);
-      setLastDurationMs(result.durationMs);
 
       // Save capture directly (dev only)
       if (import.meta.env.DEV) {
@@ -196,12 +200,16 @@ export function useCollageGeneration(deps: {
       // Layout is now always non-null (soft rejections instead of hard)
       setLayout(resultLayout);
       setLayoutError(null);
-      setSoftRejection(result.softRejection ?? null);
-      setLayoutMeta(result.layoutMeta ? {
-        ...result.layoutMeta,
-        durationMs: result.durationMs,
-        usedWorker: result.usedWorker ?? false,
-      } : null);
+      setGenMeta({
+        debugLogs: currentLogs,
+        lastDurationMs: result.durationMs,
+        softRejection: result.softRejection ?? null,
+        layoutMeta: result.layoutMeta ? {
+          ...result.layoutMeta,
+          durationMs: result.durationMs,
+          usedWorker: result.usedWorker ?? false,
+        } : null,
+      });
       remoteLogger.info('layout', 'Layout generated', {
         cells: resultLayout.cells.length,
         durationMs: result.durationMs,
@@ -240,10 +248,10 @@ export function useCollageGeneration(deps: {
     isGenerating,
     layoutError,
     setLayoutError,
-    softRejection,
-    layoutMeta,
-    debugLogs,
-    lastDurationMs,
+    softRejection: genMeta.softRejection,
+    layoutMeta: genMeta.layoutMeta,
+    debugLogs: genMeta.debugLogs,
+    lastDurationMs: genMeta.lastDurationMs,
     v3Tuning,
     regenerateCollage,
     handleV3TuningChange,

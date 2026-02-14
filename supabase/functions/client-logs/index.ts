@@ -83,10 +83,8 @@ function formatTelemetryLog(prefix: string, ts: string, log: LogEntry): string {
   const count = data.count !== undefined ? `:${data.count}` : '';
 
   switch (log.message) {
-    case 'session': {
-      const devTag = data.isDev ? ' [DEV]' : '';
-      return `${prefix} ${ts} session | ${data.platform ?? 'unknown'}${devTag}`;
-    }
+    case 'session':
+      return `${prefix} ${ts} session | ${data.platform ?? 'unknown'}`;
 
     case 'photos': {
       const ars = Array.isArray(data.aspectRatios)
@@ -122,14 +120,16 @@ serve(async (req) => {
 
     for (const log of logs) {
       const ts = formatTimestamp(log.timestamp);
+      const devTag = log.data?.isDev ? '[DEV] ' : '';
+      const prefix = `${devTag}${sessionPrefix}`;
 
       if (log.category === 'telemetry') {
         // Telemetry events get compact one-liner formatting
-        console.log(formatTelemetryLog(sessionPrefix, ts, log));
+        console.log(formatTelemetryLog(prefix, ts, log));
       } else if (log.level === 'error' || log.level === 'warn') {
         // Errors and warnings keep full detail for debugging
         const dataStr = log.data ? ` ${JSON.stringify(log.data)}` : '';
-        console.log(`${sessionPrefix} ${ts} ${log.level.toUpperCase()} | ${log.category}: ${log.message}${dataStr}`);
+        console.log(`${prefix} ${ts} ${log.level.toUpperCase()} | ${log.category}: ${log.message}${dataStr}`);
       }
       // Info logs from non-telemetry categories are silently dropped
       // (these are the old diagnostic logs we no longer need)

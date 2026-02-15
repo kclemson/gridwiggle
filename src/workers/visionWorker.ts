@@ -16,6 +16,8 @@ self.postMessage({ type: 'status', message: `[diag] numThreads: ${env.backends.o
 let detector: any = null;
 let loadedForMobile: boolean | null = null; // track which model variant is cached
 
+const PET_LABELS = new Set(['cat', 'dog']);
+
 interface DetectionResult {
   label: string;
   score: number;
@@ -61,7 +63,10 @@ function calculateOptimalCrop(
   // Filter by confidence > 0.4, prioritize people if detected
   const allSubjects = detections.filter(d => d.score > 0.4);
   const people = allSubjects.filter(d => d.label === 'person');
-  const subjects = people.length > 0 ? people : allSubjects;
+  const pets = allSubjects.filter(d => PET_LABELS.has(d.label));
+  const subjects = people.length > 0 ? people
+                 : pets.length > 0 ? pets
+                 : allSubjects;
   
   if (subjects.length === 0) {
     // No subjects detected - use full image (no cropping)
@@ -165,8 +170,10 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     // Only apply smart crop if a person was detected
     // DETR hallucinates random objects (banana, vase) for cartoons
     // but reliably detects "person" in real photos
-    const hasPerson = results.some(r => r.score > 0.4 && r.label === 'person');
-    const skipCrop = !hasPerson;
+    const hasSubject = results.some(
+      r => r.score > 0.4 && (r.label === 'person' || PET_LABELS.has(r.label))
+    );
+    const skipCrop = !hasSubject;
     
     self.postMessage({
       type: 'result',

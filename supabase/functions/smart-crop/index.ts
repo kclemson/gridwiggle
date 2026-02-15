@@ -53,12 +53,12 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an image analyzer that detects PEOPLE and FACES.
+            content: `You are an image analyzer that detects PEOPLE, FACES, and PETS (cats and dogs).
 
 Your task:
-1. Determine if there are any people or human faces in the image
-2. If YES: return a crop region that keeps all people/faces visible with breathing room. Set skipCrop to false.
-3. If NO: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/100/100.
+1. Determine if there are any people, human faces, or pets (cats/dogs) in the image
+2. If YES: return a crop region that keeps all detected subjects visible with breathing room. Set skipCrop to false. Prioritize people over pets if both are present.
+3. If NO people or pets: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/100/100.
 
 You must respond with ONLY a JSON object in this exact format:
 {
@@ -68,7 +68,7 @@ You must respond with ONLY a JSON object in this exact format:
   "height": <percentage of image height>,
   "confidence": <0-1 confidence score>,
   "subjects": "<description of what you see>",
-  "skipCrop": <true if no people/faces detected, false if people found>
+  "skipCrop": <true if no people/faces/pets detected, false if people or pets found>
 }`
           },
           {
@@ -82,7 +82,7 @@ You must respond with ONLY a JSON object in this exact format:
               },
               {
                 type: "text",
-                text: `Analyze this ${width}x${height} image. Are there any people or human faces? If yes, provide the optimal crop region focusing on the people. If no people are found, set skipCrop to true. Return ONLY the JSON object.`
+                text: `Analyze this ${width}x${height} image. Are there any people, human faces, or pets (cats/dogs)? If yes, provide the optimal crop region focusing on the subjects (prioritize people over pets). If no people or pets are found, set skipCrop to true. Return ONLY the JSON object.`
               }
             ],
           },

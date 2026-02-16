@@ -201,18 +201,11 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     onDelete(photo.id);
   };
 
-  // Larger handles on touch devices for easier grabbing
+  // Fixed screen-pixel sizes for consistent visuals regardless of image resolution
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  
-  // Handle size in viewBox units so it appears as ~28px (desktop) or ~36px (mobile) on screen
-  // Cap at 8% of smaller dimension to prevent oversized handles on small images
-  const targetHandleSize = viewScale > 0 ? (isTouchDevice ? 36 : 28) / viewScale : 28;
-  const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.08;
-  const handleSize = Math.min(targetHandleSize, maxHandleSize);
-  const strokeWidth = viewScale > 0 ? 3 / viewScale : 3;
-  
-  // Minimum touch target: 64px on mobile, 44px on desktop (iOS HIG recommendation)
-  const hitAreaSize = viewScale > 0 ? (isTouchDevice ? 64 : 44) / viewScale : 44;
+  const handleSize = viewScale > 0 ? (isTouchDevice ? 14 : 10) / viewScale : 10;
+  const hitAreaSize = viewScale > 0 ? 48 / viewScale : 48;
+  const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
   
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
@@ -268,6 +261,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               width={photo.originalWidth}
               height={crop.y}
               fill="rgba(0, 0, 0, 0.6)"
+              pointerEvents="none"
             />
             {/* Bottom */}
             <rect
@@ -276,6 +270,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               width={photo.originalWidth}
               height={photo.originalHeight - (crop.y + crop.height)}
               fill="rgba(0, 0, 0, 0.6)"
+              pointerEvents="none"
             />
             {/* Left */}
             <rect
@@ -284,6 +279,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               width={crop.x}
               height={crop.height}
               fill="rgba(0, 0, 0, 0.6)"
+              pointerEvents="none"
             />
             {/* Right */}
             <rect
@@ -292,6 +288,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               width={photo.originalWidth - (crop.x + crop.width)}
               height={crop.height}
               fill="rgba(0, 0, 0, 0.6)"
+              pointerEvents="none"
             />
             
             {/* Crop area - draggable */}
@@ -309,7 +306,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             
             {/* Grid lines (rule of thirds) */}
             {[1, 2].map((i) => (
-              <g key={i}>
+              <g key={i} pointerEvents="none">
                 <line
                   x1={crop.x + (crop.width * i) / 3}
                   y1={crop.y}
@@ -342,19 +339,23 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               return (
                 <g key={corner}>
                   {/* Invisible hit area - larger for easier touch/click */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={hitAreaSize / 2}
+                  <rect
+                    x={cx - hitAreaSize / 2}
+                    y={cy - hitAreaSize / 2}
+                    width={hitAreaSize}
+                    height={hitAreaSize}
                     fill="transparent"
+                    pointerEvents="all"
                     style={{ cursor: cursorMap[corner] }}
                     onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
                   />
-                  {/* Visible handle - with shadow and dark stroke for visibility */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={handleSize / 2}
+                  {/* Visible handle - small rounded square */}
+                  <rect
+                    x={cx - handleSize / 2}
+                    y={cy - handleSize / 2}
+                    width={handleSize}
+                    height={handleSize}
+                    rx={handleSize * 0.2}
                     fill="white"
                     stroke="#333"
                     strokeWidth={strokeWidth}

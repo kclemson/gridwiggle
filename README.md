@@ -1,6 +1,6 @@
 # GridWiggle
 
-Auto-layout photo collage maker. Upload photos, photos with people in them are auto-cropped, pick a photo or two to feature, and get a beautifully laid out grid collage — no manual arranging needed.
+Auto-layout photo collage maker. Upload photos, photos with people, dogs, or cats are auto-cropped, pick a photo or two to feature, and get a beautifully laid out grid collage — no manual arranging needed.
 
 ![GridWiggle screenshot](./public/og-image.png)
 
@@ -8,7 +8,7 @@ Auto-layout photo collage maker. Upload photos, photos with people in them are a
 
 - **Auto-layout** — constraint-based packing produces balanced, beautiful grids automatically
 - **Hero photos** — mark one or two photos as heroes for visual prominence
-- **AI smart crop** — detects people/faces and crops to keep them visible; skips cropping for non-person photos
+- **AI smart crop** — detects people/faces/pets and crops to keep them visible; skips cropping for non-subject photos
   - Desktop: on-device DETR model via Web Worker (Hugging Face Transformers.js)
   - Mobile: server-side Gemini Flash vision (edge function) to avoid Safari ONNX crashes
 - **Shuffle** — regenerate layouts instantly for variety

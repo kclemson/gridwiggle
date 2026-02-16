@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      photo_sessions: {
+        Row: {
+          aspect_ratios: number[]
+          created_at: string
+          hero_count: number
+          id: string
+          is_dev: boolean
+          photo_count: number
+          session_id: string
+        }
+        Insert: {
+          aspect_ratios?: number[]
+          created_at?: string
+          hero_count?: number
+          id?: string
+          is_dev?: boolean
+          photo_count: number
+          session_id: string
+        }
+        Update: {
+          aspect_ratios?: number[]
+          created_at?: string
+          hero_count?: number
+          id?: string
+          is_dev?: boolean
+          photo_count?: number
+          session_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -24,7 +24,7 @@ const Help = () => {
           <h2 className="text-xl font-semibold text-foreground">How It Works</h2>
           <ul className="space-y-4 text-sm text-muted-foreground leading-relaxed">
             <li>Upload your photos and a collage is generated automatically. Tap shuffle to try a new layout.</li>
-            <li>Photos with people are automatically cropped to keep faces in frame. Tap any photo to fine-tune its crop or remove it.</li>
+            <li>Photos with people, dogs, or cats are automatically cropped to keep subjects in frame. Tap any photo to fine-tune its crop or remove it.</li>
             <li>Mark one or two photos as a "hero" using the star icon to give them extra prominence in the layout.</li>
             <li>Drag photos in the collage to swap their positions.</li>
             <li>With 10 or more photos, use the shape slider to push the collage toward portrait, square, or landscape.</li>

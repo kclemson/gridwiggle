@@ -203,8 +203,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
 
   // Fixed screen-pixel sizes for consistent visuals regardless of image resolution
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  const handleSize = viewScale > 0 ? (isTouchDevice ? 14 : 10) / viewScale : 10;
-  const hitAreaSize = viewScale > 0 ? 48 / viewScale : 48;
+  const handleSize = viewScale > 0 ? (isTouchDevice ? 22 : 12) / viewScale : 12;
+  const hitAreaSize = viewScale > 0 ? (isTouchDevice ? 72 : 48) / viewScale : 48;
   const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
   
   // Offset handles inward when at image edges so they're fully visible

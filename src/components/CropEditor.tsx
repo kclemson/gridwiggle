@@ -204,7 +204,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   // Fixed screen-pixel sizes for consistent visuals regardless of image resolution
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const handleSize = viewScale > 0 ? (isTouchDevice ? 22 : 12) / viewScale : 12;
-  const hitAreaSize = viewScale > 0 ? (isTouchDevice ? 72 : 48) / viewScale : 48;
+  const hitAreaSize = viewScale > 0 ? 72 / viewScale : 72;
   const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
   
   // Check if a point is near a corner, returning the corner id if so
@@ -252,7 +252,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4">
+        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4 touch-none">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}

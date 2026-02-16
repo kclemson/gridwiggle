@@ -201,15 +201,18 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     onDelete(photo.id);
   };
 
-  // Handle size in viewBox units so it appears as ~28px on screen
+  // Larger handles on touch devices for easier grabbing
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  
+  // Handle size in viewBox units so it appears as ~28px (desktop) or ~36px (mobile) on screen
   // Cap at 8% of smaller dimension to prevent oversized handles on small images
-  const targetHandleSize = viewScale > 0 ? 28 / viewScale : 28;
+  const targetHandleSize = viewScale > 0 ? (isTouchDevice ? 36 : 28) / viewScale : 28;
   const maxHandleSize = Math.min(photo.originalWidth, photo.originalHeight) * 0.08;
   const handleSize = Math.min(targetHandleSize, maxHandleSize);
   const strokeWidth = viewScale > 0 ? 3 / viewScale : 3;
   
-  // Minimum touch target of 44px in screen space (iOS HIG recommendation)
-  const hitAreaSize = viewScale > 0 ? 44 / viewScale : 44;
+  // Minimum touch target: 64px on mobile, 44px on desktop (iOS HIG recommendation)
+  const hitAreaSize = viewScale > 0 ? (isTouchDevice ? 64 : 44) / viewScale : 44;
   
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {

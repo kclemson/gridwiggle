@@ -34,6 +34,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -116,7 +117,14 @@ serve(async (req) => {
     const { logs, sessionId }: LogPayload = await req.json();
 
     // Use first 6 chars of session UUID as a short, scannable prefix
-    const sessionPrefix = `[s:${(sessionId ?? 'unknown').slice(0, 6)}]`;
+    const shortSession = (sessionId ?? 'unknown').slice(0, 6);
+    const sessionPrefix = `[s:${shortSession}]`;
+
+    // Service-role client for fire-and-forget DB writes (bypasses RLS)
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
     for (const log of logs) {
       const ts = formatTimestamp(log.timestamp);
@@ -126,6 +134,20 @@ serve(async (req) => {
       if (log.category === 'telemetry') {
         // Telemetry events get compact one-liner formatting
         console.log(formatTelemetryLog(prefix, ts, log));
+
+        // Persist photo telemetry to DB (fire-and-forget)
+        if (log.message === 'photos') {
+          const d = log.data ?? {};
+          supabaseAdmin.from('photo_sessions').insert({
+            session_id: shortSession,
+            photo_count: d.count ?? 0,
+            aspect_ratios: Array.isArray(d.aspectRatios) ? d.aspectRatios : [],
+            hero_count: d.heroCount ?? 0,
+            is_dev: !!d.isDev,
+          }).then(({ error }) => {
+            if (error) console.warn('photo_sessions insert failed:', error.message);
+          });
+        }
       } else if (log.level === 'error' || log.level === 'warn') {
         // Errors and warnings keep full detail for debugging
         const dataStr = log.data ? ` ${JSON.stringify(log.data)}` : '';

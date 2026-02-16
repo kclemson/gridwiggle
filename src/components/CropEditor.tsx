@@ -207,6 +207,34 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   const hitAreaSize = viewScale > 0 ? (isTouchDevice ? 72 : 48) / viewScale : 48;
   const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
   
+  // Check if a point is near a corner, returning the corner id if so
+  const getCornerId = useCallback((x: number, y: number): 'nw' | 'ne' | 'sw' | 'se' | null => {
+    const threshold = hitAreaSize / 2;
+    const corners = {
+      nw: { x: crop.x, y: crop.y },
+      ne: { x: crop.x + crop.width, y: crop.y },
+      sw: { x: crop.x, y: crop.y + crop.height },
+      se: { x: crop.x + crop.width, y: crop.y + crop.height },
+    };
+    for (const [id, corner] of Object.entries(corners)) {
+      if (Math.abs(x - corner.x) <= threshold && Math.abs(y - corner.y) <= threshold) {
+        return id as 'nw' | 'ne' | 'sw' | 'se';
+      }
+    }
+    return null;
+  }, [hitAreaSize, crop.x, crop.y, crop.width, crop.height]);
+
+  // Smart dispatcher: delegate to resize if near a corner, otherwise move
+  const handleCropAreaPointerDown = useCallback((e: React.PointerEvent) => {
+    const pos = getEventPosition(e);
+    const corner = getCornerId(pos.x, pos.y);
+    if (corner) {
+      handlePointerDown(e, `resize-${corner}`);
+    } else {
+      handlePointerDown(e, 'move');
+    }
+  }, [getEventPosition, getCornerId, handlePointerDown]);
+
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
     const cx = corner.includes('e') ? crop.x + crop.width : crop.x;
@@ -301,7 +329,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               stroke="white"
               strokeWidth={strokeWidth}
               className="cursor-move"
-              onPointerDown={(e) => handlePointerDown(e, 'move')}
+              onPointerDown={handleCropAreaPointerDown}
             />
             
             {/* Grid lines (rule of thirds) */}

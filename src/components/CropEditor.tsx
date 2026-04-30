@@ -322,31 +322,39 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        {/* Content-driven sizing: the SVG sizes itself from its viewBox plus
-            viewport-relative max constraints (max-h-[70vh] / max-w-full), and
-            the dialog wraps it. We intentionally do NOT use flex-1/min-h-0
-            here — that creates a chicken-and-egg where the flex parent waits
-            for the inline-block child's height and the child waits for the
-            parent, collapsing the SVG to zero (the "header+footer with no
-            image" bug). The image area scrolls if it ever overflows. */}
+        {/* Sizing model: the stage claims remaining height (flex-1 min-h-0)
+            inside the flex-col DialogContent. The wrapper inside is sized by
+            its CSS aspect-ratio against bounded parent dimensions — no
+            circular dependency between parent/child. The SVG fills the
+            wrapper at 100%, and the HTML interaction overlay (kept for iOS
+            WebKit hit-test reliability) sits as an absolute sibling so it
+            always matches the SVG's rendered box. */}
         <div
-          className="bg-black/50 flex items-center justify-center p-4 overflow-auto"
+          className="flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4"
           style={{ touchAction: 'none' }}
         >
-          <div className="relative inline-block leading-none">
+          <div
+            className="relative"
+            style={{
+              aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
+              // Cap to parent box AND to the image's natural pixel size, so
+              // small images aren't upscaled past their resolution. The
+              // browser picks whichever constraint binds first.
+              maxWidth: `min(100%, ${photo.originalWidth}px)`,
+              maxHeight: `min(100%, ${photo.originalHeight}px)`,
+              width: '100%',
+              height: '100%',
+            }}
+          >
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
             overflow="visible"
-            className="block select-none max-w-full max-h-[70vh] w-auto h-auto"
+            className="block w-full h-full select-none"
             style={{
               pointerEvents: 'none',
               overflow: 'visible',
-              // Intrinsic aspect ratio guarantees the SVG has a computed
-              // height even before its parent has been measured — this
-              // prevents the zero-height collapse on first render.
-              aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
             }}
           >
             {/* Drop shadow filter for handle visibility */}

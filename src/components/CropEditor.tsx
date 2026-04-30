@@ -283,7 +283,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4 touch-none min-h-0 flex-1">
+        <div className="bg-black/50 flex items-center justify-center p-4 touch-none min-h-0 flex-1 overflow-hidden">
           <div
             className="relative"
             style={{
@@ -298,8 +298,9 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
+            overflow="visible"
             className="block select-none w-full h-full"
-            style={{ pointerEvents: 'none' }}
+            style={{ pointerEvents: 'none', overflow: 'visible' }}
           >
             {/* Drop shadow filter for handle visibility */}
             <defs>

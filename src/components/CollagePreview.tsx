@@ -185,8 +185,9 @@ export function CollagePreview({
   const [pendingDragId, setPendingDragId] = useState<string | null>(null);
   const [touchStartPos, setTouchStartPos] = useState({ x: 0, y: 0 });
   const holdTimerRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const HOLD_THRESHOLD_MS = 300;  // Time to hold before drag activates
+  const HOLD_THRESHOLD_MS = 200;  // Time to hold before drag activates (must beat iOS long-press ~350ms)
   const MOVE_THRESHOLD_PX = 10;   // Movement tolerance during hold
 
   // Cleanup timer on unmount
@@ -216,6 +217,8 @@ export function CollagePreview({
     holdTimerRef.current = window.setTimeout(() => {
       setTouchDragId(photoId);
       setTouchPosition(startPos);
+      // Lock body scroll while dragging (belt-and-suspenders against Android)
+      document.body.style.overflow = 'hidden';
       // Haptic feedback if available
       if (navigator.vibrate) navigator.vibrate(50);
     }, HOLD_THRESHOLD_MS);
@@ -258,6 +261,9 @@ export function CollagePreview({
     // If no active drag, nothing to do
     if (!touchDragId) return;
 
+    // Restore body scroll
+    document.body.style.overflow = '';
+
     // Find the cell under the touch end position
     const touch = e.changedTouches[0];
     const element = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -271,6 +277,29 @@ export function CollagePreview({
     setTouchDragId(null);
   }, [touchDragId, onSwapPhotos]);
 
+  // Non-passive touchmove listener so we can preventDefault during active drag.
+  // React's synthetic touchmove is passive by default and cannot preventDefault.
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const onTouchMoveNative = (e: TouchEvent) => {
+      if (touchDragId) {
+        // Active drag: stop the page from scrolling under the finger
+        // and stop iOS from triggering its native long-press menu.
+        e.preventDefault();
+      }
+    };
+    node.addEventListener('touchmove', onTouchMoveNative, { passive: false });
+    return () => node.removeEventListener('touchmove', onTouchMoveNative);
+  }, [touchDragId]);
+
+  // Safety: if the component unmounts mid-drag, restore body scroll.
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   // Calculate max width that ensures height stays ≤ 500px
   // Layout dimensions already include border padding from algorithm
   const maxPreviewHeight = 500;
@@ -280,9 +309,15 @@ export function CollagePreview({
 
   return (
     <div 
+      ref={containerRef}
       className="w-full overflow-hidden"
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      style={{
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        WebkitTouchCallout: 'none',
+      }}
     >
       {/* CSS handles responsive scaling via max-width and aspect-ratio */}
       <div

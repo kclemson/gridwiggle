@@ -334,13 +334,16 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           style={{ touchAction: 'none' }}
         >
           <div
-            className="relative max-w-full max-h-full"
+            className="relative"
             style={{
               aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
-              // Use the natural pixel size as a soft upper bound so small
-              // images don't get blown up past their resolution.
-              width: photo.originalWidth,
-              height: photo.originalHeight,
+              // Cap to parent box AND to the image's natural pixel size, so
+              // small images aren't upscaled past their resolution. The
+              // browser picks whichever constraint binds first.
+              maxWidth: `min(100%, ${photo.originalWidth}px)`,
+              maxHeight: `min(100%, ${photo.originalHeight}px)`,
+              width: '100%',
+              height: '100%',
             }}
           >
           <svg

@@ -283,14 +283,23 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4 touch-none">
-          <div className="relative inline-block max-w-full" style={{ maxHeight: 'calc(90vh - 120px)' }}>
+        <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4 touch-none min-h-0 flex-1">
+          <div
+            className="relative"
+            style={{
+              aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              width: photo.originalWidth >= photo.originalHeight ? '100%' : 'auto',
+              height: photo.originalHeight > photo.originalWidth ? '100%' : 'auto',
+            }}
+          >
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
-            className="max-w-full block select-none"
-            style={{ maxHeight: 'calc(90vh - 120px)', pointerEvents: 'none' }}
+            className="block select-none w-full h-full"
+            style={{ pointerEvents: 'none' }}
           >
             {/* Drop shadow filter for handle visibility */}
             <defs>

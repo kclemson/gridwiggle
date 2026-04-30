@@ -322,28 +322,31 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
+        {/* Content-driven sizing: the SVG sizes itself from its viewBox plus
+            viewport-relative max constraints (max-h-[70vh] / max-w-full), and
+            the dialog wraps it. We intentionally do NOT use flex-1/min-h-0
+            here — that creates a chicken-and-egg where the flex parent waits
+            for the inline-block child's height and the child waits for the
+            parent, collapsing the SVG to zero (the "header+footer with no
+            image" bug). The image area scrolls if it ever overflows. */}
         <div
-          className="bg-black/50 flex items-center justify-center p-4 min-h-0 flex-1 overflow-hidden"
+          className="bg-black/50 flex items-center justify-center p-4 overflow-auto"
           style={{ touchAction: 'none' }}
         >
-          {/* Inline-block wrapper sized by the SVG's intrinsic aspect ratio.
-              Letting the SVG size itself (via max-w/max-h on the SVG) is more
-              robust across browsers than the explicit aspect-ratio container
-              that previously collapsed to zero in some viewports. */}
-          <div className="relative inline-block leading-none" style={{ maxWidth: '100%', maxHeight: '100%' }}>
+          <div className="relative inline-block leading-none">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
             overflow="visible"
-            className="block select-none"
+            className="block select-none max-w-full max-h-[70vh] w-auto h-auto"
             style={{
               pointerEvents: 'none',
               overflow: 'visible',
-              maxWidth: '100%',
-              maxHeight: 'min(60vh, 100%)',
-              width: 'auto',
-              height: 'auto',
+              // Intrinsic aspect ratio guarantees the SVG has a computed
+              // height even before its parent has been measured — this
+              // prevents the zero-height collapse on first render.
+              aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
             }}
           >
             {/* Drop shadow filter for handle visibility */}

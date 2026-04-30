@@ -329,6 +329,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               stroke="white"
               strokeWidth={strokeWidth}
               className="cursor-move"
+              pointerEvents="all"
               onPointerDown={handleCropAreaPointerDown}
             />
             

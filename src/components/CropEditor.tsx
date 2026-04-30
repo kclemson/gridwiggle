@@ -118,9 +118,6 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     e.preventDefault();
     e.stopPropagation();
     
-    // Capture pointer for smooth dragging even outside element
-    (e.target as Element).setPointerCapture(e.pointerId);
-    
     const pos = getEventPosition(e);
     setIsDragging(true);
     setDragType(type);
@@ -128,10 +125,21 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     setCropStart({ ...crop });
   }, [getEventPosition, crop]);
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging || !dragType || !cropStart) return;
+  // Convert raw client coordinates to SVG viewBox coordinates (for window-level events).
+  const clientToSvg = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const cursor = pt.matrixTransform(ctm.inverse());
+    return { x: cursor.x, y: cursor.y };
+  }, []);
 
-    const pos = getEventPosition(e);
+  const computeCropFromPos = useCallback((pos: { x: number; y: number }) => {
+    if (!dragType || !cropStart) return null;
     const dx = pos.x - dragStart.x;
     const dy = pos.y - dragStart.y;
 
@@ -162,15 +170,36 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
         newCrop.height = Math.max(minSize, Math.min(cropStart.height + dy, photo.originalHeight - cropStart.y));
       }
     }
+    return newCrop;
+  }, [dragType, cropStart, dragStart, photo.originalWidth, photo.originalHeight]);
 
-    setCrop(newCrop);
-  }, [isDragging, dragType, cropStart, photo.originalWidth, photo.originalHeight, getEventPosition, dragStart]);
+  // Window-level pointer tracking — works around mobile WebKit's unreliable
+  // setPointerCapture on SVG children, and keeps drags alive when the finger
+  // leaves the SVG bounds. pointercancel is treated like pointerup so OS
+  // interruptions don't leave a stuck drag state.
+  useEffect(() => {
+    if (!isDragging) return;
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    (e.target as Element).releasePointerCapture(e.pointerId);
-    setIsDragging(false);
-    setDragType(null);
-  }, []);
+    const onMove = (e: PointerEvent) => {
+      e.preventDefault();
+      const pos = clientToSvg(e.clientX, e.clientY);
+      const next = computeCropFromPos(pos);
+      if (next) setCrop(next);
+    };
+    const onEnd = () => {
+      setIsDragging(false);
+      setDragType(null);
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+  }, [isDragging, clientToSvg, computeCropFromPos]);
 
   const handleSave = () => {
     const priority: PhotoPriority = isHero ? 1 : 3;
@@ -259,10 +288,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             preserveAspectRatio="xMidYMid meet"
             overflow="visible"
             className="max-w-full block touch-none select-none"
-            style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible' }}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
+            style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible', touchAction: 'none' }}
           >
             {/* Drop shadow filter for handle visibility */}
             <defs>
@@ -319,7 +345,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               pointerEvents="none"
             />
             
-            {/* Crop area - draggable */}
+            {/* Visible crop outline (decorative — interaction is handled by the
+                expanded interaction rect below). */}
             <rect
               x={crop.x}
               y={crop.y}
@@ -328,9 +355,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               fill="transparent"
               stroke="white"
               strokeWidth={strokeWidth}
-              className="cursor-move"
-              pointerEvents="all"
-              onPointerDown={handleCropAreaPointerDown}
+              pointerEvents="none"
             />
             
             {/* Grid lines (rule of thirds) */}
@@ -355,45 +380,43 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               </g>
             ))}
             
-            {/* Corner handles */}
+            {/* Visible corner handles — purely decorative; interaction routes
+                through the unified interaction rect below. */}
             {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => {
               const { cx, cy } = getHandlePosition(corner);
-              const cursorMap = {
-                nw: 'nwse-resize',
-                ne: 'nesw-resize',
-                sw: 'nesw-resize',
-                se: 'nwse-resize',
-              };
-              
               return (
-                <g key={corner}>
-                  {/* Invisible hit area - larger for easier touch/click */}
-                  <rect
-                    x={cx - hitAreaSize / 2}
-                    y={cy - hitAreaSize / 2}
-                    width={hitAreaSize}
-                    height={hitAreaSize}
-                    fill="transparent"
-                    pointerEvents="all"
-                    style={{ cursor: cursorMap[corner] }}
-                    onPointerDown={(e) => handlePointerDown(e, `resize-${corner}`)}
-                  />
-                  {/* Visible handle - small rounded square */}
-                  <rect
-                    x={cx - handleSize / 2}
-                    y={cy - handleSize / 2}
-                    width={handleSize}
-                    height={handleSize}
-                    rx={handleSize * 0.2}
-                    fill="white"
-                    stroke="#333"
-                    strokeWidth={strokeWidth}
-                    filter="url(#handleShadow)"
-                    style={{ cursor: cursorMap[corner], pointerEvents: 'none' }}
-                  />
-                </g>
+                <rect
+                  key={corner}
+                  x={cx - handleSize / 2}
+                  y={cy - handleSize / 2}
+                  width={handleSize}
+                  height={handleSize}
+                  rx={handleSize * 0.2}
+                  fill="white"
+                  stroke="#333"
+                  strokeWidth={strokeWidth}
+                  filter="url(#handleShadow)"
+                  pointerEvents="none"
+                />
               );
             })}
+
+            {/* Unified interaction rect — extends `hitAreaSize/2` past every
+                edge of the crop so taps just outside the visible crop edge
+                still register. Single dispatcher decides corner-vs-move from
+                pointer position, so adjacent corner zones can't fight over a
+                tap on small crops. Rendered LAST so it sits above the dim
+                overlay rects in SVG paint/hit order. */}
+            <rect
+              x={crop.x - hitAreaSize / 2}
+              y={crop.y - hitAreaSize / 2}
+              width={crop.width + hitAreaSize}
+              height={crop.height + hitAreaSize}
+              fill="transparent"
+              pointerEvents="all"
+              className="cursor-move"
+              onPointerDown={handleCropAreaPointerDown}
+            />
           </svg>
         </div>
 

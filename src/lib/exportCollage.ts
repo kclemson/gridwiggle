@@ -1,7 +1,7 @@
 import { PhotoItem, CollageLayout } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { isMobileDevice } from '@/lib/platform';
+import { isMobileDevice, isIOS } from '@/lib/platform';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -95,11 +95,31 @@ export function downloadBlob(blob: Blob, filename: string) {
 }
 
 export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
-  // Only use Web Share API on mobile devices
+  // iOS Safari: navigator.share() and programmatic <a download> both
+  // require a live user-gesture activation. Our canvas render awaits
+  // for ~seconds and consumes that activation, so both fail silently.
+  // Workaround: open the blob in a new tab so the user can long-press
+  // → Save Image (Apple's blessed fallback). Falls back to download
+  // if the popup is blocked.
+  if (isIOS()) {
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    if (win) {
+      // Revoke after the new tab has had time to load the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
+    return;
+  }
+
+  // Android: navigator.share() tolerates a post-await call. Try it,
+  // fall back to a regular download.
   if (isMobileDevice()) {
     const file = new File([blob], filename, { type: 'image/png' });
     const shareData = { files: [file] };
-    
+
     if (navigator.canShare && navigator.canShare(shareData)) {
       try {
         await navigator.share(shareData);
@@ -110,7 +130,7 @@ export async function shareOrDownload(blob: Blob, filename: string): Promise<voi
       }
     }
   }
-  
+
   // Desktop always gets direct download
   downloadBlob(blob, filename);
 }

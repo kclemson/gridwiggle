@@ -31,7 +31,7 @@ const defaultSettings: CollageSettings = {
   shapeSlider: null,
   gapColor: '#000000',
   gapSize: 30,
-  exportScale: 1,
+  exportScale: 2,
 };
 
 const defaultState: CollageState = {

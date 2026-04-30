@@ -66,9 +66,11 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
  */
 function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Initialize crop with a guaranteed-visible default (existing crop or 90% inset).
-  const [crop, setCrop] = useState<CropRegion>(() => getDefaultEditorCrop(photo));
+  // Compute the default crop ONCE per mount and reuse for state, change-detection, and reset.
+  const defaultCropRef = useRef<CropRegion>(getDefaultEditorCrop(photo));
+  const [crop, setCrop] = useState<CropRegion>(() => defaultCropRef.current);
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
@@ -78,73 +80,43 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   // Hero toggle state - initialized from photo.priority
   const [isHero, setIsHero] = useState(photo.priority === 1);
   
-  // Track viewScale for sizing handles in screen pixels
-  const [viewScale, setViewScale] = useState(1);
-  
-  // Store initial values for change detection
-  const initialCrop = useRef<CropRegion>(getDefaultEditorCrop(photo));
   const initialIsHero = useRef(photo.priority === 1);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {
+    const initial = defaultCropRef.current;
     const cropChanged = 
-      crop.x !== initialCrop.current.x ||
-      crop.y !== initialCrop.current.y ||
-      crop.width !== initialCrop.current.width ||
-      crop.height !== initialCrop.current.height;
+      crop.x !== initial.x ||
+      crop.y !== initial.y ||
+      crop.width !== initial.width ||
+      crop.height !== initial.height;
     
     const heroChanged = isHero !== initialIsHero.current;
     
     return cropChanged || heroChanged;
   }, [crop, isHero]);
 
-  // Update viewScale from actual rendered SVG dimensions
-  useEffect(() => {
+  // Compute current viewScale on demand from the live SVG box. No state, no effect.
+  const getViewScale = useCallback(() => {
     const svg = svgRef.current;
-    if (!svg) return;
-    
-    const updateViewScale = () => {
-      const rect = svg.getBoundingClientRect();
-      if (photo.originalWidth > 0) {
-        setViewScale(rect.width / photo.originalWidth);
-      }
-    };
-    
-    const observer = new ResizeObserver(updateViewScale);
-    observer.observe(svg);
-    updateViewScale();
-    
-    return () => observer.disconnect();
+    if (!svg || photo.originalWidth === 0) return 1;
+    const rect = svg.getBoundingClientRect();
+    return rect.width / photo.originalWidth;
   }, [photo.originalWidth]);
 
-  // Convert screen coordinates to SVG viewBox coordinates using getScreenCTM
-  const getEventPosition = useCallback((e: React.PointerEvent) => {
+  // Bump on resize so handle sizes re-render at the right CSS pixel size.
+  const [, forceRescale] = useState(0);
+  useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return { x: 0, y: 0 };
-    
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return { x: 0, y: 0 };
-    
-    const cursor = pt.matrixTransform(ctm.inverse());
-    return { x: cursor.x, y: cursor.y };
+    if (!svg || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => forceRescale((n) => n + 1));
+    ro.observe(svg);
+    return () => ro.disconnect();
   }, []);
+  const viewScale = getViewScale();
 
-  const handlePointerDown = useCallback((e: React.PointerEvent, type: typeof dragType) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const pos = getEventPosition(e);
-    setIsDragging(true);
-    setDragType(type);
-    setDragStart(pos);
-    setCropStart({ ...crop });
-  }, [getEventPosition, crop]);
-
-  // Convert raw client coordinates to SVG viewBox coordinates (for window-level events).
+  // Single coordinate conversion: client -> SVG viewBox. Used by both pointerdown
+  // (on the HTML overlay) and window-level pointermove.
   const clientToSvg = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
@@ -192,24 +164,19 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     return newCrop;
   }, [dragType, cropStart, dragStart, photo.originalWidth, photo.originalHeight]);
 
-  // Window-level pointer tracking — works around mobile WebKit's unreliable
-  // setPointerCapture on SVG children, and keeps drags alive when the finger
-  // leaves the SVG bounds. pointercancel is treated like pointerup so OS
-  // interruptions don't leave a stuck drag state.
+  // Window-level pointer tracking: keeps drags alive when the finger leaves
+  // the overlay, and avoids relying on setPointerCapture (flaky in WebKit).
+  // No stopPropagation: window-level events don't reach Radix's portal anyway.
   useEffect(() => {
     if (!isDragging) return;
 
     const onMove = (e: PointerEvent) => {
       e.preventDefault();
-      // Stop propagation so Radix Dialog's outside-interaction logic doesn't
-      // see mid-drag pointer events and try to close the dialog on iOS.
-      e.stopPropagation();
       const pos = clientToSvg(e.clientX, e.clientY);
       const next = computeCropFromPos(pos);
       if (next) setCrop(next);
     };
-    const onEnd = (e: PointerEvent) => {
-      e.stopPropagation();
+    const onEnd = () => {
       setIsDragging(false);
       setDragType(null);
     };
@@ -239,8 +206,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   }, [photo.smartCrop]);
 
   const handleReset = useCallback(() => {
-    setCrop(getDefaultEditorCrop(photo));
-  }, [photo]);
+    setCrop({ ...defaultCropRef.current });
+  }, []);
   
   // Check if current crop matches smart crop
   const isSmartCropActive = useMemo(() => {
@@ -280,18 +247,18 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     return null;
   }, [hitAreaSize, crop.x, crop.y, crop.width, crop.height]);
 
-  // Smart dispatcher: delegate to resize if near a corner, otherwise move
-  const handleCropAreaPointerDown = useCallback((e: React.PointerEvent) => {
-    // Use clientToSvg directly — the event now fires on an HTML overlay div,
-    // not the SVG itself, but getScreenCTM still maps client coords correctly.
+  // Single pointerdown entry point. The overlay is the only event surface;
+  // SVG is render-only. Decide move-vs-resize by hit-testing crop corners.
+  const handleOverlayPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
     const pos = clientToSvg(e.clientX, e.clientY);
     const corner = getCornerId(pos.x, pos.y);
-    if (corner) {
-      handlePointerDown(e, `resize-${corner}`);
-    } else {
-      handlePointerDown(e, 'move');
-    }
-  }, [clientToSvg, getCornerId, handlePointerDown]);
+    const type: typeof dragType = corner ? `resize-${corner}` : 'move';
+    setIsDragging(true);
+    setDragType(type);
+    setDragStart(pos);
+    setCropStart({ ...crop });
+  }, [clientToSvg, getCornerId, crop]);
 
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {
@@ -304,16 +271,9 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         className="max-w-4xl w-[min(95vw,56rem)] max-h-[95vh] flex flex-col p-0 gap-0 overflow-hidden"
-        // Gesture-isolation boundary: stop touch/pointer events from bubbling
-        // up to Radix Dialog's outside-interaction handlers or any page-level
-        // gesture listeners (carousels, drawers, swipe-nav, etc.). Without
-        // this, iOS Safari intercepts the first touch and our handlers never
-        // fire reliably.
-        onPointerDownCapture={(e) => e.stopPropagation()}
-        onPointerMoveCapture={(e) => e.stopPropagation()}
-        onTouchStartCapture={(e) => e.stopPropagation()}
-        onTouchMoveCapture={(e) => e.stopPropagation()}
-        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+        // Pointerdowns inside the dialog don't trigger Radix's outside-close
+        // logic, so we don't need to block them. Keeping outside-close intact
+        // means tapping the backdrop still closes the dialog.
       >
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle>Adjust Crop</DialogTitle>
@@ -322,24 +282,15 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        {/* Sizing model: the stage claims remaining height (flex-1 min-h-0)
-            inside the flex-col DialogContent. The wrapper inside is sized by
-            its CSS aspect-ratio against bounded parent dimensions — no
-            circular dependency between parent/child. The SVG fills the
-            wrapper at 100%, and the HTML interaction overlay (kept for iOS
-            WebKit hit-test reliability) sits as an absolute sibling so it
-            always matches the SVG's rendered box. */}
-        <div
-          className="flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4"
-          style={{ touchAction: 'none' }}
-        >
+        {/* Sizing: stage claims remaining flex height; wrapper inside uses
+            CSS aspect-ratio against bounded parent dimensions. SVG renders
+            at 100% of the wrapper; the HTML overlay (needed for WebKit
+            hit-testing) is an absolute sibling matching the same box. */}
+        <div className="flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4">
           <div
             className="relative"
             style={{
               aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
-              // Cap to parent box AND to the image's natural pixel size, so
-              // small images aren't upscaled past their resolution. The
-              // browser picks whichever constraint binds first.
               maxWidth: `min(100%, ${photo.originalWidth}px)`,
               maxHeight: `min(100%, ${photo.originalHeight}px)`,
               width: '100%',
@@ -472,14 +423,14 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               );
             })}
           </svg>
-          {/* HTML interaction overlay — covers the entire SVG box. Plain DOM
-              elements hit-test reliably on every browser (iOS WebKit's SVG
-              hit-testing is flaky with transparent fills). All pointer input
-              flows through here; SVG above is render-only. */}
+          {/* HTML interaction overlay — the only event surface. Covers the
+              entire SVG box. Plain DOM hit-tests reliably on every browser
+              (iOS WebKit's SVG hit-testing is flaky with transparent fills). */}
           <div
+            ref={overlayRef}
             className="absolute inset-0 cursor-move"
             style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
-            onPointerDown={handleCropAreaPointerDown}
+            onPointerDown={handleOverlayPointerDown}
             onDragStart={(e) => e.preventDefault()}
             draggable={false}
           />

@@ -1,11 +1,30 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Trash2, Loader2, Sparkles } from 'lucide-react';
+import { Trash2, Loader2, Sparkles, RotateCcw } from 'lucide-react';
 import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
-import { getEditorInitialCrop } from '@/lib/cropUtils';
+import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
+
+/**
+ * Compute a safe, immediately-visible default crop:
+ * - If the photo already has a manual or smart crop, use that.
+ * - Otherwise, return a centered 90% inset of the full image so the white
+ *   outline and all four corner handles are clearly visible (never coincident
+ *   with the image edge, which would clip them).
+ */
+function getDefaultEditorCrop(photo: PhotoItem): CropRegion {
+  const existing = getDisplayCrop(photo);
+  if (existing) return { ...existing };
+  const inset = 0.05;
+  return {
+    x: photo.originalWidth * inset,
+    y: photo.originalHeight * inset,
+    width: photo.originalWidth * (1 - inset * 2),
+    height: photo.originalHeight * (1 - inset * 2),
+  };
+}
 
 interface CropEditorProps {
   photo: PhotoItem;
@@ -47,9 +66,9 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
  */
 function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  
-  // Initialize crop from photo props on mount using centralized utility
-  const [crop, setCrop] = useState<CropRegion>(() => getEditorInitialCrop(photo));
+
+  // Initialize crop with a guaranteed-visible default (existing crop or 90% inset).
+  const [crop, setCrop] = useState<CropRegion>(() => getDefaultEditorCrop(photo));
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null>(null);
@@ -63,7 +82,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   const [viewScale, setViewScale] = useState(1);
   
   // Store initial values for change detection
-  const initialCrop = useRef<CropRegion>(getEditorInitialCrop(photo));
+  const initialCrop = useRef<CropRegion>(getDefaultEditorCrop(photo));
   const initialIsHero = useRef(photo.priority === 1);
   
   // Detect if any changes were made
@@ -182,11 +201,15 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
 
     const onMove = (e: PointerEvent) => {
       e.preventDefault();
+      // Stop propagation so Radix Dialog's outside-interaction logic doesn't
+      // see mid-drag pointer events and try to close the dialog on iOS.
+      e.stopPropagation();
       const pos = clientToSvg(e.clientX, e.clientY);
       const next = computeCropFromPos(pos);
       if (next) setCrop(next);
     };
-    const onEnd = () => {
+    const onEnd = (e: PointerEvent) => {
+      e.stopPropagation();
       setIsDragging(false);
       setDragType(null);
     };
@@ -214,6 +237,10 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
       setCrop({ ...photo.smartCrop });
     }
   }, [photo.smartCrop]);
+
+  const handleReset = useCallback(() => {
+    setCrop(getDefaultEditorCrop(photo));
+  }, [photo]);
   
   // Check if current crop matches smart crop
   const isSmartCropActive = useMemo(() => {
@@ -275,7 +302,19 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className="max-w-4xl w-[min(95vw,56rem)] max-h-[95vh] flex flex-col p-0 gap-0 overflow-hidden"
+        // Gesture-isolation boundary: stop touch/pointer events from bubbling
+        // up to Radix Dialog's outside-interaction handlers or any page-level
+        // gesture listeners (carousels, drawers, swipe-nav, etc.). Without
+        // this, iOS Safari intercepts the first touch and our handlers never
+        // fire reliably.
+        onPointerDownCapture={(e) => e.stopPropagation()}
+        onPointerMoveCapture={(e) => e.stopPropagation()}
+        onTouchStartCapture={(e) => e.stopPropagation()}
+        onTouchMoveCapture={(e) => e.stopPropagation()}
+        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+      >
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle>Adjust Crop</DialogTitle>
           <DialogDescription className="sr-only">
@@ -283,24 +322,29 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           </DialogDescription>
         </DialogHeader>
         
-        <div className="bg-black/50 flex items-center justify-center p-4 touch-none min-h-0 flex-1 overflow-hidden">
-          <div
-            className="relative"
-            style={{
-              aspectRatio: `${photo.originalWidth} / ${photo.originalHeight}`,
-              maxWidth: '100%',
-              maxHeight: '100%',
-              width: photo.originalWidth >= photo.originalHeight ? '100%' : 'auto',
-              height: photo.originalHeight > photo.originalWidth ? '100%' : 'auto',
-            }}
-          >
+        <div
+          className="bg-black/50 flex items-center justify-center p-4 min-h-0 flex-1 overflow-hidden"
+          style={{ touchAction: 'none' }}
+        >
+          {/* Inline-block wrapper sized by the SVG's intrinsic aspect ratio.
+              Letting the SVG size itself (via max-w/max-h on the SVG) is more
+              robust across browsers than the explicit aspect-ratio container
+              that previously collapsed to zero in some viewports. */}
+          <div className="relative inline-block leading-none" style={{ maxWidth: '100%', maxHeight: '100%' }}>
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
             overflow="visible"
-            className="block select-none w-full h-full"
-            style={{ pointerEvents: 'none', overflow: 'visible' }}
+            className="block select-none"
+            style={{
+              pointerEvents: 'none',
+              overflow: 'visible',
+              maxWidth: '100%',
+              maxHeight: 'min(60vh, 100%)',
+              width: 'auto',
+              height: 'auto',
+            }}
           >
             {/* Drop shadow filter for handle visibility */}
             <defs>
@@ -317,6 +361,10 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               width={photo.originalWidth}
               height={photo.originalHeight}
               preserveAspectRatio="none"
+              // Kill iOS native image-drag, which otherwise hijacks the first
+              // touch on the image and prevents our crop handlers from firing.
+              style={{ WebkitUserDrag: 'none', userSelect: 'none' } as React.CSSProperties}
+              onDragStart={(e) => e.preventDefault()}
             />
             
             {/* Darkening overlay - 4 rects outside crop region */}
@@ -419,13 +467,15 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               flows through here; SVG above is render-only. */}
           <div
             className="absolute inset-0 cursor-move"
-            style={{ touchAction: 'none' }}
+            style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
             onPointerDown={handleCropAreaPointerDown}
+            onDragStart={(e) => e.preventDefault()}
+            draggable={false}
           />
           </div>
         </div>
 
-        <div className="px-4 py-3 border-t border-border shrink-0 flex items-center gap-2">
+        <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
           <Button 
             variant="ghost" 
             size="icon"
@@ -434,6 +484,15 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
           >
             <Trash2 className="h-4 w-4" />
             <span className="hidden sm:inline ml-1.5">Delete</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleReset}
+            className="sm:w-auto sm:px-3"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1.5">Reset</span>
           </Button>
           {photo.smartCrop && (
             <Button 

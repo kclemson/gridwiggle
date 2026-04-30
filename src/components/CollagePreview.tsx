@@ -18,8 +18,7 @@ interface CollageCellProps {
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, photoId: string) => void;
   onDragEnd: () => void;
-  onTouchStart: (e: React.TouchEvent, photoId: string) => void;
-  onCellClick?: (photoId: string) => void;
+  onPointerDown: (e: React.PointerEvent, photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
 }
 
@@ -39,8 +38,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
   onDragLeave,
   onDrop,
   onDragEnd,
-  onTouchStart,
-  onCellClick,
+  onPointerDown,
   onToggleHero,
 }: CollageCellProps) {
   const crop = getDisplayCrop(photo);
@@ -68,8 +66,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, photo.id)}
       onDragEnd={onDragEnd}
-      onTouchStart={(e) => onTouchStart(e, photo.id)}
-      onClick={() => onCellClick?.(photo.id)}
+      onPointerDown={(e) => onPointerDown(e, photo.id)}
     >
       <CroppedImage
         src={photo.objectUrl}
@@ -97,7 +94,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
             onToggleHero(photo.id);
           }}
           onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           draggable={false}
           aria-label={photo.priority === 1 ? "Remove hero status" : "Mark as hero"}
         >
@@ -179,115 +176,119 @@ export function CollagePreview({
     setDragOver(null);
   }, []);
 
-  // Touch drag support with hold-to-drag pattern
+  // Unified pointer gesture state machine — one model for both tap (open
+  // editor) and hold (swap-drag). Replaces the previous split between
+  // onTouchStart/onTouchMove/onTouchEnd and a competing onClick handler,
+  // which caused the "third tap" bug on mobile (long-ish taps were eaten
+  // by the hold timer before the click could fire).
   const [touchDragId, setTouchDragId] = useState<string | null>(null);
   const [touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
-  const [pendingDragId, setPendingDragId] = useState<string | null>(null);
-  const [touchStartPos, setTouchStartPos] = useState({ x: 0, y: 0 });
-  const holdTimerRef = useRef<number | null>(null);
+  const gestureRef = useRef<{
+    photoId: string;
+    startX: number;
+    startY: number;
+    pointerType: string;
+    timer: number | null;
+    activated: boolean;
+    cancelled: boolean;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const HOLD_THRESHOLD_MS = 200;  // Time to hold before drag activates (must beat iOS long-press ~350ms)
-  const MOVE_THRESHOLD_PX = 10;   // Movement tolerance during hold
+  const HOLD_THRESHOLD_MS = 250;
+  const MOVE_THRESHOLD_PX = 8;
+  const TAP_MAX_MS = 500;          // Upper bound for what counts as a tap
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-      }
-    };
+  const clearGesture = useCallback(() => {
+    const g = gestureRef.current;
+    if (g?.timer != null) clearTimeout(g.timer);
+    gestureRef.current = null;
   }, []);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, photoId: string) => {
-    // Don't start drag if touching an interactive element (like the star button)
+  // pointerdown on a cell — touch OR mouse OR pen. Only the primary button.
+  const handleCellPointerDown = useCallback((e: React.PointerEvent, photoId: string) => {
+    // Ignore secondary mouse buttons.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Don't intercept gestures on interactive elements (star button).
     const target = e.target as HTMLElement;
-    if (target.closest('button')) {
+    if (target.closest('button')) return;
+    // For mouse, the native HTML5 drag system handles swap; we still want a
+    // tap to open the editor on plain click, so we register the gesture but
+    // skip the hold timer.
+    const isPointerDrag = e.pointerType !== 'mouse';
+
+    clearGesture();
+    gestureRef.current = {
+      photoId,
+      startX: e.clientX,
+      startY: e.clientY,
+      pointerType: e.pointerType,
+      timer: null,
+      activated: false,
+      cancelled: false,
+    };
+
+    if (isPointerDrag) {
+      gestureRef.current.timer = window.setTimeout(() => {
+        const g = gestureRef.current;
+        if (!g || g.cancelled) return;
+        g.activated = true;
+        setTouchDragId(g.photoId);
+        setTouchPosition({ x: g.startX, y: g.startY });
+        document.body.style.overflow = 'hidden';
+        if (navigator.vibrate) navigator.vibrate(50);
+      }, HOLD_THRESHOLD_MS);
+    }
+  }, [clearGesture]);
+
+  // Container-level pointermove. Tracks all in-flight gestures.
+  const handleContainerPointerMove = useCallback((e: React.PointerEvent) => {
+    const g = gestureRef.current;
+    if (!g) return;
+    if (g.activated) {
+      setTouchPosition({ x: e.clientX, y: e.clientY });
       return;
     }
-    
-    const touch = e.touches[0];
-    const startPos = { x: touch.clientX, y: touch.clientY };
-    
-    // Set up pending drag - don't activate immediately
-    setPendingDragId(photoId);
-    setTouchStartPos(startPos);
-    
-    // Start hold timer - only activate drag after threshold
-    holdTimerRef.current = window.setTimeout(() => {
-      setTouchDragId(photoId);
-      setTouchPosition(startPos);
-      // Lock body scroll while dragging (belt-and-suspenders against Android)
-      document.body.style.overflow = 'hidden';
-      // Haptic feedback if available
-      if (navigator.vibrate) navigator.vibrate(50);
-    }, HOLD_THRESHOLD_MS);
-  }, []);
+    const dx = Math.abs(e.clientX - g.startX);
+    const dy = Math.abs(e.clientY - g.startY);
+    if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) {
+      // Movement before activation -> treat as scroll, abandon gesture.
+      g.cancelled = true;
+      clearGesture();
+    }
+  }, [clearGesture]);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    const currentPos = { x: touch.clientX, y: touch.clientY };
-    
-    // If still pending (not yet activated), check if user moved too much
-    if (pendingDragId && !touchDragId) {
-      const dx = Math.abs(currentPos.x - touchStartPos.x);
-      const dy = Math.abs(currentPos.y - touchStartPos.y);
-      
-      if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) {
-        // User is scrolling - cancel pending drag
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-        setPendingDragId(null);
-        return; // Allow normal scroll
+  // Container-level pointerup/cancel. Decides tap vs swap vs nothing.
+  const handleContainerPointerEnd = useCallback((e: React.PointerEvent) => {
+    const g = gestureRef.current;
+    if (!g) return;
+
+    if (g.activated) {
+      // Was a hold-drag. Resolve swap target.
+      document.body.style.overflow = '';
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      const cellElement = element?.closest('[data-photo-id]');
+      const targetId = cellElement?.getAttribute('data-photo-id');
+      if (targetId && targetId !== g.photoId) {
+        onSwapPhotos(g.photoId, targetId);
+      }
+      setTouchDragId(null);
+    } else if (!g.cancelled && e.type !== 'pointercancel') {
+      // Quick release without movement -> tap. Open editor.
+      const dx = Math.abs(e.clientX - g.startX);
+      const dy = Math.abs(e.clientY - g.startY);
+      if (dx <= MOVE_THRESHOLD_PX && dy <= MOVE_THRESHOLD_PX) {
+        onCellClick?.(g.photoId);
       }
     }
-    
-    // If drag is active, update position
-    if (touchDragId) {
-      setTouchPosition(currentPos);
-    }
-  }, [pendingDragId, touchDragId, touchStartPos]);
+    clearGesture();
+  }, [onSwapPhotos, onCellClick, clearGesture]);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    // Clean up pending state
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    setPendingDragId(null);
-    
-    // If no active drag, nothing to do
-    if (!touchDragId) return;
-
-    // Restore body scroll
-    document.body.style.overflow = '';
-
-    // Find the cell under the touch end position
-    const touch = e.changedTouches[0];
-    const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    const cellElement = element?.closest('[data-photo-id]');
-    const targetId = cellElement?.getAttribute('data-photo-id');
-
-    if (targetId && targetId !== touchDragId) {
-      onSwapPhotos(touchDragId, targetId);
-    }
-
-    setTouchDragId(null);
-  }, [touchDragId, onSwapPhotos]);
-
-  // Non-passive touchmove listener so we can preventDefault during active drag.
-  // React's synthetic touchmove is passive by default and cannot preventDefault.
+  // Block native page scroll only while an active hold-drag is in flight.
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
     const onTouchMoveNative = (e: TouchEvent) => {
-      if (touchDragId) {
-        // Active drag: stop the page from scrolling under the finger
-        // and stop iOS from triggering its native long-press menu.
-        e.preventDefault();
-      }
+      if (touchDragId) e.preventDefault();
     };
     node.addEventListener('touchmove', onTouchMoveNative, { passive: false });
     return () => node.removeEventListener('touchmove', onTouchMoveNative);
@@ -297,6 +298,8 @@ export function CollagePreview({
   useEffect(() => {
     return () => {
       document.body.style.overflow = '';
+      const g = gestureRef.current;
+      if (g?.timer != null) clearTimeout(g.timer);
     };
   }, []);
 
@@ -311,8 +314,9 @@ export function CollagePreview({
     <div 
       ref={containerRef}
       className="w-full overflow-hidden"
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      onPointerMove={handleContainerPointerMove}
+      onPointerUp={handleContainerPointerEnd}
+      onPointerCancel={handleContainerPointerEnd}
       style={{
         WebkitUserSelect: 'none',
         userSelect: 'none',
@@ -352,8 +356,7 @@ export function CollagePreview({
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onDragEnd={handleDragEnd}
-              onTouchStart={handleTouchStart}
-              onCellClick={onCellClick}
+              onPointerDown={handleCellPointerDown}
               onToggleHero={onToggleHero}
             />
           );

@@ -282,13 +282,13 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
         </DialogHeader>
         
         <div className="overflow-hidden bg-black/50 flex items-center justify-center p-4 touch-none">
+          <div className="relative inline-block max-w-full" style={{ maxHeight: 'calc(90vh - 120px)' }}>
           <svg
             ref={svgRef}
             viewBox={`0 0 ${photo.originalWidth} ${photo.originalHeight}`}
             preserveAspectRatio="xMidYMid meet"
-            overflow="visible"
-            className="max-w-full block touch-none select-none"
-            style={{ maxHeight: 'calc(90vh - 120px)', overflow: 'visible', touchAction: 'none' }}
+            className="max-w-full block select-none"
+            style={{ maxHeight: 'calc(90vh - 120px)', pointerEvents: 'none' }}
           >
             {/* Drop shadow filter for handle visibility */}
             <defs>
@@ -400,24 +400,17 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
                 />
               );
             })}
-
-            {/* Unified interaction rect — extends `hitAreaSize/2` past every
-                edge of the crop so taps just outside the visible crop edge
-                still register. Single dispatcher decides corner-vs-move from
-                pointer position, so adjacent corner zones can't fight over a
-                tap on small crops. Rendered LAST so it sits above the dim
-                overlay rects in SVG paint/hit order. */}
-            <rect
-              x={crop.x - hitAreaSize / 2}
-              y={crop.y - hitAreaSize / 2}
-              width={crop.width + hitAreaSize}
-              height={crop.height + hitAreaSize}
-              fill="transparent"
-              pointerEvents="all"
-              className="cursor-move"
-              onPointerDown={handleCropAreaPointerDown}
-            />
           </svg>
+          {/* HTML interaction overlay — covers the entire SVG box. Plain DOM
+              elements hit-test reliably on every browser (iOS WebKit's SVG
+              hit-testing is flaky with transparent fills). All pointer input
+              flows through here; SVG above is render-only. */}
+          <div
+            className="absolute inset-0 cursor-move"
+            style={{ touchAction: 'none' }}
+            onPointerDown={handleCropAreaPointerDown}
+          />
+          </div>
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex items-center gap-2">

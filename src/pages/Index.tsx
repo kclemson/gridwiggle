@@ -428,6 +428,7 @@ export default function Index() {
           photos={state.photos}
           onSelect={(photoId) => {
             setEditingPhotoId(photoId);
+            setNavigatorOpen(false);
           }}
           onClose={() => setNavigatorOpen(false)}
           onSmartCrop={handleSingleSmartCrop}

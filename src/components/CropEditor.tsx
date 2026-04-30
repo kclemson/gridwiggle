@@ -255,14 +255,16 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
 
   // Smart dispatcher: delegate to resize if near a corner, otherwise move
   const handleCropAreaPointerDown = useCallback((e: React.PointerEvent) => {
-    const pos = getEventPosition(e);
+    // Use clientToSvg directly — the event now fires on an HTML overlay div,
+    // not the SVG itself, but getScreenCTM still maps client coords correctly.
+    const pos = clientToSvg(e.clientX, e.clientY);
     const corner = getCornerId(pos.x, pos.y);
     if (corner) {
       handlePointerDown(e, `resize-${corner}`);
     } else {
       handlePointerDown(e, 'move');
     }
-  }, [getEventPosition, getCornerId, handlePointerDown]);
+  }, [clientToSvg, getCornerId, handlePointerDown]);
 
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {

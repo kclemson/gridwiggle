@@ -124,8 +124,8 @@ export async function shareOrDownload(blob: Blob, filename: string): Promise<Sha
       } catch (err) {
         const name = (err as Error).name || 'Unknown';
         if (name === 'AbortError') return 'share-aborted';
-        // Fall through to download
-        const outcome = downloadBlob(blob, filename);
+        // Fall through to download so the user still gets a file.
+        downloadBlob(blob, filename);
         return `share-rejected:${name}` as ShareOutcome;
       }
     }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -8,15 +8,23 @@ import { PhotoItem, CropRegion, PhotoPriority } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
 
 /**
- * Compute a safe, immediately-visible default crop:
- * - If the photo already has a manual or smart crop, use that.
- * - Otherwise, return a centered 90% inset of the full image so the white
- *   outline and all four corner handles are clearly visible (never coincident
- *   with the image edge, which would clip them).
+ * Compute a safe, immediately-visible default crop. Handles must always
+ * sit inside the visible image area, otherwise they render past the SVG
+ * edge and become invisible/untappable.
+ *
+ * Rule:
+ *  - If the photo has a manual/smart crop that's meaningfully inset
+ *    (covers <99% of either axis), use it.
+ *  - Otherwise (no crop, OR a "fail-forward" full-image smart crop),
+ *    return a centered 90% inset.
  */
 function getDefaultEditorCrop(photo: PhotoItem): CropRegion {
   const existing = getDisplayCrop(photo);
-  if (existing) return { ...existing };
+  const coversAll =
+    !!existing &&
+    existing.width >= photo.originalWidth * 0.99 &&
+    existing.height >= photo.originalHeight * 0.99;
+  if (existing && !coversAll) return { ...existing };
   const inset = 0.05;
   return {
     x: photo.originalWidth * inset,
@@ -96,24 +104,25 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     return cropChanged || heroChanged;
   }, [crop, isHero]);
 
-  // Compute current viewScale on demand from the live SVG box. No state, no effect.
-  const getViewScale = useCallback(() => {
+  // Single source of truth for viewScale: measured before paint via
+  // useLayoutEffect (so handles are sized correctly on first frame),
+  // then kept in sync with size changes by a ResizeObserver.
+  // Initialize to 0 (sentinel) — handles use a CSS-pixel fallback until
+  // the first measurement lands.
+  const [viewScale, setViewScale] = useState(0);
+  useLayoutEffect(() => {
     const svg = svgRef.current;
-    if (!svg || photo.originalWidth === 0) return 1;
-    const rect = svg.getBoundingClientRect();
-    return rect.width / photo.originalWidth;
-  }, [photo.originalWidth]);
-
-  // Bump on resize so handle sizes re-render at the right CSS pixel size.
-  const [, forceRescale] = useState(0);
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => forceRescale((n) => n + 1));
+    if (!svg || photo.originalWidth === 0) return;
+    const measure = () => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width > 0) setViewScale(rect.width / photo.originalWidth);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
     ro.observe(svg);
     return () => ro.disconnect();
-  }, []);
-  const viewScale = getViewScale();
+  }, [photo.originalWidth]);
 
   // Single coordinate conversion: client -> SVG viewBox. Used by both pointerdown
   // (on the HTML overlay) and window-level pointermove.
@@ -224,11 +233,23 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     onDelete(photo.id);
   };
 
-  // Fixed screen-pixel sizes for consistent visuals regardless of image resolution
+  // Fixed screen-pixel sizes for consistent visuals regardless of image
+  // resolution. Until we've measured the SVG (viewScale === 0), fall back
+  // to a generous estimate based on photo size so handles aren't tiny.
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  const handleSize = viewScale > 0 ? (isTouchDevice ? 22 : 12) / viewScale : 12;
-  const hitAreaSize = viewScale > 0 ? 72 / viewScale : 72;
-  const strokeWidth = viewScale > 0 ? 2 / viewScale : 2;
+  const targetHandlePx = isTouchDevice ? 22 : 12;
+  const targetHitAreaPx = 72;
+  const targetStrokePx = 2;
+  // Pre-measure fallback: assume the photo will display at ~min(viewport,
+  // originalWidth). This errs on the side of larger handles, never tinier.
+  const fallbackScale =
+    typeof window !== 'undefined' && photo.originalWidth > 0
+      ? Math.min(window.innerWidth * 0.9, photo.originalWidth) / photo.originalWidth
+      : 1;
+  const effectiveScale = viewScale > 0 ? viewScale : fallbackScale;
+  const handleSize = targetHandlePx / effectiveScale;
+  const hitAreaSize = targetHitAreaPx / effectiveScale;
+  const strokeWidth = targetStrokePx / effectiveScale;
   
   // Check if a point is near a corner, returning the corner id if so
   const getCornerId = useCallback((x: number, y: number): 'nw' | 'ne' | 'sw' | 'se' | null => {
@@ -295,6 +316,9 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
               maxHeight: `min(100%, ${photo.originalHeight}px)`,
               width: '100%',
               height: '100%',
+              touchAction: 'none',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
             }}
           >
           <svg

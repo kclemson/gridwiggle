@@ -1,7 +1,7 @@
 import { PhotoItem, CollageLayout } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
-import { isMobileDevice } from '@/lib/platform';
+import { isMobileDevice, isIOS } from '@/lib/platform';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -83,7 +83,7 @@ export async function exportCollageAsPng(
   });
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
+export function downloadBlob(blob: Blob, filename: string): 'download' | 'navigate' {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -91,30 +91,45 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+
+  // iOS Safari ignores <a download> for blob URLs and does nothing visible.
+  // As a last resort, navigate to the blob so the user at least sees the
+  // image and can long-press to save.
+  if (isIOS()) {
+    window.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return 'navigate';
+  }
+
   URL.revokeObjectURL(url);
+  return 'download';
 }
 
-export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
-  // Mobile: open the native share sheet (iOS shows "Save Image",
-  // Android shows the system share picker including Save to Files /
-  // Photos). For this to work on iOS the call MUST happen inside a
-  // live user-gesture activation — callers should pre-render the blob
-  // so this runs synchronously after the click.
-  if (isMobileDevice()) {
+export type ShareOutcome =
+  | 'share-ok'
+  | 'share-aborted'
+  | `share-rejected:${string}`
+  | 'download'
+  | 'navigate';
+
+export async function shareOrDownload(blob: Blob, filename: string): Promise<ShareOutcome> {
+  if (isMobileDevice() && typeof navigator.share === 'function') {
     const file = new File([blob], filename, { type: 'image/png' });
     const shareData = { files: [file] };
 
-    if (navigator.canShare && navigator.canShare(shareData)) {
+    if (navigator.canShare?.(shareData)) {
       try {
         await navigator.share(shareData);
-        return;
+        return 'share-ok';
       } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
-        // Fall through to download
+        const name = (err as Error).name || 'Unknown';
+        if (name === 'AbortError') return 'share-aborted';
+        // Fall through to download so the user still gets a file.
+        downloadBlob(blob, filename);
+        return `share-rejected:${name}` as ShareOutcome;
       }
     }
   }
 
-  // Desktop (or mobile share unavailable) gets direct download
-  downloadBlob(blob, filename);
+  return downloadBlob(blob, filename);
 }

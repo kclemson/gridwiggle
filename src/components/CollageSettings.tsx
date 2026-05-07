@@ -34,123 +34,139 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
   const shapeValue = draggingValue ?? displayPosition;
 
   return (
-    <div className="space-y-2 py-2 px-1">
-      {/* Single column / single row toggles */}
-      <div className="flex items-center justify-center gap-4">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <Checkbox
-            checked={settings.singleColumn}
-            onCheckedChange={(checked) =>
-              onUpdate({ singleColumn: !!checked, singleRow: false })
+    <div className="space-y-3 py-2 px-1">
+      {/* ─── Structure ─── */}
+      <section className="space-y-1">
+        <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">
+          Structure
+        </h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <Checkbox
+                checked={settings.singleColumn}
+                onCheckedChange={(checked) =>
+                  onUpdate({ singleColumn: !!checked, singleRow: false })
+                }
+              />
+              Single column
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <Checkbox
+                checked={settings.singleRow}
+                onCheckedChange={(checked) =>
+                  onUpdate({ singleRow: !!checked, singleColumn: false })
+                }
+              />
+              Single row
+            </label>
+          </div>
+
+          <div
+            className={cn(
+              "flex flex-col items-center gap-0.5",
+              shapeDisabled && "opacity-40"
+            )}
+            title={
+              stripeActive
+                ? 'Shape is disabled while single column/row is on'
+                : shapeDisabled
+                  ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos`
+                  : undefined
             }
-          />
-          Single column
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <Checkbox
-            checked={settings.singleRow}
-            onCheckedChange={(checked) =>
-              onUpdate({ singleRow: !!checked, singleColumn: false })
-            }
-          />
-          Single row
-        </label>
-      </div>
-
-      {/* Labels toggle + (when on) anchor position picker */}
-      <div className="flex items-center justify-center gap-3">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <Switch
-            checked={settings.labelsEnabled}
-            onCheckedChange={(checked) => onUpdate({ labelsEnabled: !!checked })}
-          />
-          Labels
-        </label>
-        {settings.labelsEnabled && (
-          <LabelPositionPicker
-            value={settings.labelPosition}
-            onChange={(labelPosition) => onUpdate({ labelPosition })}
-          />
-        )}
-      </div>
-
-      <div className="grid grid-cols-4 gap-x-3">
-      {/* Row 1: Controls */}
-      <div className="flex items-center justify-center">
-        <input
-          type="color"
-          value={settings.gapColor}
-          onChange={(e) => onUpdate({ gapColor: e.target.value })}
-          className="w-8 h-6 rounded cursor-pointer border border-muted-foreground/30 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
-          aria-label="Background color"
-        />
-      </div>
-
-      <div
-        className={cn(
-          "flex items-center justify-center gap-1.5",
-          shapeDisabled && "opacity-40"
-        )}
-        title={
-          stripeActive
-            ? 'Shape is disabled while single column/row is on'
-            : shapeDisabled
-              ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos`
-              : undefined
-        }
-      >
-        <ShapeIndicator position={shapeValue} />
-        <Slider
-          value={[shapeValue]}
-          onValueChange={([value]) => setDraggingValue(value)}
-          onValueCommit={([value]) => {
-            setDraggingValue(null);
-            onUpdate({ shapeSlider: value });
-          }}
-          disabled={shapeDisabled}
-          min={0}
-          max={100}
-          step={5}
-          className="w-16 [&>span:first-child]:bg-muted-foreground/30"
-        />
-      </div>
-
-      <div className="flex items-center justify-center">
-        <Slider
-          value={[settings.gapSize]}
-          onValueChange={([value]) => onUpdate({ gapSize: value })}
-          min={0}
-          max={100}
-          step={5}
-          className="w-14 [&>span:first-child]:bg-muted-foreground/30"
-        />
-      </div>
-
-      <div className="flex items-center justify-center">
-        <div className="flex rounded-md border border-muted-foreground/30 overflow-hidden">
-          {SIZE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => onUpdate({ exportScale: opt.value })}
-              className={`px-2 py-0.5 text-xs font-medium transition-colors ${
-                settings.exportScale === opt.value
-                  ? 'bg-foreground text-background'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              aria-label={`Export size ${opt.label}`}
-            >
-              {opt.label}
-            </button>
-          ))}
+          >
+            <div className="flex items-center gap-1.5">
+              <ShapeIndicator position={shapeValue} />
+              <Slider
+                value={[shapeValue]}
+                onValueChange={([value]) => setDraggingValue(value)}
+                onValueCommit={([value]) => {
+                  setDraggingValue(null);
+                  onUpdate({ shapeSlider: value });
+                }}
+                disabled={shapeDisabled}
+                min={0}
+                max={100}
+                step={5}
+                className="w-16 [&>span:first-child]:bg-muted-foreground/30"
+              />
+            </div>
+            <span className="text-[10px] text-muted-foreground">Shape</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Row 2: Labels */}
-      <span className="text-[10px] text-muted-foreground text-center">Background</span>
-      <span className="text-[10px] text-muted-foreground text-center">Shape</span>
-      <span className="text-[10px] text-muted-foreground text-center">Spacing</span>
-      <span className="text-[10px] text-muted-foreground text-center">Size</span>
-      </div>
+      <div className="h-px bg-muted-foreground/15" />
+
+      {/* ─── Style ─── */}
+      <section className="space-y-1">
+        <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">
+          Style
+        </h3>
+        <div className="flex items-end justify-between gap-x-4 gap-y-2 flex-wrap">
+          <div className="flex flex-col items-center gap-0.5">
+            <input
+              type="color"
+              value={settings.gapColor}
+              onChange={(e) => onUpdate({ gapColor: e.target.value })}
+              className="w-8 h-6 rounded cursor-pointer border border-muted-foreground/30 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+              aria-label="Background color"
+            />
+            <span className="text-[10px] text-muted-foreground">Background</span>
+          </div>
+
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="h-6 flex items-center">
+              <Slider
+                value={[settings.gapSize]}
+                onValueChange={([value]) => onUpdate({ gapSize: value })}
+                min={0}
+                max={100}
+                step={5}
+                className="w-14 [&>span:first-child]:bg-muted-foreground/30"
+              />
+            </div>
+            <span className="text-[10px] text-muted-foreground">Spacing</span>
+          </div>
+
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="flex rounded-md border border-muted-foreground/30 overflow-hidden h-6">
+              {SIZE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => onUpdate({ exportScale: opt.value })}
+                  className={`px-2 text-xs font-medium transition-colors ${
+                    settings.exportScale === opt.value
+                      ? 'bg-foreground text-background'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  aria-label={`Export size ${opt.label}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-muted-foreground">Size</span>
+          </div>
+
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="h-6 flex items-center gap-2">
+              <Switch
+                checked={settings.labelsEnabled}
+                onCheckedChange={(checked) => onUpdate({ labelsEnabled: !!checked })}
+                aria-label="Labels"
+              />
+              {settings.labelsEnabled && (
+                <LabelPositionPicker
+                  value={settings.labelPosition}
+                  onChange={(labelPosition) => onUpdate({ labelPosition })}
+                />
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground">Labels</span>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

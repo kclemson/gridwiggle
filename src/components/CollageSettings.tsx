@@ -15,12 +15,6 @@ interface CollageSettingsProps {
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
-const SIZE_OPTIONS: { label: string; value: 1 | 1.5 | 2 }[] = [
-  { label: 'S', value: 1 },
-  { label: 'M', value: 1.5 },
-  { label: 'L', value: 2 },
-];
-
 export function CollageSettings({ settings, layout, photoCount, onUpdate }: CollageSettingsProps) {
   const [draggingValue, setDraggingValue] = useState<number | null>(null);
 
@@ -127,26 +121,6 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
               />
             </div>
             <span className="text-[10px] text-muted-foreground">Spacing</span>
-          </div>
-
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="flex rounded-md border border-muted-foreground/30 overflow-hidden h-6">
-              {SIZE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => onUpdate({ exportScale: opt.value })}
-                  className={`px-2 text-xs font-medium transition-colors ${
-                    settings.exportScale === opt.value
-                      ? 'bg-foreground text-background'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                  aria-label={`Export size ${opt.label}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <span className="text-[10px] text-muted-foreground">Size</span>
           </div>
 
           <div className="flex flex-col items-center gap-0.5">

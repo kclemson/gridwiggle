@@ -143,6 +143,8 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     exportScale: 1,
     singleColumn: false,
     singleRow: false,
+    labelsEnabled: false,
+    labelPosition: 'bc',
   };
   
   const result = generateCollageLayoutV4(photoItems, settings, {

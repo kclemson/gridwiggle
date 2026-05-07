@@ -34,6 +34,8 @@ const defaultSettings: CollageSettings = {
   exportScale: 2,
   singleColumn: false,
   singleRow: false,
+  labelsEnabled: false,
+  labelPosition: 'bc',
 };
 
 const defaultState: CollageState = {

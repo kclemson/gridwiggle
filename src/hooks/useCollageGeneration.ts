@@ -104,6 +104,34 @@ export function useCollageGeneration(deps: {
       return;
     }
 
+    // Single column/row short-circuits the V4 engine entirely
+    const singleStripe: 'column' | 'row' | undefined = optSettings.singleColumn
+      ? 'column'
+      : optSettings.singleRow
+        ? 'row'
+        : undefined;
+
+    // In single-stripe mode, order photos chronologically by EXIF date when
+    // available. Dated photos come first (oldest → newest); undated photos
+    // keep their original relative order at the end.
+    if (singleStripe) {
+      const parseDate = (label?: string): number | null => {
+        if (!label) return null;
+        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(label);
+        if (!m) return null;
+        const t = new Date(+m[3], +m[1] - 1, +m[2]).getTime();
+        return isNaN(t) ? null : t;
+      };
+      const indexed = photosToUse.map((p, i) => ({ p, i, t: parseDate(p.suggestedLabel) }));
+      indexed.sort((a, b) => {
+        if (a.t !== null && b.t !== null) return a.t - b.t;
+        if (a.t !== null) return -1;
+        if (b.t !== null) return 1;
+        return a.i - b.i;
+      });
+      photosToUse = indexed.map(x => x.p);
+    }
+
     // Build PhotoDimension[] for worker (lightweight - no blobs)
     const dimensions: PhotoDimension[] = photosToUse.map(photo => {
       const crop = getDisplayCrop(photo);
@@ -121,13 +149,6 @@ export function useCollageGeneration(deps: {
 
     // Map slider (0-100) directly to normalized gap (0 to 0.04)
     const normalizedGap = (optSettings.gapSize / 100) * 0.04;
-
-    // Single column/row short-circuits the V4 engine entirely
-    const singleStripe: 'column' | 'row' | undefined = optSettings.singleColumn
-      ? 'column'
-      : optSettings.singleRow
-        ? 'row'
-        : undefined;
 
     // Apply shape slider AR constraint if active (ignored in single-stripe mode)
     const arBounds = singleStripe ? null : sliderToARBounds(optSettings.shapeSlider);

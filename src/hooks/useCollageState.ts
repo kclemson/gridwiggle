@@ -32,6 +32,8 @@ const defaultSettings: CollageSettings = {
   gapColor: '#000000',
   gapSize: 30,
   exportScale: 2,
+  singleColumn: false,
+  singleRow: false,
 };
 
 const defaultState: CollageState = {

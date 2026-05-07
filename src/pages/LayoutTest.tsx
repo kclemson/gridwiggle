@@ -150,6 +150,8 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     gapColor: '#ffffff',
     gapSize: GAP_SIZE,
     exportScale: 1,
+    singleColumn: false,
+    singleRow: false,
   };
   
   // Build photo weights (hero = priority 1 gets weight 2)

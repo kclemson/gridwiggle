@@ -90,6 +90,9 @@ function saveMetadataToStorage(state: CollageState) {
         manualCrop: p.manualCrop,
         priority: p.priority,
         smartCropAttempted: p.smartCropAttempted || undefined,
+        label: p.label,
+        labelPosition: p.labelPosition,
+        suggestedLabel: p.suggestedLabel,
       })),
       settings: state.settings,
       layout: state.layout,
@@ -129,6 +132,9 @@ function hydratePhotos(
         error: null,
         priority: meta.priority ?? 3,
         smartCropAttempted: meta.smartCropAttempted ?? false,
+        label: meta.label,
+        labelPosition: meta.labelPosition,
+        suggestedLabel: meta.suggestedLabel,
       });
     } else {
       orphanedIds.push(meta.id);

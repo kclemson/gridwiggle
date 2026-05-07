@@ -97,7 +97,7 @@ function LabelEditor({
   onPositionChange: (p: LabelPosition) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
+    <div className="flex items-center gap-2 w-full sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -154,10 +154,13 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   const initialLabel = photo.label ?? photo.suggestedLabel ?? '';
   const initialLabelPosition: LabelPosition =
     photo.labelPosition ?? DEFAULT_LABEL_POSITION;
+  const initialLabelEnabled = !!(photo.label && photo.label.length > 0);
   const [label, setLabel] = useState(initialLabel);
   const [labelPosition, setLabelPosition] = useState<LabelPosition>(initialLabelPosition);
+  const [labelEnabled, setLabelEnabled] = useState(initialLabelEnabled);
   const initialLabelRef = useRef(initialLabel);
   const initialLabelPositionRef = useRef(initialLabelPosition);
+  const initialLabelEnabledRef = useRef(initialLabelEnabled);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {
@@ -169,11 +172,14 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
       crop.height !== initial.height;
     
     const heroChanged = isHero !== initialIsHero.current;
-    const labelChanged = label !== initialLabelRef.current;
+    const labelChanged = labelEnabled
+      ? label !== initialLabelRef.current
+      : initialLabelEnabledRef.current; // turning off counts as a change
     const positionChanged = labelPosition !== initialLabelPositionRef.current;
+    const enabledChanged = labelEnabled !== initialLabelEnabledRef.current;
 
-    return cropChanged || heroChanged || labelChanged || positionChanged;
-  }, [crop, isHero, label, labelPosition]);
+    return cropChanged || heroChanged || labelChanged || positionChanged || enabledChanged;
+  }, [crop, isHero, label, labelPosition, labelEnabled]);
 
   // Single source of truth for viewScale: measured before paint via
   // useLayoutEffect (so handles are sized correctly on first frame),
@@ -276,7 +282,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     // Close immediately for responsiveness
     onClose();
     // State update happens after close - user doesn't see the delay
-    onSave(photo.id, crop, priority, label.trim(), labelPosition);
+    const finalLabel = labelEnabled ? label.trim() : '';
+    onSave(photo.id, crop, priority, finalLabel, labelPosition);
   };
   
   const handleApplySmartCrop = useCallback(() => {
@@ -533,12 +540,14 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
-          <LabelEditor
-            value={label}
-            position={labelPosition}
-            onChange={setLabel}
-            onPositionChange={setLabelPosition}
-          />
+          {labelEnabled && (
+            <LabelEditor
+              value={label}
+              position={labelPosition}
+              onChange={setLabel}
+              onPositionChange={setLabelPosition}
+            />
+          )}
           <Button 
             variant="ghost" 
             size="icon"
@@ -570,6 +579,8 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             </Button>
           )}
           <div className="flex items-center gap-2 ml-auto">
+            <Switch id="label-toggle" checked={labelEnabled} onCheckedChange={setLabelEnabled} />
+            <Label htmlFor="label-toggle" className="text-sm">Label</Label>
             <Switch id="hero-toggle" checked={isHero} onCheckedChange={setIsHero} />
             <Label htmlFor="hero-toggle" className="text-sm">Hero</Label>
           </div>

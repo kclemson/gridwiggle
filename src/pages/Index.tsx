@@ -121,7 +121,6 @@ export default function Index() {
     crop: CropRegion,
     priority: PhotoPriority,
     label: string,
-    labelPosition: LabelPosition,
   ) => {
     const photo = state.photos.find(p => p.id === photoId);
     const cropChanged =
@@ -135,7 +134,6 @@ export default function Index() {
       manualCrop: crop,
       priority,
       label: label || undefined,
-      labelPosition,
     });
     setEditingPhotoId(null);
     if (state.layout && (cropChanged || priorityChanged)) {

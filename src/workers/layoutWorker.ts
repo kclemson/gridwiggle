@@ -9,6 +9,7 @@ import { PhotoDimension, V3Tuning } from '@/lib/v3/types';
 import { CollageLayout } from '@/types/collage';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { generateLayoutFromDimensions } from '@/lib/v4/engine';
+import { generateSingleStripeLayout, StripeDirection } from '@/lib/v4/singleStripe';
 
 // ============================================================================
 // Worker-local log collection (redirects devLogger to worker-local array)
@@ -32,6 +33,8 @@ export interface LayoutRequest {
   normalizedGap: number;
   tuning: Partial<V3Tuning>;
   randomize: boolean;
+  /** When set, bypass V4 engine and produce a single column/row layout. */
+  singleStripe?: StripeDirection;
 }
 
 export interface LayoutResponse {
@@ -52,7 +55,7 @@ export interface LayoutResponse {
 // ============================================================================
 
 self.onmessage = (e: MessageEvent<LayoutRequest>) => {
-  const { type, requestId, dimensions, normalizedGap, tuning, randomize } = e.data;
+  const { type, requestId, dimensions, normalizedGap, tuning, randomize, singleStripe } = e.data;
   
   if (type !== 'generate') return;
   
@@ -60,17 +63,28 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
   const startTime = performance.now();
   
   try {
-    const result = generateLayoutFromDimensions(dimensions, normalizedGap, tuning, randomize);
+    let layout;
+    let softRejection;
+    let layoutMeta;
+    if (singleStripe) {
+      layout = generateSingleStripeLayout(dimensions, normalizedGap, singleStripe);
+      layoutMeta = { mode: `single-${singleStripe}`, photoCount: dimensions.length };
+    } else {
+      const result = generateLayoutFromDimensions(dimensions, normalizedGap, tuning, randomize);
+      layout = result.layout;
+      softRejection = result.softRejection;
+      layoutMeta = result.layoutMeta;
+    }
     const durationMs = performance.now() - startTime;
     
     const response: LayoutResponse = {
       type: 'result',
       requestId,
-      layout: result.layout,
+      layout,
       durationMs,
       logs: isDev ? workerLogs : undefined,
-      softRejection: result.softRejection,
-      layoutMeta: result.layoutMeta,
+      softRejection,
+      layoutMeta,
     };
     
     self.postMessage(response);

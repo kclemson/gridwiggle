@@ -16,7 +16,8 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
+import { extractCaptureDate } from '@/lib/exif';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LabelPosition, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { 
@@ -115,16 +116,35 @@ export default function Index() {
     }
   }, [removePhoto, state.layout, state.photos, state.settings.shapeSlider, updateSettings, regenerateCollage]);
 
-  const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
-    updatePhoto(photoId, { manualCrop: crop, priority });
+  const handleSaveCrop = useCallback((
+    photoId: string,
+    crop: CropRegion,
+    priority: PhotoPriority,
+    label: string,
+    labelPosition: LabelPosition,
+  ) => {
+    const photo = state.photos.find(p => p.id === photoId);
+    const cropChanged =
+      !photo?.manualCrop ||
+      photo.manualCrop.x !== crop.x ||
+      photo.manualCrop.y !== crop.y ||
+      photo.manualCrop.width !== crop.width ||
+      photo.manualCrop.height !== crop.height;
+    const priorityChanged = photo?.priority !== priority;
+    updatePhoto(photoId, {
+      manualCrop: crop,
+      priority,
+      label: label || undefined,
+      labelPosition,
+    });
     setEditingPhotoId(null);
-    if (state.layout) {
+    if (state.layout && (cropChanged || priorityChanged)) {
       regenerateCollage({
         priorityOverride: { photoId, priority },
         cropOverride: { photoId, crop },
       });
     }
-  }, [updatePhoto, state.layout, regenerateCollage]);
+  }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
@@ -154,6 +174,14 @@ export default function Index() {
     const { succeeded } = await addPhotos(newPhotos);
     if (succeeded.length === 0) return;
 
+    // Fire-and-forget EXIF date extraction. Each photo's suggestedLabel is
+    // patched in independently as it lands; failures are silent.
+    succeeded.forEach((photo) => {
+      extractCaptureDate(photo.blob).then((date) => {
+        if (date) updatePhoto(photo.id, { suggestedLabel: date });
+      });
+    });
+
     const wasLayoutEmpty = state.layout === null;
 
     let processedDims: { id: string; width: number; height: number }[] = [];
@@ -170,7 +198,7 @@ export default function Index() {
     });
 
     regenerateCollage({ photos: patchedPhotos, randomize: !wasLayoutEmpty });
-  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
+  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage, updatePhoto]);
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -203,7 +231,13 @@ export default function Index() {
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
     setLayoutError(null);
-    if (state.layout && ('gapSize' in updates || 'shapeSlider' in updates)) {
+    if (
+      state.layout &&
+      ('gapSize' in updates ||
+        'shapeSlider' in updates ||
+        'singleColumn' in updates ||
+        'singleRow' in updates)
+    ) {
       const newSettings = { ...state.settings, ...updates };
       regenerateCollage({ settings: newSettings });
     }
@@ -347,7 +381,11 @@ export default function Index() {
                         gapColor={state.settings.gapColor}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
-                        onToggleHero={handleToggleHero}
+                        onToggleHero={
+                          state.settings.singleColumn || state.settings.singleRow
+                            ? undefined
+                            : handleToggleHero
+                        }
                       />
 
                       {isGenerating && (

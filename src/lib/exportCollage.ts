@@ -2,6 +2,7 @@ import { PhotoItem, CollageLayout } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { isMobileDevice, isIOS } from '@/lib/platform';
+import { autoTextColor } from '@/lib/labelStyle';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -66,6 +67,11 @@ export async function exportCollageAsPng(
       // Clean up the temporary Object URL
       URL.revokeObjectURL(imgUrl);
     }
+
+    // Draw label overlay (matches CollagePreview rendering)
+    if (photo.label) {
+      drawLabel(ctx, photo, cell, gapColor, scale);
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -81,6 +87,65 @@ export async function exportCollageAsPng(
       1.0
     );
   });
+}
+
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  photo: PhotoItem,
+  cell: { x: number; y: number; width: number; height: number },
+  gapColor: string,
+  scale: number,
+) {
+  const text = (photo.label ?? '').trim();
+  if (!text) return;
+  const pos = photo.labelPosition ?? 'bc';
+
+  const cellW = cell.width * scale;
+  const cellH = cell.height * scale;
+  const cellX = cell.x * scale;
+  const cellY = cell.y * scale;
+
+  const fontSize = Math.max(11 * scale, Math.max(cellW, cellH) * 0.05);
+  const padX = fontSize * 0.6;
+  const padY = fontSize * 0.25;
+  const inset = 6 * scale;
+
+  ctx.font = `600 ${fontSize}px -apple-system, system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const metrics = ctx.measureText(text);
+  const pillW = metrics.width + padX * 2;
+  const pillH = fontSize * 1.2 + padY * 2;
+
+  let pillX: number;
+  let pillY: number;
+  if (pos.endsWith('l')) pillX = cellX + inset;
+  else if (pos.endsWith('r')) pillX = cellX + cellW - inset - pillW;
+  else pillX = cellX + (cellW - pillW) / 2;
+
+  if (pos.startsWith('t')) pillY = cellY + inset;
+  else pillY = cellY + cellH - inset - pillH;
+
+  const radius = Math.min(6 * scale, pillH / 2);
+  ctx.fillStyle = gapColor;
+  roundRect(ctx, pillX, pillY, pillW, pillH, radius);
+  ctx.fill();
+
+  ctx.fillStyle = autoTextColor(gapColor);
+  ctx.textAlign = 'left';
+  ctx.fillText(text, pillX + padX, pillY + pillH / 2);
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 export function downloadBlob(blob: Blob, filename: string): 'download' | 'navigate' {

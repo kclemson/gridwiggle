@@ -5,12 +5,14 @@ import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
 import { Star } from 'lucide-react';
 import { isMobileDevice } from '@/lib/platform';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 
 interface CollageCellProps {
   cell: CollageCell;
   photo: PhotoItem;
   layoutWidth: number;
   layoutHeight: number;
+  gapColor: string;
   isBeingDragged: boolean;
   isDragTarget: boolean;
   onDragStart: (e: React.DragEvent, photoId: string) => void;
@@ -31,6 +33,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
   photo,
   layoutWidth,
   layoutHeight,
+  gapColor,
   isBeingDragged,
   isDragTarget,
   onDragStart,
@@ -77,6 +80,22 @@ const CollageCellComponent = memo(function CollageCellComponent({
         originalHeight={photo.originalHeight}
         fit="cover"
       />
+
+      {photo.label && (
+        <div
+          className="pointer-events-none font-semibold whitespace-nowrap rounded-md"
+          style={{
+            ...labelAnchorStyle(photo.labelPosition ?? 'bc'),
+            backgroundColor: gapColor,
+            color: autoTextColor(gapColor),
+            fontSize: `max(11px, ${Math.max(cell.width, cell.height) * 0.05}px)`,
+            padding: '2px 8px',
+            lineHeight: 1.2,
+          }}
+        >
+          {photo.label}
+        </div>
+      )}
       
       {/* Hero toggle button - appears on hover, always visible on mobile */}
       {!isBeingDragged && onToggleHero && (
@@ -349,6 +368,7 @@ export function CollagePreview({
               photo={photo}
               layoutWidth={layout.width}
               layoutHeight={layout.height}
+              gapColor={gapColor}
               isBeingDragged={isBeingDragged}
               isDragTarget={isDragTarget}
               onDragStart={handleDragStart}

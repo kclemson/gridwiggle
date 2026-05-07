@@ -141,6 +141,8 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
     gapColor: '#000000',
     gapSize: 4,
     exportScale: 1,
+    singleColumn: false,
+    singleRow: false,
   };
   
   const result = generateCollageLayoutV4(photoItems, settings, {

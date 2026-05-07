@@ -122,8 +122,15 @@ export function useCollageGeneration(deps: {
     // Map slider (0-100) directly to normalized gap (0 to 0.04)
     const normalizedGap = (optSettings.gapSize / 100) * 0.04;
 
-    // Apply shape slider AR constraint if active
-    const arBounds = sliderToARBounds(optSettings.shapeSlider);
+    // Single column/row short-circuits the V4 engine entirely
+    const singleStripe: 'column' | 'row' | undefined = optSettings.singleColumn
+      ? 'column'
+      : optSettings.singleRow
+        ? 'row'
+        : undefined;
+
+    // Apply shape slider AR constraint if active (ignored in single-stripe mode)
+    const arBounds = singleStripe ? null : sliderToARBounds(optSettings.shapeSlider);
     const effectiveTuning = arBounds
       ? { ...tuningOverride, canvas_minAR: arBounds.minAR, canvas_maxAR: arBounds.maxAR }
       : tuningOverride;
@@ -146,6 +153,7 @@ export function useCollageGeneration(deps: {
         normalizedGap,
         tuning: effectiveTuning,
         randomize,
+        singleStripe,
       });
 
       // Check for stale response (user clicked again while we were working)

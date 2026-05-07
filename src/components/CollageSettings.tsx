@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { CollageSettings as CollageSettingsType, CollageLayout, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { LabelPositionPicker } from '@/components/LabelPositionPicker';
 import { ShapeIndicator } from '@/components/ShapeIndicator';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
@@ -53,6 +55,23 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
           />
           Single row
         </label>
+      </div>
+
+      {/* Labels toggle + (when on) anchor position picker */}
+      <div className="flex items-center justify-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <Switch
+            checked={settings.labelsEnabled}
+            onCheckedChange={(checked) => onUpdate({ labelsEnabled: !!checked })}
+          />
+          Labels
+        </label>
+        {settings.labelsEnabled && (
+          <LabelPositionPicker
+            value={settings.labelPosition}
+            onChange={(labelPosition) => onUpdate({ labelPosition })}
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-4 gap-x-3">

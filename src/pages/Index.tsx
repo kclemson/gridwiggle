@@ -360,6 +360,8 @@ export default function Index() {
                       onDownload={handleExport}
                       isShuffling={isGenerating}
                       isDownloading={isExporting}
+                      exportScale={state.settings.exportScale}
+                      onExportScaleChange={(exportScale) => updateSettings({ exportScale })}
                     />
 
                     {exportError && (

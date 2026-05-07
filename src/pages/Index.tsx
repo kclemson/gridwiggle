@@ -16,6 +16,7 @@ import { reflowAfterSwap } from '@/lib/layoutUtils';
 import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
+import { extractCaptureDate } from '@/lib/exif';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -154,6 +155,14 @@ export default function Index() {
     const { succeeded } = await addPhotos(newPhotos);
     if (succeeded.length === 0) return;
 
+    // Fire-and-forget EXIF date extraction. Each photo's suggestedLabel is
+    // patched in independently as it lands; failures are silent.
+    succeeded.forEach((photo) => {
+      extractCaptureDate(photo.blob).then((date) => {
+        if (date) updatePhoto(photo.id, { suggestedLabel: date });
+      });
+    });
+
     const wasLayoutEmpty = state.layout === null;
 
     let processedDims: { id: string; width: number; height: number }[] = [];
@@ -170,7 +179,7 @@ export default function Index() {
     });
 
     regenerateCollage({ photos: patchedPhotos, randomize: !wasLayoutEmpty });
-  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage]);
+  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage, updatePhoto]);
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

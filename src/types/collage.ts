@@ -16,6 +16,11 @@ export interface CropRegion {
  */
 export type PhotoPriority = 1 | 2 | 3;
 
+/** 6-anchor positions for per-photo text labels. */
+export type LabelPosition = 'tl' | 'tc' | 'tr' | 'bl' | 'bc' | 'br';
+
+export const DEFAULT_LABEL_POSITION: LabelPosition = 'bc';
+
 /**
  * Runtime photo state (in-memory).
  * objectUrl and blob are NOT persisted - they're hydrated from IndexedDB on load.
@@ -37,6 +42,13 @@ export interface PhotoItem {
   previewBlob?: Blob;         // Preview blob for memory management
   thumbnailUrl?: string;      // Smaller preview for collage canvas (~480px max)
   thumbnailBlob?: Blob;       // Thumbnail blob for memory management
+  /** User-set label text shown on the cell. Empty/undefined hides the label. */
+  label?: string;
+  /** Anchor position for the label. Defaults to 'bc' (bottom-center). */
+  labelPosition?: LabelPosition;
+  /** Auto-extracted EXIF capture date (MM/DD/YYYY). Used as default value
+   *  in the label input — never displayed unless the user accepts it. */
+  suggestedLabel?: string;
 }
 
 /**
@@ -51,6 +63,9 @@ export interface PhotoMetadata {
   manualCrop: CropRegion | null;
   priority: PhotoPriority;
   smartCropAttempted?: boolean; // Optional for backwards compatibility with old data
+  label?: string;
+  labelPosition?: LabelPosition;
+  suggestedLabel?: string;
 }
 
 export interface CollageSettings {
@@ -58,6 +73,10 @@ export interface CollageSettings {
   gapColor: string;
   gapSize: number;
   exportScale: 1 | 1.5 | 2;
+  /** Force layout to a single column. Mutually exclusive with singleRow. */
+  singleColumn: boolean;
+  /** Force layout to a single row. Mutually exclusive with singleColumn. */
+  singleRow: boolean;
 }
 
 export interface CollageLayout {

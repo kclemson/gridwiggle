@@ -117,7 +117,7 @@ export function useCollageGeneration(deps: {
     if (singleStripe) {
       const parseDate = (label?: string): number | null => {
         if (!label) return null;
-        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(label);
+        const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(label);
         if (!m) return null;
         const t = new Date(+m[3], +m[1] - 1, +m[2]).getTime();
         return isNaN(t) ? null : t;

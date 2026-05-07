@@ -353,7 +353,11 @@ export default function Index() {
                         gapColor={state.settings.gapColor}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
-                        onToggleHero={handleToggleHero}
+                        onToggleHero={
+                          state.settings.singleColumn || state.settings.singleRow
+                            ? undefined
+                            : handleToggleHero
+                        }
                       />
 
                       {isGenerating && (

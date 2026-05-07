@@ -203,7 +203,13 @@ export default function Index() {
   const handleUpdateSettings = useCallback((updates: Partial<CollageSettingsType>) => {
     updateSettings(updates);
     setLayoutError(null);
-    if (state.layout && ('gapSize' in updates || 'shapeSlider' in updates)) {
+    if (
+      state.layout &&
+      ('gapSize' in updates ||
+        'shapeSlider' in updates ||
+        'singleColumn' in updates ||
+        'singleRow' in updates)
+    ) {
       const newSettings = { ...state.settings, ...updates };
       regenerateCollage({ settings: newSettings });
     }

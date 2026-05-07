@@ -62,6 +62,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
         width: `${(cell.width / layoutWidth) * 100}%`,
         height: `${(cell.height / layoutHeight) * 100}%`,
         willChange: isBeingDragged ? 'transform, opacity' : 'auto',
+        containerType: 'size',
       }}
       draggable={!mobile}
       onDragStart={(e) => onDragStart(e, photo.id)}
@@ -83,12 +84,13 @@ const CollageCellComponent = memo(function CollageCellComponent({
 
       {photo.label && (
         <div
-          className="pointer-events-none font-semibold whitespace-nowrap rounded-md"
+          className="pointer-events-none font-semibold whitespace-nowrap rounded-md overflow-hidden text-ellipsis"
           style={{
             ...labelAnchorStyle(photo.labelPosition ?? 'bc'),
             backgroundColor: gapColor,
             color: autoTextColor(gapColor),
-            fontSize: `max(11px, ${Math.max(cell.width, cell.height) * 0.05}px)`,
+            fontSize: 'max(11px, 5cqmin)',
+            maxWidth: '90%',
             padding: '2px 8px',
             lineHeight: 1.2,
           }}

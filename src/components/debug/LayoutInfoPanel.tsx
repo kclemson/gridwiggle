@@ -65,7 +65,7 @@ function PerfSection({ meta }: { meta: Record<string, unknown> }) {
 
 export function LayoutInfoPanel({ meta, reason, details }: LayoutInfoPanelProps) {
   // V4 metadata display
-  if (meta) {
+  if (meta && (meta as { template?: unknown }).template !== undefined) {
     const {
       template, targetCanvasAR, actualCanvasAR, arDeviation,
       areaFrac, heroCoverage, heroAR, hero2AR, prominenceRatio, score, corner,

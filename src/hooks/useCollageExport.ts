@@ -35,7 +35,9 @@ export function useCollageExport(deps: {
         photos,
         layout,
         settings.gapColor,
-        settings.exportScale
+        settings.exportScale,
+        settings.labelsEnabled,
+        settings.labelPosition,
       );
       const outcome = await shareOrDownload(blob, filename);
       remoteLogger.info('telemetry', 'export', {

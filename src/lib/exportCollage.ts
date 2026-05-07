@@ -1,4 +1,4 @@
-import { PhotoItem, CollageLayout } from '@/types/collage';
+import { PhotoItem, CollageLayout, LabelPosition } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { isMobileDevice, isIOS } from '@/lib/platform';
@@ -8,7 +8,9 @@ export async function exportCollageAsPng(
   photos: PhotoItem[],
   layout: CollageLayout,
   gapColor: string,
-  scale: number = 1
+  scale: number = 1,
+  labelsEnabled: boolean = false,
+  labelPosition: LabelPosition = 'bc',
 ): Promise<Blob> {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -69,8 +71,8 @@ export async function exportCollageAsPng(
     }
 
     // Draw label overlay (matches CollagePreview rendering)
-    if (photo.label) {
-      drawLabel(ctx, photo, cell, gapColor, scale);
+    if (labelsEnabled && photo.label) {
+      drawLabel(ctx, photo, cell, gapColor, scale, labelPosition);
     }
   }
 
@@ -95,17 +97,18 @@ function drawLabel(
   cell: { x: number; y: number; width: number; height: number },
   gapColor: string,
   scale: number,
+  labelPosition: LabelPosition,
 ) {
   const text = (photo.label ?? '').trim();
   if (!text) return;
-  const pos = photo.labelPosition ?? 'bc';
+  const pos = labelPosition;
 
   const cellW = cell.width * scale;
   const cellH = cell.height * scale;
   const cellX = cell.x * scale;
   const cellY = cell.y * scale;
 
-  const fontSize = Math.max(11 * scale, Math.max(cellW, cellH) * 0.05);
+  const fontSize = Math.max(11 * scale, Math.min(cellW, cellH) * 0.05);
   const padX = fontSize * 0.6;
   const padY = fontSize * 0.25;
   const inset = 6 * scale;
@@ -113,7 +116,9 @@ function drawLabel(
   ctx.font = `600 ${fontSize}px -apple-system, system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
   const metrics = ctx.measureText(text);
-  const pillW = metrics.width + padX * 2;
+  // Cap pill width to cell minus insets so it never exceeds the photo
+  const maxPillW = cellW - inset * 2;
+  const pillW = Math.min(metrics.width + padX * 2, maxPillW);
   const pillH = fontSize * 1.2 + padY * 2;
 
   let pillX: number;
@@ -125,27 +130,18 @@ function drawLabel(
   if (pos.startsWith('t')) pillY = cellY + inset;
   else pillY = cellY + cellH - inset - pillH;
 
-  const radius = Math.min(6 * scale, pillH / 2);
   ctx.fillStyle = gapColor;
-  roundRect(ctx, pillX, pillY, pillW, pillH, radius);
-  ctx.fill();
+  ctx.fillRect(pillX, pillY, pillW, pillH);
 
+  // Clip text to pill so long labels don't bleed past the rectangle
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pillX, pillY, pillW, pillH);
+  ctx.clip();
   ctx.fillStyle = autoTextColor(gapColor);
   ctx.textAlign = 'left';
   ctx.fillText(text, pillX + padX, pillY + pillH / 2);
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+  ctx.restore();
 }
 
 export function downloadBlob(blob: Blob, filename: string): 'download' | 'navigate' {

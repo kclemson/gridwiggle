@@ -152,6 +152,8 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     exportScale: 1,
     singleColumn: false,
     singleRow: false,
+    labelsEnabled: false,
+    labelPosition: 'bc',
   };
   
   // Build photo weights (hero = priority 1 gets weight 2)

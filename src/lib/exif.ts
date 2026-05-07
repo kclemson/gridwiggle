@@ -8,13 +8,9 @@
 
 import exifr from 'exifr';
 
-function pad(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
-}
-
 function formatDate(d: Date): string {
-  // MM/DD/YYYY using local components of the EXIF timestamp
-  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`;
+  // M/D/YYYY using local components of the EXIF timestamp (no leading zeros)
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
 /**

@@ -77,6 +77,10 @@ export interface CollageSettings {
   singleColumn: boolean;
   /** Force layout to a single row. Mutually exclusive with singleColumn. */
   singleRow: boolean;
+  /** Global toggle: render per-photo labels on the collage. */
+  labelsEnabled: boolean;
+  /** Global label anchor position used for every photo's label. */
+  labelPosition: LabelPosition;
 }
 
 export interface CollageLayout {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CollageSettings as CollageSettingsType, CollageLayout, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ShapeIndicator } from '@/components/ShapeIndicator';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
@@ -26,11 +27,35 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
     ? arToSliderPosition(layout.width / layout.height)
     : 50; // Default to center when no layout
 
-  const shapeDisabled = photoCount < MIN_PHOTOS_FOR_SHAPE_SLIDER;
+  const stripeActive = settings.singleColumn || settings.singleRow;
+  const shapeDisabled = stripeActive || photoCount < MIN_PHOTOS_FOR_SHAPE_SLIDER;
   const shapeValue = draggingValue ?? displayPosition;
 
   return (
-    <div className="grid grid-cols-4 gap-x-3 py-2 px-1">
+    <div className="space-y-2 py-2 px-1">
+      {/* Single column / single row toggles */}
+      <div className="flex items-center justify-center gap-4">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <Checkbox
+            checked={settings.singleColumn}
+            onCheckedChange={(checked) =>
+              onUpdate({ singleColumn: !!checked, singleRow: false })
+            }
+          />
+          Single column
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <Checkbox
+            checked={settings.singleRow}
+            onCheckedChange={(checked) =>
+              onUpdate({ singleRow: !!checked, singleColumn: false })
+            }
+          />
+          Single row
+        </label>
+      </div>
+
+      <div className="grid grid-cols-4 gap-x-3">
       {/* Row 1: Controls */}
       <div className="flex items-center justify-center">
         <input
@@ -47,7 +72,13 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
           "flex items-center justify-center gap-1.5",
           shapeDisabled && "opacity-40"
         )}
-        title={shapeDisabled ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos` : undefined}
+        title={
+          stripeActive
+            ? 'Shape is disabled while single column/row is on'
+            : shapeDisabled
+              ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos`
+              : undefined
+        }
       >
         <ShapeIndicator position={shapeValue} />
         <Slider
@@ -100,6 +131,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
       <span className="text-[10px] text-muted-foreground text-center">Shape</span>
       <span className="text-[10px] text-muted-foreground text-center">Spacing</span>
       <span className="text-[10px] text-muted-foreground text-center">Size</span>
+      </div>
     </div>
   );
 }

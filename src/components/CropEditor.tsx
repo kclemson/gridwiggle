@@ -83,6 +83,52 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
   return <CropEditorInner photo={photo} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
 }
 
+const POSITIONS: LabelPosition[] = ['tl', 'tc', 'tr', 'bl', 'bc', 'br'];
+
+function LabelEditor({
+  value,
+  position,
+  onChange,
+  onPositionChange,
+}: {
+  value: string;
+  position: LabelPosition;
+  onChange: (v: string) => void;
+  onPositionChange: (p: LabelPosition) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Label (optional)"
+        maxLength={32}
+        className="h-8 text-sm flex-1 min-w-0"
+      />
+      <div
+        className="grid grid-cols-3 gap-0.5 shrink-0"
+        role="radiogroup"
+        aria-label="Label position"
+      >
+        {POSITIONS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            role="radio"
+            aria-checked={position === p}
+            aria-label={`Label position ${p}`}
+            onClick={() => onPositionChange(p)}
+            className={cn(
+              'h-3 w-3 rounded-sm border border-muted-foreground/40 transition-colors',
+              position === p ? 'bg-foreground' : 'bg-transparent hover:bg-muted-foreground/20',
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Inner CropEditor component with all hooks - only rendered when dimensions are valid.
  */
@@ -487,6 +533,12 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
+          <LabelEditor
+            value={label}
+            position={labelPosition}
+            onChange={setLabel}
+            onPositionChange={setLabelPosition}
+          />
           <Button 
             variant="ghost" 
             size="icon"

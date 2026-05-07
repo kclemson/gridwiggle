@@ -17,7 +17,7 @@ import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
 import { extractCaptureDate } from '@/lib/exif';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LabelPosition, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { 
@@ -116,16 +116,35 @@ export default function Index() {
     }
   }, [removePhoto, state.layout, state.photos, state.settings.shapeSlider, updateSettings, regenerateCollage]);
 
-  const handleSaveCrop = useCallback((photoId: string, crop: CropRegion, priority: PhotoPriority) => {
-    updatePhoto(photoId, { manualCrop: crop, priority });
+  const handleSaveCrop = useCallback((
+    photoId: string,
+    crop: CropRegion,
+    priority: PhotoPriority,
+    label: string,
+    labelPosition: LabelPosition,
+  ) => {
+    const photo = state.photos.find(p => p.id === photoId);
+    const cropChanged =
+      !photo?.manualCrop ||
+      photo.manualCrop.x !== crop.x ||
+      photo.manualCrop.y !== crop.y ||
+      photo.manualCrop.width !== crop.width ||
+      photo.manualCrop.height !== crop.height;
+    const priorityChanged = photo?.priority !== priority;
+    updatePhoto(photoId, {
+      manualCrop: crop,
+      priority,
+      label: label || undefined,
+      labelPosition,
+    });
     setEditingPhotoId(null);
-    if (state.layout) {
+    if (state.layout && (cropChanged || priorityChanged)) {
       regenerateCollage({
         priorityOverride: { photoId, priority },
         cropOverride: { photoId, crop },
       });
     }
-  }, [updatePhoto, state.layout, regenerateCollage]);
+  }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);

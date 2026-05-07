@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useMemo, memo, useEffect } from 'react';
-import { PhotoItem, CollageLayout, CollageCell } from '@/types/collage';
+import { PhotoItem, CollageLayout, CollageCell, LabelPosition } from '@/types/collage';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,8 @@ interface CollageCellProps {
   layoutWidth: number;
   layoutHeight: number;
   gapColor: string;
+  labelsEnabled: boolean;
+  labelPosition: LabelPosition;
   isBeingDragged: boolean;
   isDragTarget: boolean;
   onDragStart: (e: React.DragEvent, photoId: string) => void;
@@ -34,6 +36,8 @@ const CollageCellComponent = memo(function CollageCellComponent({
   layoutWidth,
   layoutHeight,
   gapColor,
+  labelsEnabled,
+  labelPosition,
   isBeingDragged,
   isDragTarget,
   onDragStart,
@@ -82,15 +86,15 @@ const CollageCellComponent = memo(function CollageCellComponent({
         fit="cover"
       />
 
-      {photo.label && (
+      {labelsEnabled && photo.label && (
         <div
-          className="pointer-events-none font-semibold whitespace-nowrap rounded-md overflow-hidden text-ellipsis"
+          className="pointer-events-none font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
           style={{
-            ...labelAnchorStyle(photo.labelPosition ?? 'bc'),
+            ...labelAnchorStyle(labelPosition),
             backgroundColor: gapColor,
             color: autoTextColor(gapColor),
             fontSize: 'max(11px, 5cqmin)',
-            maxWidth: '90%',
+            maxWidth: '100%',
             padding: '2px 8px',
             lineHeight: 1.2,
           }}
@@ -137,6 +141,8 @@ interface CollagePreviewProps {
   photos: PhotoItem[];
   layout: CollageLayout;
   gapColor: string;
+  labelsEnabled: boolean;
+  labelPosition: LabelPosition;
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
@@ -151,6 +157,8 @@ export function CollagePreview({
   photos, 
   layout, 
   gapColor, 
+  labelsEnabled,
+  labelPosition,
   onSwapPhotos,
   onCellClick,
   onToggleHero,
@@ -371,6 +379,8 @@ export function CollagePreview({
               layoutWidth={layout.width}
               layoutHeight={layout.height}
               gapColor={gapColor}
+              labelsEnabled={labelsEnabled}
+              labelPosition={labelPosition}
               isBeingDragged={isBeingDragged}
               isDragTarget={isDragTarget}
               onDragStart={handleDragStart}

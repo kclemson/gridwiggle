@@ -29,20 +29,22 @@ export function CollageHeader({
 }: CollageHeaderProps) {
   return (
     <div className="flex items-center justify-between">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-        Collage
-      </h3>
-      <div className="flex items-center gap-2">
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-8 w-8" 
+      <div className="flex items-center gap-1">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+          Collage
+        </h3>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
           onClick={onShuffle}
           disabled={isShuffling}
           title="Shuffle layout"
         >
           <RefreshCw className={cn("h-4 w-4", isShuffling && "animate-spin")} />
         </Button>
+      </div>
+      <div className="flex items-center gap-2">
         {showDownload && exportScale !== undefined && onExportScaleChange && (
           <div
             className="flex rounded-md border border-muted-foreground/30 overflow-hidden h-6"

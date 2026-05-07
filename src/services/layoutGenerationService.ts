@@ -11,6 +11,7 @@ import { PhotoDimension, V3Tuning } from '@/lib/v3/types';
 import { CollageLayout } from '@/types/collage';
 import { LogEntry } from '@/lib/devLogger';
 import type { LayoutRequest, LayoutResponse } from '@/workers/layoutWorker';
+import type { StripeDirection } from '@/lib/v4/singleStripe';
 
 // ============================================================================
 // Types
@@ -21,6 +22,7 @@ export interface LayoutGenerationPayload {
   normalizedGap: number;
   tuning: Partial<V3Tuning>;
   randomize: boolean;
+  singleStripe?: StripeDirection;
 }
 
 export interface LayoutGenerationResult {
@@ -90,20 +92,35 @@ function nextRequestId(): string {
 async function generateLayoutSync(
   payload: LayoutGenerationPayload
 ): Promise<LayoutGenerationResult> {
+  const startTime = performance.now();
+
+  if (payload.singleStripe) {
+    const { generateSingleStripeLayout } = await import('@/lib/v4/singleStripe');
+    const layout = generateSingleStripeLayout(
+      payload.dimensions,
+      payload.normalizedGap,
+      payload.singleStripe,
+    );
+    return {
+      layout,
+      durationMs: performance.now() - startTime,
+      usedWorker: false,
+      layoutMeta: { mode: `single-${payload.singleStripe}`, photoCount: payload.dimensions.length },
+    };
+  }
+
   // Dynamic import to avoid bundling the engine in the main bundle
   const { generateLayoutFromDimensions } = await import('@/lib/v4/engine');
-  
-  const startTime = performance.now();
-  
+
   const result = generateLayoutFromDimensions(
     payload.dimensions,
     payload.normalizedGap,
     payload.tuning,
     payload.randomize
   );
-  
+
   const durationMs = performance.now() - startTime;
-  
+
   return {
     layout: result.layout,
     durationMs,
@@ -177,6 +194,7 @@ export async function generateLayoutInWorker(
       normalizedGap: payload.normalizedGap,
       tuning: payload.tuning,
       randomize: payload.randomize,
+      singleStripe: payload.singleStripe,
     };
     
     currentWorker.postMessage(request);

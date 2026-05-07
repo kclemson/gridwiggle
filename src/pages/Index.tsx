@@ -379,6 +379,8 @@ export default function Index() {
                         photos={state.photos}
                         layout={state.layout}
                         gapColor={state.settings.gapColor}
+                        labelsEnabled={state.settings.labelsEnabled}
+                        labelPosition={state.settings.labelPosition}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
                         onToggleHero={

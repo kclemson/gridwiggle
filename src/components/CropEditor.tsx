@@ -250,10 +250,13 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
 
   const handleSave = () => {
     const priority: PhotoPriority = isHero ? 1 : 3;
+    // If the label input is still focused (user clicked Save without
+    // blurring), prefer the in-flight draft over committed state.
+    const finalLabel = (editingLabel ? labelDraft : label).trim();
     // Close immediately for responsiveness
     onClose();
     // State update happens after close - user doesn't see the delay
-    onSave(photo.id, crop, priority, label.trim());
+    onSave(photo.id, crop, priority, finalLabel);
   };
   
   const handleApplySmartCrop = useCallback(() => {
@@ -319,6 +322,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   // Single pointerdown entry point. The overlay is the only event surface;
   // SVG is render-only. Decide move-vs-resize by hit-testing crop corners.
   const handleOverlayPointerDown = useCallback((e: React.PointerEvent) => {
+    // Pointerdown with preventDefault below stops the browser from blurring
+    // the label input, so commit any in-flight draft manually first.
+    if (editingLabel) commitLabel();
     e.preventDefault();
     const pos = clientToSvg(e.clientX, e.clientY);
     const corner = getCornerId(pos.x, pos.y);
@@ -327,7 +333,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     setDragType(type);
     setDragStart(pos);
     setCropStart({ ...crop });
-  }, [clientToSvg, getCornerId, crop]);
+  }, [clientToSvg, getCornerId, crop, editingLabel, commitLabel]);
 
   // Offset handles inward when at image edges so they're fully visible
   const getHandlePosition = (corner: 'nw' | 'ne' | 'sw' | 'se') => {

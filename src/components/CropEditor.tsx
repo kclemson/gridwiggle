@@ -329,6 +329,7 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         className="max-w-4xl w-[min(95vw,56rem)] max-h-[95vh] flex flex-col p-0 gap-0 overflow-hidden"
+        onOpenAutoFocus={(e) => e.preventDefault()}
         // Pointerdowns inside the dialog don't trigger Radix's outside-close
         // logic, so we don't need to block them. Keeping outside-close intact
         // means tapping the backdrop still closes the dialog.

@@ -508,11 +508,82 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
             onDragStart={(e) => e.preventDefault()}
             draggable={false}
           />
+          {/* In-place label editor — positioned over the cropped region at
+              the configured label anchor, so the user sees exactly where
+              the label will appear in the final collage. */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: `${(crop.x / photo.originalWidth) * 100}%`,
+              top: `${(crop.y / photo.originalHeight) * 100}%`,
+              width: `${(crop.width / photo.originalWidth) * 100}%`,
+              height: `${(crop.height / photo.originalHeight) * 100}%`,
+            }}
+          >
+            <div
+              style={{
+                ...labelAnchorStyle(labelPosition),
+                maxWidth: 'calc(100% - 12px)',
+              }}
+              className="pointer-events-auto"
+            >
+              {editingLabel ? (
+                <input
+                  ref={labelInputRef}
+                  value={labelDraft}
+                  maxLength={32}
+                  onChange={(e) => setLabelDraft(e.target.value)}
+                  onBlur={commitLabel}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: autoTextColor(gapColor),
+                    padding: '2px 8px',
+                    fontSize: 13,
+                    lineHeight: 1.2,
+                    fontWeight: 600,
+                    border: 'none',
+                    outline: 'none',
+                    minWidth: 80,
+                    maxWidth: '100%',
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={beginEditLabel}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: label ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
+                    padding: '2px 8px',
+                    fontSize: 13,
+                    lineHeight: 1.2,
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'text',
+                    fontStyle: label ? 'normal' : 'italic',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}
+                  title="Click to edit label"
+                >
+                  {label || 'Add label'}
+                </button>
+              )}
+            </div>
+          </div>
           </div>
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
-          <LabelEditor value={label} onChange={setLabel} />
           <Button 
             variant="ghost" 
             size="icon"

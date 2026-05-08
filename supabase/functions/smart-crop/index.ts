@@ -12,6 +12,45 @@ interface CropRegion {
   height: number;
 }
 
+interface SubjectBox {
+  kind: "face" | "pet";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence: number;
+}
+
+/**
+ * Mirror of `visionWorker.calculateOptimalCrop` — keep in sync.
+ * Inputs are pixel-space boxes already filtered/selected; output is the
+ * union padded by 10% of min(W,H), clamped to image bounds.
+ */
+function unionWithPadding(
+  boxes: { x: number; y: number; width: number; height: number }[],
+  imgW: number,
+  imgH: number,
+): CropRegion {
+  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+  for (const b of boxes) {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.width);
+    maxY = Math.max(maxY, b.y + b.height);
+  }
+  const padding = Math.min(imgW, imgH) * 0.1;
+  const x = Math.max(0, minX - padding);
+  const y = Math.max(0, minY - padding);
+  const right = Math.min(imgW, maxX + padding);
+  const bottom = Math.min(imgH, maxY + padding);
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(right - x),
+    height: Math.round(bottom - y),
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -53,29 +92,19 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an image analyzer that detects FACES and PETS (cats and dogs).
+            content: `You are an object detector. Detect every visible HUMAN FACE and every PET (cat or dog) in the image.
 
-Your task:
-1. Determine if there are any human faces or pets (cats/dogs) in the image. A bare arm, leg, torso, hand, or back-of-head without a visible face does NOT count — only count it if a face is visible.
-2. If YES: return a crop region that keeps all detected faces and pets visible with breathing room. Set skipCrop to false. Prioritize faces over pets if both are present.
-3. If NO faces or pets: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/1/1.
+RULES:
+- Only count a human if a FACE is visible. A bare arm, leg, torso, hand, or back-of-head without a visible face does NOT count.
+- For each detected subject, return a TIGHT bounding box around just the face (or just the pet's body) — not the surrounding scene. Cropping/composition is handled by another system; your only job is to locate subjects.
+- Return one entry per subject. If two faces are visible, return two entries. If a face and a dog are visible, return both.
+- If no faces and no pets are visible, return an empty subjects array.
 
 COORDINATE FORMAT — CRITICAL:
-All of x, y, width, height MUST be normalized floats between 0.0 and 1.0, where 0.0 is the left/top edge and 1.0 is the right/bottom edge of the image. DO NOT use percentages (0–100). DO NOT use pixel values. DO NOT use the 0–1000 normalized box format.
+All of x, y, width, height MUST be normalized floats between 0.0 and 1.0 (fractions of image width/height). DO NOT use percentages (0–100). DO NOT use pixel values. DO NOT use the 0–1000 box format.
 
-Example for a face in the upper-left quadrant:
-{"x":0.10,"y":0.20,"width":0.28,"height":0.28,"confidence":0.95,"subjects":"woman's face","skipCrop":false}
-
-Respond with ONLY a JSON object in this exact format:
-{
-  "x": <0.0-1.0 fraction from left edge>,
-  "y": <0.0-1.0 fraction from top edge>,
-  "width": <0.0-1.0 fraction of image width>,
-  "height": <0.0-1.0 fraction of image height>,
-  "confidence": <0-1 confidence score>,
-  "subjects": "<description of what you see>",
-  "skipCrop": <true if no faces/pets detected, false otherwise>
-}`
+Example output for an image with one face in the upper-left and a dog on the right:
+{"subjects":[{"kind":"face","x":0.10,"y":0.18,"width":0.14,"height":0.20,"confidence":0.97},{"kind":"pet","x":0.62,"y":0.40,"width":0.22,"height":0.35,"confidence":0.91}],"description":"woman and dog"}`
           },
           {
             role: "user",
@@ -88,7 +117,7 @@ Respond with ONLY a JSON object in this exact format:
               },
               {
                 type: "text",
-                text: `Analyze this ${width}x${height} image. Are there any human faces or pets (cats/dogs)? If yes, return the optimal crop region focusing on the subjects (prioritize faces over pets) using normalized 0.0–1.0 coordinates (NOT percentages, NOT pixels). If no faces or pets, set skipCrop to true. Return ONLY the JSON object.`
+                text: `Detect every visible human face and every pet (cat/dog) in this ${width}x${height} image. Return one tight bounding box per subject, in normalized 0.0–1.0 coordinates (NOT percentages, NOT pixels). Return ONLY the JSON object.`
               }
             ],
           },
@@ -104,15 +133,25 @@ Respond with ONLY a JSON object in this exact format:
               type: "object",
               additionalProperties: false,
               properties: {
-                x: { type: "number", minimum: 0, maximum: 1 },
-                y: { type: "number", minimum: 0, maximum: 1 },
-                width: { type: "number", minimum: 0, maximum: 1 },
-                height: { type: "number", minimum: 0, maximum: 1 },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                subjects: { type: "string" },
-                skipCrop: { type: "boolean" },
+                subjects: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      kind: { type: "string", enum: ["face", "pet"] },
+                      x: { type: "number", minimum: 0, maximum: 1 },
+                      y: { type: "number", minimum: 0, maximum: 1 },
+                      width: { type: "number", minimum: 0, maximum: 1 },
+                      height: { type: "number", minimum: 0, maximum: 1 },
+                      confidence: { type: "number", minimum: 0, maximum: 1 },
+                    },
+                    required: ["kind", "x", "y", "width", "height", "confidence"],
+                  },
+                },
+                description: { type: "string" },
               },
-              required: ["x", "y", "width", "height", "confidence", "subjects", "skipCrop"],
+              required: ["subjects", "description"],
             },
           },
         },
@@ -147,74 +186,77 @@ Respond with ONLY a JSON object in this exact format:
     console.log("AI response:", content);
 
     // Parse the JSON from the response
-    let cropData;
+    let parsed: { subjects?: SubjectBox[]; description?: string };
     try {
-      // Extract JSON from the response (in case there's extra text)
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cropData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("No JSON found in response");
-      }
+      if (!jsonMatch) throw new Error("No JSON found in response");
+      parsed = JSON.parse(jsonMatch[0]);
     } catch (e) {
       console.error("Failed to parse AI response:", e);
-      // Fallback to center crop
-      cropData = {
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        confidence: 0,
-        subjects: "Unable to analyze",
-        skipCrop: true,
-      };
+      parsed = { subjects: [], description: "Unable to analyze" };
     }
 
-    // Defensive normalization: detect which coordinate space the model returned.
-    // Expected: 0.0–1.0 floats. But Gemini sometimes returns 0–100 percentages or
-    // 0–1000 normalized box coords. Pick a divisor based on the largest value.
-    const maxVal = Math.max(
-      Number(cropData.x) || 0,
-      Number(cropData.y) || 0,
-      Number(cropData.width) || 0,
-      Number(cropData.height) || 0,
-    );
+    const rawSubjects: SubjectBox[] = Array.isArray(parsed.subjects) ? parsed.subjects : [];
+
+    // Defensive coordinate-space normalization (Gemini sometimes drifts to
+    // percent or 0–1000 box format despite schema bounds).
+    let maxVal = 0;
+    for (const s of rawSubjects) {
+      maxVal = Math.max(maxVal, Number(s.x) || 0, Number(s.y) || 0, Number(s.width) || 0, Number(s.height) || 0);
+    }
     let divisor = 1;
     let coordSpace = "normalized-0-1";
-    if (maxVal > 100) {
-      divisor = 1000;
-      coordSpace = "normalized-0-1000";
-    } else if (maxVal > 1.5) {
-      divisor = 100;
-      coordSpace = "percent-0-100";
-    }
+    if (maxVal > 100) { divisor = 1000; coordSpace = "normalized-0-1000"; }
+    else if (maxVal > 1.5) { divisor = 100; coordSpace = "percent-0-100"; }
+
+    // Filter by confidence and bucket by kind (faces preferred, then pets).
+    const kept = rawSubjects.filter((s) => Number(s.confidence) > 0.4);
+    const faces = kept.filter((s) => s.kind === "face");
+    const pets = kept.filter((s) => s.kind === "pet");
+    const chosen = faces.length > 0 ? faces : pets;
+    const chosenKind = faces.length > 0 ? "face" : pets.length > 0 ? "pet" : "none";
+
     console.log(
-      `Coord interpretation: ${coordSpace} (maxVal=${maxVal}, divisor=${divisor}). Raw cropData:`,
-      JSON.stringify(cropData),
+      `Detections: ${rawSubjects.length} raw, ${kept.length} kept (conf>0.4). ` +
+      `Coord: ${coordSpace} (max=${maxVal}). Chosen=${chosenKind} (${chosen.length}). ` +
+      `Description: ${parsed.description ?? ""}`,
     );
 
-    let cropRegion: CropRegion = {
-      x: Math.round((cropData.x / divisor) * width),
-      y: Math.round((cropData.y / divisor) * height),
-      width: Math.round((cropData.width / divisor) * width),
-      height: Math.round((cropData.height / divisor) * height),
-    };
+    if (chosen.length === 0) {
+      console.log("No faces/pets detected → skipCrop=true");
+      return new Response(
+        JSON.stringify({
+          crop: { x: 0, y: 0, width, height },
+          confidence: 0,
+          subjects: parsed.description ?? "No faces or pets detected",
+          skipCrop: true,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // Ensure the crop is within bounds
+    // Convert normalized boxes → pixel boxes, then union + 10% padding.
+    const pixelBoxes = chosen.map((s) => ({
+      x: (Number(s.x) / divisor) * width,
+      y: (Number(s.y) / divisor) * height,
+      width: (Number(s.width) / divisor) * width,
+      height: (Number(s.height) / divisor) * height,
+    }));
+    let cropRegion = unionWithPadding(pixelBoxes, width, height);
+
+    // Final safety clamp + min-size enforcement.
     cropRegion.x = Math.max(0, Math.min(cropRegion.x, width - 50));
     cropRegion.y = Math.max(0, Math.min(cropRegion.y, height - 50));
     cropRegion.width = Math.max(50, Math.min(cropRegion.width, width - cropRegion.x));
     cropRegion.height = Math.max(50, Math.min(cropRegion.height, height - cropRegion.y));
 
-    // Validate aspect ratio and minimum dimensions
+    // Extreme-aspect safety net: should rarely fire now that we control the
+    // geometry, but keeps us safe if a single bogus huge detection slips through.
     const aspectRatio = cropRegion.width / cropRegion.height;
     const minDimension = Math.min(width, height) * 0.2;
-    
-    // Check if crop is too extreme (aspect ratio > 3:1 or < 1:3, or dimensions too small)
-    if (cropRegion.width < minDimension || cropRegion.height < minDimension || 
+    if (cropRegion.width < minDimension || cropRegion.height < minDimension ||
         aspectRatio > 3 || aspectRatio < 0.33) {
-      console.log("Invalid crop detected, falling back to center crop. Original:", cropRegion, "Aspect ratio:", aspectRatio);
-      // Fall back to 80% center crop
+      console.log("Extreme crop after union, falling back to 80% center. Was:", cropRegion, "AR:", aspectRatio);
       cropRegion = {
         x: Math.round(width * 0.1),
         y: Math.round(height * 0.1),
@@ -223,29 +265,14 @@ Respond with ONLY a JSON object in this exact format:
       };
     }
 
-    console.log("Smart crop result:", cropRegion, "Subjects:", cropData.subjects);
-
-    const skipCrop = cropData.skipCrop ?? false;
-
-    // If skipCrop, return full image as crop region
-    if (skipCrop) {
-      console.log("No people detected, skipCrop=true. Subjects:", cropData.subjects);
-      return new Response(
-        JSON.stringify({
-          crop: { x: 0, y: 0, width, height },
-          confidence: cropData.confidence ?? 0.5,
-          subjects: cropData.subjects,
-          skipCrop: true,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const maxConfidence = Math.max(...chosen.map((s) => Number(s.confidence) || 0));
+    console.log("Smart crop result:", cropRegion, "kind:", chosenKind, "subjects:", parsed.description);
 
     return new Response(
       JSON.stringify({
         crop: cropRegion,
-        confidence: cropData.confidence,
-        subjects: cropData.subjects,
+        confidence: maxConfidence,
+        subjects: parsed.description ?? chosenKind,
         skipCrop: false,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

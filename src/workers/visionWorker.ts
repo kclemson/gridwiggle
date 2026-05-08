@@ -18,6 +18,14 @@ let loadedForMobile: boolean | null = null; // track which model variant is cach
 
 const PET_LABELS = new Set(['cat', 'dog']);
 
+/**
+ * Detections smaller than this fraction of the processed image area are
+ * treated as background noise (e.g. a pedestrian on a distant boardwalk)
+ * and excluded from the smart-crop bbox union. Tune up for stricter
+ * "main subject only", down for more inclusive crops.
+ */
+const MIN_SUBJECT_AREA_FRACTION = 0.02;
+
 interface DetectionResult {
   label: string;
   score: number;
@@ -64,10 +72,25 @@ function calculateOptimalCrop(
   const allSubjects = detections.filter(d => d.score > 0.4);
   const people = allSubjects.filter(d => d.label === 'person');
   const pets = allSubjects.filter(d => PET_LABELS.has(d.label));
-  const subjects = people.length > 0 ? people
-                 : pets.length > 0 ? pets
-                 : allSubjects;
-  
+  const candidates = people.length > 0 ? people
+                   : pets.length > 0 ? pets
+                   : allSubjects;
+
+  // Drop tiny detections (background figures, false positives on small objects)
+  // so they don't drag the union bbox off-center toward the edges.
+  const imageArea = processedWidth * processedHeight;
+  const minBoxArea = imageArea * MIN_SUBJECT_AREA_FRACTION;
+  const subjects = candidates.filter(d => {
+    const w = d.box.xmax - d.box.xmin;
+    const h = d.box.ymax - d.box.ymin;
+    return w * h >= minBoxArea;
+  });
+
+  self.postMessage({
+    type: 'status',
+    message: `Subjects: ${candidates.length} candidate, ${subjects.length} kept after area filter (>= ${(MIN_SUBJECT_AREA_FRACTION * 100).toFixed(1)}%)`,
+  });
+
   if (subjects.length === 0) {
     // No subjects detected - use full image (no cropping)
     return {
@@ -170,9 +193,16 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     // Only apply smart crop if a person was detected
     // DETR hallucinates random objects (banana, vase) for cartoons
     // but reliably detects "person" in real photos
-    const hasSubject = results.some(
-      r => r.score > 0.4 && (r.label === 'person' || PET_LABELS.has(r.label))
-    );
+    // Apply the same area filter here so a tiny background figure doesn't
+    // count as "we have a subject" — keeps skipCrop in sync with the bbox.
+    const minBoxAreaForSubject = (processedWidth * processedHeight) * MIN_SUBJECT_AREA_FRACTION;
+    const hasSubject = results.some(r => {
+      if (r.score <= 0.4) return false;
+      if (r.label !== 'person' && !PET_LABELS.has(r.label)) return false;
+      const w = r.box.xmax - r.box.xmin;
+      const h = r.box.ymax - r.box.ymin;
+      return w * h >= minBoxAreaForSubject;
+    });
     const skipCrop = !hasSubject;
     
     self.postMessage({

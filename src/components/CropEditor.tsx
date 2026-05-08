@@ -109,6 +109,34 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   const initialLabel = photo.label ?? photo.suggestedLabel ?? '';
   const [label, setLabel] = useState(initialLabel);
   const initialLabelRef = useRef(initialLabel);
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingLabel) {
+      // Defer to ensure input is mounted
+      requestAnimationFrame(() => {
+        labelInputRef.current?.focus();
+        labelInputRef.current?.select();
+      });
+    }
+  }, [editingLabel]);
+
+  const beginEditLabel = useCallback(() => {
+    setLabelDraft(label);
+    setEditingLabel(true);
+  }, [label]);
+
+  const commitLabel = useCallback(() => {
+    setLabel(labelDraft);
+    setEditingLabel(false);
+  }, [labelDraft]);
+
+  const cancelLabelEdit = useCallback(() => {
+    setLabelDraft(label);
+    setEditingLabel(false);
+  }, [label]);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {

@@ -13,7 +13,7 @@ export function autoTextColor(hexBg: string): string {
 
 /** CSS positioning for a label overlay div within a relatively-positioned cell. */
 export function labelAnchorStyle(pos: LabelPosition): React.CSSProperties {
-  const inset = '6px';
+  const inset = '0px';
   const style: React.CSSProperties = { position: 'absolute' };
   if (pos.startsWith('t')) style.top = inset;
   else style.bottom = inset;

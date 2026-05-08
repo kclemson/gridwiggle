@@ -144,6 +144,10 @@ export default function Index() {
     }
   }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
 
+  const handleUpdateLabel = useCallback((photoId: string, label: string) => {
+    updatePhoto(photoId, { label: label || undefined });
+  }, [updatePhoto]);
+
   const handleToggleHero = useCallback((photoId: string) => {
     const photo = state.photos.find(p => p.id === photoId);
     if (!photo) return;
@@ -383,6 +387,7 @@ export default function Index() {
                         labelPosition={state.settings.labelPosition}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
+                        onUpdateLabel={handleUpdateLabel}
                         onToggleHero={
                           state.settings.singleColumn || state.settings.singleRow
                             ? undefined

@@ -66,7 +66,6 @@ const CollageCellComponent = memo(function CollageCellComponent({
         width: `${(cell.width / layoutWidth) * 100}%`,
         height: `${(cell.height / layoutHeight) * 100}%`,
         willChange: isBeingDragged ? 'transform, opacity' : 'auto',
-        containerType: 'size',
       }}
       draggable={!mobile}
       onDragStart={(e) => onDragStart(e, photo.id)}
@@ -93,7 +92,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
             ...labelAnchorStyle(labelPosition),
             backgroundColor: gapColor,
             color: autoTextColor(gapColor),
-            fontSize: 'max(11px, 5cqmin)',
+            fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
             maxWidth: '100%',
             padding: '2px 8px',
             lineHeight: 1.2,
@@ -361,6 +360,9 @@ export function CollagePreview({
           width: '100%',
           aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
+          containerType: 'size',
+          // Single label font size for the whole collage so all labels match.
+          ['--label-font-size' as any]: 'clamp(11px, 1.8cqmin, 28px)',
           // No padding needed - layout includes border in coordinates
         }}
       >

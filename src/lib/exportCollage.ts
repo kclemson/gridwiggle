@@ -27,6 +27,11 @@ export async function exportCollageAsPng(
   ctx.fillStyle = gapColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  // One uniform label font size for the whole collage, derived from canvas
+  // dimensions so labels render at a consistent size across cells.
+  const canvasMin = Math.min(layout.width, layout.height);
+  const labelFontSize = Math.max(11 * scale, Math.min(canvasMin * 0.018 * scale, 28 * scale));
+
   // Draw each cell
   for (const cell of layout.cells) {
     const photo = photos.find((p) => p.id === cell.photoId);
@@ -72,7 +77,7 @@ export async function exportCollageAsPng(
 
     // Draw label overlay (matches CollagePreview rendering)
     if (labelsEnabled && (photo.label ?? photo.suggestedLabel)) {
-      drawLabel(ctx, photo, cell, gapColor, scale, labelPosition);
+      drawLabel(ctx, photo, cell, gapColor, scale, labelPosition, labelFontSize);
     }
   }
 
@@ -98,6 +103,7 @@ function drawLabel(
   gapColor: string,
   scale: number,
   labelPosition: LabelPosition,
+  fontSize: number,
 ) {
   const text = (photo.label ?? photo.suggestedLabel ?? '').trim();
   if (!text) return;
@@ -108,7 +114,6 @@ function drawLabel(
   const cellX = cell.x * scale;
   const cellY = cell.y * scale;
 
-  const fontSize = Math.max(11 * scale, Math.min(cellW, cellH) * 0.05);
   const padX = fontSize * 0.6;
   const padY = fontSize * 0.25;
   const inset = 6 * scale;

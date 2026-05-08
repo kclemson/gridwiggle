@@ -24,6 +24,7 @@ interface CollageCellProps {
   onDragEnd: () => void;
   onPointerDown: (e: React.PointerEvent, photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
+  onUpdateLabel?: (photoId: string, label: string) => void;
 }
 
 /**
@@ -47,9 +48,41 @@ const CollageCellComponent = memo(function CollageCellComponent({
   onDragEnd,
   onPointerDown,
   onToggleHero,
+  onUpdateLabel,
 }: CollageCellProps) {
   const crop = getDisplayCrop(photo);
   const mobile = isMobileDevice();
+  const labelText = photo.label ?? photo.suggestedLabel ?? '';
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(labelText);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+
+  const beginEditLabel = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onUpdateLabel) return;
+    setLabelDraft(labelText);
+    setEditingLabel(true);
+  }, [labelText, onUpdateLabel]);
+
+  const commitLabel = useCallback(() => {
+    setEditingLabel(false);
+    const next = labelDraft.trim();
+    if (next !== (photo.label ?? '')) onUpdateLabel?.(photo.id, next);
+  }, [labelDraft, onUpdateLabel, photo.id, photo.label]);
+
+  const cancelLabelEdit = useCallback(() => {
+    setEditingLabel(false);
+    setLabelDraft(labelText);
+  }, [labelText]);
+
+  useEffect(() => {
+    if (editingLabel) {
+      requestAnimationFrame(() => {
+        labelInputRef.current?.focus();
+        labelInputRef.current?.select();
+      });
+    }
+  }, [editingLabel]);
 
   return (
     <div
@@ -85,21 +118,63 @@ const CollageCellComponent = memo(function CollageCellComponent({
         fit="cover"
       />
 
-      {labelsEnabled && (photo.label ?? photo.suggestedLabel) && (
-        <div
-          className="pointer-events-none font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
-          style={{
-            ...labelAnchorStyle(labelPosition),
-            backgroundColor: gapColor,
-            color: autoTextColor(gapColor),
-            fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
-            maxWidth: '100%',
-            padding: '2px 8px',
-            lineHeight: 1.2,
-          }}
-        >
-          {photo.label ?? photo.suggestedLabel}
-        </div>
+      {labelsEnabled && labelText && (
+        editingLabel ? (
+          <input
+            ref={labelInputRef}
+            data-label-pill
+            value={labelDraft}
+            maxLength={32}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+              else if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="font-semibold"
+            style={{
+              ...labelAnchorStyle(labelPosition),
+              backgroundColor: gapColor,
+              color: autoTextColor(gapColor),
+              fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
+              maxWidth: '100%',
+              padding: '2px 8px',
+              lineHeight: 1.2,
+              border: 'none',
+              outline: 'none',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              touchAction: 'auto',
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            data-label-pill
+            onClick={onUpdateLabel ? beginEditLabel : undefined}
+            onPointerDown={(e) => { if (onUpdateLabel) e.stopPropagation(); }}
+            disabled={!onUpdateLabel}
+            className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
+            style={{
+              ...labelAnchorStyle(labelPosition),
+              backgroundColor: gapColor,
+              color: autoTextColor(gapColor),
+              fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
+              maxWidth: '100%',
+              padding: '2px 8px',
+              lineHeight: 1.2,
+              border: 'none',
+              cursor: onUpdateLabel ? 'text' : 'default',
+              pointerEvents: onUpdateLabel ? 'auto' : 'none',
+              display: 'block',
+            }}
+            title={onUpdateLabel ? 'Click to edit label' : undefined}
+          >
+            {labelText}
+          </button>
+        )
       )}
       
       {/* Hero toggle button - appears on hover, always visible on mobile */}
@@ -145,6 +220,7 @@ interface CollagePreviewProps {
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
   onToggleHero?: (photoId: string) => void;
+  onUpdateLabel?: (photoId: string, label: string) => void;
 }
 
 /**
@@ -161,6 +237,7 @@ export function CollagePreview({
   onSwapPhotos,
   onCellClick,
   onToggleHero,
+  onUpdateLabel,
 }: CollagePreviewProps) {
   
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -238,7 +315,7 @@ export function CollagePreview({
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     // Don't intercept gestures on interactive elements (star button).
     const target = e.target as HTMLElement;
-    if (target.closest('button')) return;
+    if (target.closest('button, input, [data-label-pill]')) return;
     // For mouse, the native HTML5 drag system handles swap; we still want a
     // tap to open the editor on plain click, so we register the gesture but
     // skip the hold timer.
@@ -392,6 +469,7 @@ export function CollagePreview({
               onDragEnd={handleDragEnd}
               onPointerDown={handleCellPointerDown}
               onToggleHero={onToggleHero}
+              onUpdateLabel={onUpdateLabel}
             />
           );
         })}

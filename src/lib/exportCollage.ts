@@ -71,7 +71,7 @@ export async function exportCollageAsPng(
     }
 
     // Draw label overlay (matches CollagePreview rendering)
-    if (labelsEnabled && photo.label) {
+    if (labelsEnabled && (photo.label ?? photo.suggestedLabel)) {
       drawLabel(ctx, photo, cell, gapColor, scale, labelPosition);
     }
   }
@@ -99,7 +99,7 @@ function drawLabel(
   scale: number,
   labelPosition: LabelPosition,
 ) {
-  const text = (photo.label ?? '').trim();
+  const text = (photo.label ?? photo.suggestedLabel ?? '').trim();
   if (!text) return;
   const pos = labelPosition;
 

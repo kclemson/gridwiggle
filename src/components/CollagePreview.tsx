@@ -86,7 +86,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
         fit="cover"
       />
 
-      {labelsEnabled && photo.label && (
+      {labelsEnabled && (photo.label ?? photo.suggestedLabel) && (
         <div
           className="pointer-events-none font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
           style={{
@@ -99,7 +99,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
             lineHeight: 1.2,
           }}
         >
-          {photo.label}
+          {photo.label ?? photo.suggestedLabel}
         </div>
       )}
       

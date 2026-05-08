@@ -133,7 +133,7 @@ export default function Index() {
     updatePhoto(photoId, {
       manualCrop: crop,
       priority,
-      label: label || undefined,
+      label,
     });
     setEditingPhotoId(null);
     if (state.layout && (cropChanged || priorityChanged)) {
@@ -145,7 +145,7 @@ export default function Index() {
   }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleUpdateLabel = useCallback((photoId: string, label: string) => {
-    updatePhoto(photoId, { label: label || undefined });
+    updatePhoto(photoId, { label });
   }, [updatePhoto]);
 
   const handleToggleHero = useCallback((photoId: string) => {

@@ -555,6 +555,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                     outline: 'none',
                     minWidth: 80,
                     maxWidth: '100%',
+                    textAlign: 'center',
                   }}
                 />
               ) : (

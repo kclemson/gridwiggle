@@ -66,7 +66,6 @@ const CollageCellComponent = memo(function CollageCellComponent({
         width: `${(cell.width / layoutWidth) * 100}%`,
         height: `${(cell.height / layoutHeight) * 100}%`,
         willChange: isBeingDragged ? 'transform, opacity' : 'auto',
-        containerType: 'size',
       }}
       draggable={!mobile}
       onDragStart={(e) => onDragStart(e, photo.id)}

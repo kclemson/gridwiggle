@@ -116,7 +116,7 @@ function drawLabel(
 
   const padX = fontSize * 0.6;
   const padY = fontSize * 0.25;
-  const inset = 6 * scale;
+  const inset = 0;
 
   ctx.font = `600 ${fontSize}px -apple-system, system-ui, sans-serif`;
   ctx.textBaseline = 'middle';

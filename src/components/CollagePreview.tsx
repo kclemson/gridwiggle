@@ -93,7 +93,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
             ...labelAnchorStyle(labelPosition),
             backgroundColor: gapColor,
             color: autoTextColor(gapColor),
-            fontSize: 'max(11px, 5cqmin)',
+            fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
             maxWidth: '100%',
             padding: '2px 8px',
             lineHeight: 1.2,

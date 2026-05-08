@@ -453,6 +453,8 @@ export default function Index() {
       {editingPhotoId && editingPhoto && (
         <CropEditor
           photo={editingPhoto}
+          gapColor={state.settings.gapColor}
+          labelPosition={state.settings.labelPosition}
           onClose={() => setEditingPhotoId(null)}
           onSave={handleSaveCrop}
           onDelete={(photoId) => {

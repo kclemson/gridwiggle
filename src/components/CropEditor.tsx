@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Trash2, Loader2, Sparkles, RotateCcw } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import {
   PhotoItem,
   CropRegion,
   PhotoPriority,
+  LabelPosition,
 } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 import { cn } from '@/lib/utils';
 
 /**
@@ -42,6 +43,8 @@ function getDefaultEditorCrop(photo: PhotoItem): CropRegion {
 
 interface CropEditorProps {
   photo: PhotoItem;
+  gapColor: string;
+  labelPosition: LabelPosition;
   onClose: () => void;
   onSave: (
     photoId: string,
@@ -57,7 +60,7 @@ interface CropEditorProps {
  * Uses the same coordinate system as CroppedImage for pixel-perfect alignment.
  * All crop coordinates are in original image pixels.
  */
-export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps) {
+export function CropEditor({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
   // Guard against 0 dimensions - show loading state instead of invalid SVG
   if (photo.originalWidth === 0 || photo.originalHeight === 0) {
     return (
@@ -77,34 +80,13 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
     );
   }
   
-  return <CropEditorInner photo={photo} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
-}
-
-function LabelEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 w-full sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
-      <span className="text-xs font-medium text-muted-foreground shrink-0">Label</span>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Label (optional)"
-        maxLength={32}
-        className="h-8 text-sm flex-1 min-w-0 border border-input bg-background"
-      />
-    </div>
-  );
+  return <CropEditorInner photo={photo} gapColor={gapColor} labelPosition={labelPosition} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
 }
 
 /**
  * Inner CropEditor component with all hooks - only rendered when dimensions are valid.
  */
-function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) {
+function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +108,34 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
   const initialLabel = photo.label ?? photo.suggestedLabel ?? '';
   const [label, setLabel] = useState(initialLabel);
   const initialLabelRef = useRef(initialLabel);
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingLabel) {
+      // Defer to ensure input is mounted
+      requestAnimationFrame(() => {
+        labelInputRef.current?.focus();
+        labelInputRef.current?.select();
+      });
+    }
+  }, [editingLabel]);
+
+  const beginEditLabel = useCallback(() => {
+    setLabelDraft(label);
+    setEditingLabel(true);
+  }, [label]);
+
+  const commitLabel = useCallback(() => {
+    setLabel(labelDraft);
+    setEditingLabel(false);
+  }, [labelDraft]);
+
+  const cancelLabelEdit = useCallback(() => {
+    setLabelDraft(label);
+    setEditingLabel(false);
+  }, [label]);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {
@@ -497,11 +507,82 @@ function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) 
             onDragStart={(e) => e.preventDefault()}
             draggable={false}
           />
+          {/* In-place label editor — positioned over the cropped region at
+              the configured label anchor, so the user sees exactly where
+              the label will appear in the final collage. */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: `${(crop.x / photo.originalWidth) * 100}%`,
+              top: `${(crop.y / photo.originalHeight) * 100}%`,
+              width: `${(crop.width / photo.originalWidth) * 100}%`,
+              height: `${(crop.height / photo.originalHeight) * 100}%`,
+            }}
+          >
+            <div
+              style={{
+                ...labelAnchorStyle(labelPosition),
+                maxWidth: 'calc(100% - 12px)',
+              }}
+              className="pointer-events-auto"
+            >
+              {editingLabel ? (
+                <input
+                  ref={labelInputRef}
+                  value={labelDraft}
+                  maxLength={32}
+                  onChange={(e) => setLabelDraft(e.target.value)}
+                  onBlur={commitLabel}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: autoTextColor(gapColor),
+                    padding: '2px 8px',
+                    fontSize: 13,
+                    lineHeight: 1.2,
+                    fontWeight: 600,
+                    border: 'none',
+                    outline: 'none',
+                    minWidth: 80,
+                    maxWidth: '100%',
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={beginEditLabel}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: label ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
+                    padding: '2px 8px',
+                    fontSize: 13,
+                    lineHeight: 1.2,
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'text',
+                    fontStyle: label ? 'normal' : 'italic',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}
+                  title="Click to edit label"
+                >
+                  {label || 'Add label'}
+                </button>
+              )}
+            </div>
+          </div>
           </div>
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
-          <LabelEditor value={label} onChange={setLabel} />
           <Button 
             variant="ghost" 
             size="icon"

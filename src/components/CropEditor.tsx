@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Trash2, Loader2, Sparkles, RotateCcw } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import {
   PhotoItem,
   CropRegion,

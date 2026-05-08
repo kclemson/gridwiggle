@@ -2,7 +2,7 @@ import { PhotoItem, CollageLayout, LabelPosition } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { isMobileDevice, isIOS } from '@/lib/platform';
-import { autoTextColor } from '@/lib/labelStyle';
+import { autoTextColor, getDisplayLabel } from '@/lib/labelStyle';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -76,7 +76,7 @@ export async function exportCollageAsPng(
     }
 
     // Draw label overlay (matches CollagePreview rendering)
-    if (labelsEnabled && (photo.label ?? photo.suggestedLabel)) {
+    if (labelsEnabled && getDisplayLabel(photo)) {
       drawLabel(ctx, photo, cell, gapColor, scale, labelPosition, labelFontSize);
     }
   }
@@ -105,7 +105,7 @@ function drawLabel(
   labelPosition: LabelPosition,
   fontSize: number,
 ) {
-  const text = (photo.label ?? photo.suggestedLabel ?? '').trim();
+  const text = getDisplayLabel(photo).trim();
   if (!text) return;
   const pos = labelPosition;
 

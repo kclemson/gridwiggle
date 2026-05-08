@@ -148,6 +148,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
               userSelect: 'text',
               WebkitUserSelect: 'text',
               touchAction: 'auto',
+              textAlign: 'center',
             }}
           />
         ) : (

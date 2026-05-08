@@ -11,7 +11,7 @@ import {
   LabelPosition,
 } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
-import { autoTextColor, labelAnchorStyle, getDisplayLabel } from '@/lib/labelStyle';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 import { cn } from '@/lib/utils';
 
 /**

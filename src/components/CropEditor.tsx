@@ -89,12 +89,13 @@ function LabelEditor({
 }) {
   return (
     <div className="flex items-center gap-2 w-full sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
+      <span className="text-xs font-medium text-muted-foreground shrink-0">Label</span>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Label (optional)"
         maxLength={32}
-        className="h-8 text-sm flex-1 min-w-0"
+        className="h-8 text-sm flex-1 min-w-0 border border-input bg-background"
       />
     </div>
   );

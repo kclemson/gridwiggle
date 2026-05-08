@@ -50,7 +50,7 @@ interface CropEditorProps {
     photoId: string,
     crop: CropRegion,
     priority: PhotoPriority,
-    label: string,
+    label: string | undefined,
   ) => void;
   onDelete: (photoId: string) => void;
 }
@@ -104,12 +104,16 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   
   const initialIsHero = useRef(photo.priority === 1);
 
-  // Label state — prefilled from existing label, falling back to suggestedLabel.
-  const initialLabel = getDisplayLabel(photo);
-  const [label, setLabel] = useState(initialLabel);
-  const initialLabelRef = useRef(initialLabel);
+  // Label state — three-valued:
+  //   undefined → "use suggestion" (no explicit override)
+  //   ''        → user explicitly cleared
+  //   string    → user-provided label
+  const suggestedLabel = photo.suggestedLabel ?? '';
+  const [label, setLabel] = useState<string | undefined>(photo.label);
+  const initialLabelRef = useRef<string | undefined>(photo.label);
+  const displayedLabel = label !== undefined ? label : suggestedLabel;
   const [editingLabel, setEditingLabel] = useState(false);
-  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const [labelDraft, setLabelDraft] = useState(displayedLabel);
   const labelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -123,9 +127,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   }, [editingLabel]);
 
   const beginEditLabel = useCallback(() => {
-    setLabelDraft(label);
+    setLabelDraft(displayedLabel);
     setEditingLabel(true);
-  }, [label]);
+  }, [displayedLabel]);
 
   const commitLabel = useCallback(() => {
     setLabel(labelDraft);
@@ -133,9 +137,15 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   }, [labelDraft]);
 
   const cancelLabelEdit = useCallback(() => {
-    setLabelDraft(label);
+    setLabelDraft(displayedLabel);
     setEditingLabel(false);
-  }, [label]);
+  }, [displayedLabel]);
+
+  const revertLabelToSuggestion = useCallback(() => {
+    setLabel(undefined);
+    setLabelDraft(suggestedLabel);
+    setEditingLabel(false);
+  }, [suggestedLabel]);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {
@@ -252,7 +262,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     const priority: PhotoPriority = isHero ? 1 : 3;
     // If the label input is still focused (user clicked Save without
     // blurring), prefer the in-flight draft over committed state.
-    const finalLabel = (editingLabel ? labelDraft : label).trim();
+    const finalLabel: string | undefined = editingLabel
+      ? labelDraft.trim()
+      : (label === undefined ? undefined : label.trim());
     // Close immediately for responsiveness
     onClose();
     // State update happens after close - user doesn't see the delay

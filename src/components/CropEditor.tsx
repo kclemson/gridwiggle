@@ -11,7 +11,7 @@ import {
   LabelPosition,
 } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
-import { autoTextColor, labelAnchorStyle, getDisplayLabel } from '@/lib/labelStyle';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 import { cn } from '@/lib/utils';
 
 /**
@@ -50,7 +50,7 @@ interface CropEditorProps {
     photoId: string,
     crop: CropRegion,
     priority: PhotoPriority,
-    label: string,
+    label: string | undefined,
   ) => void;
   onDelete: (photoId: string) => void;
 }
@@ -104,12 +104,16 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   
   const initialIsHero = useRef(photo.priority === 1);
 
-  // Label state — prefilled from existing label, falling back to suggestedLabel.
-  const initialLabel = getDisplayLabel(photo);
-  const [label, setLabel] = useState(initialLabel);
-  const initialLabelRef = useRef(initialLabel);
+  // Label state — three-valued:
+  //   undefined → "use suggestion" (no explicit override)
+  //   ''        → user explicitly cleared
+  //   string    → user-provided label
+  const suggestedLabel = photo.suggestedLabel ?? '';
+  const [label, setLabel] = useState<string | undefined>(photo.label);
+  const initialLabelRef = useRef<string | undefined>(photo.label);
+  const displayedLabel = label !== undefined ? label : suggestedLabel;
   const [editingLabel, setEditingLabel] = useState(false);
-  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const [labelDraft, setLabelDraft] = useState(displayedLabel);
   const labelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -123,9 +127,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   }, [editingLabel]);
 
   const beginEditLabel = useCallback(() => {
-    setLabelDraft(label);
+    setLabelDraft(displayedLabel);
     setEditingLabel(true);
-  }, [label]);
+  }, [displayedLabel]);
 
   const commitLabel = useCallback(() => {
     setLabel(labelDraft);
@@ -133,9 +137,15 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   }, [labelDraft]);
 
   const cancelLabelEdit = useCallback(() => {
-    setLabelDraft(label);
+    setLabelDraft(displayedLabel);
     setEditingLabel(false);
-  }, [label]);
+  }, [displayedLabel]);
+
+  const revertLabelToSuggestion = useCallback(() => {
+    setLabel(undefined);
+    setLabelDraft(suggestedLabel);
+    setEditingLabel(false);
+  }, [suggestedLabel]);
   
   // Detect if any changes were made
   const hasChanges = useMemo(() => {
@@ -252,7 +262,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     const priority: PhotoPriority = isHero ? 1 : 3;
     // If the label input is still focused (user clicked Save without
     // blurring), prefer the in-flight draft over committed state.
-    const finalLabel = (editingLabel ? labelDraft : label).trim();
+    const finalLabel: string | undefined = editingLabel
+      ? labelDraft.trim()
+      : (label === undefined ? undefined : label.trim());
     // Close immediately for responsiveness
     onClose();
     // State update happens after close - user doesn't see the delay
@@ -529,6 +541,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
               style={{
                 ...labelAnchorStyle(labelPosition),
                 maxWidth: 'calc(100% - 12px)',
+                display: 'flex',
+                alignItems: 'stretch',
+                gap: 4,
               }}
               className="pointer-events-auto"
             >
@@ -565,14 +580,14 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                   onPointerDown={(e) => e.stopPropagation()}
                   style={{
                     backgroundColor: gapColor,
-                    color: label ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
+                    color: displayedLabel ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
                     padding: '2px 8px',
                     fontSize: 13,
                     lineHeight: 1.2,
                     fontWeight: 600,
                     border: 'none',
                     cursor: 'text',
-                    fontStyle: label ? 'normal' : 'italic',
+                    fontStyle: displayedLabel ? 'normal' : 'italic',
                     maxWidth: '100%',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -582,7 +597,29 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                   }}
                   title="Click to edit label"
                 >
-                  {label || 'Add label'}
+                  {displayedLabel || 'Add label'}
+                </button>
+              )}
+              {suggestedLabel && (editingLabel ? labelDraft : displayedLabel) !== suggestedLabel && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={revertLabelToSuggestion}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: autoTextColor(gapColor),
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '0 6px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title={`Reset to "${suggestedLabel}"`}
+                  aria-label="Reset label to date from photo"
+                >
+                  <RotateCcw size={14} />
                 </button>
               )}
             </div>

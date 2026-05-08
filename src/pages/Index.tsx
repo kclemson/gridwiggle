@@ -120,7 +120,7 @@ export default function Index() {
     photoId: string,
     crop: CropRegion,
     priority: PhotoPriority,
-    label: string,
+    label: string | undefined,
   ) => {
     const photo = state.photos.find(p => p.id === photoId);
     const cropChanged =

@@ -5,7 +5,7 @@ import { CroppedImage } from '@/components/common/CroppedImage';
 import { cn } from '@/lib/utils';
 import { Star } from 'lucide-react';
 import { isMobileDevice } from '@/lib/platform';
-import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
+import { autoTextColor, labelAnchorStyle, getDisplayLabel } from '@/lib/labelStyle';
 
 interface CollageCellProps {
   cell: CollageCell;
@@ -52,7 +52,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
 }: CollageCellProps) {
   const crop = getDisplayCrop(photo);
   const mobile = isMobileDevice();
-  const labelText = photo.label ?? photo.suggestedLabel ?? '';
+  const labelText = getDisplayLabel(photo);
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(labelText);
   const labelInputRef = useRef<HTMLInputElement>(null);
@@ -67,8 +67,9 @@ const CollageCellComponent = memo(function CollageCellComponent({
   const commitLabel = useCallback(() => {
     setEditingLabel(false);
     const next = labelDraft.trim();
-    if (next !== (photo.label ?? '')) onUpdateLabel?.(photo.id, next);
-  }, [labelDraft, onUpdateLabel, photo.id, photo.label]);
+    const current = getDisplayLabel(photo).trim();
+    if (next !== current) onUpdateLabel?.(photo.id, next);
+  }, [labelDraft, onUpdateLabel, photo]);
 
   const cancelLabelEdit = useCallback(() => {
     setEditingLabel(false);

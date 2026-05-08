@@ -1,5 +1,18 @@
 import { LabelPosition } from '@/types/collage';
 
+/**
+ * Resolve the label string to actually display for a photo.
+ *
+ * Semantics:
+ * - `label === undefined` → user has never edited; fall back to suggestion.
+ * - `label === ''`        → user explicitly cleared; show nothing.
+ * - any other string      → user-provided label.
+ */
+export function getDisplayLabel(photo: { label?: string; suggestedLabel?: string }): string {
+  if (photo.label !== undefined) return photo.label;
+  return photo.suggestedLabel ?? '';
+}
+
 /** Pick black or white based on background luminance for legibility. */
 export function autoTextColor(hexBg: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hexBg.trim());

@@ -11,7 +11,7 @@ import {
   LabelPosition,
 } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
-import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
+import { autoTextColor, labelAnchorStyle, getDisplayLabel } from '@/lib/labelStyle';
 import { cn } from '@/lib/utils';
 
 /**
@@ -105,7 +105,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   const initialIsHero = useRef(photo.priority === 1);
 
   // Label state — prefilled from existing label, falling back to suggestedLabel.
-  const initialLabel = photo.label ?? photo.suggestedLabel ?? '';
+  const initialLabel = getDisplayLabel(photo);
   const [label, setLabel] = useState(initialLabel);
   const initialLabelRef = useRef(initialLabel);
   const [editingLabel, setEditingLabel] = useState(false);
@@ -577,6 +577,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                     display: 'block',
+                    textAlign: 'center',
                   }}
                   title="Click to edit label"
                 >

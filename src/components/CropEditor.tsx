@@ -9,8 +9,10 @@ import {
   PhotoItem,
   CropRegion,
   PhotoPriority,
+  LabelPosition,
 } from '@/types/collage';
 import { getDisplayCrop, clampCropToImage } from '@/lib/cropUtils';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 import { cn } from '@/lib/utils';
 
 /**
@@ -42,6 +44,8 @@ function getDefaultEditorCrop(photo: PhotoItem): CropRegion {
 
 interface CropEditorProps {
   photo: PhotoItem;
+  gapColor: string;
+  labelPosition: LabelPosition;
   onClose: () => void;
   onSave: (
     photoId: string,
@@ -57,7 +61,7 @@ interface CropEditorProps {
  * Uses the same coordinate system as CroppedImage for pixel-perfect alignment.
  * All crop coordinates are in original image pixels.
  */
-export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps) {
+export function CropEditor({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
   // Guard against 0 dimensions - show loading state instead of invalid SVG
   if (photo.originalWidth === 0 || photo.originalHeight === 0) {
     return (
@@ -77,34 +81,13 @@ export function CropEditor({ photo, onClose, onSave, onDelete }: CropEditorProps
     );
   }
   
-  return <CropEditorInner photo={photo} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
-}
-
-function LabelEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 w-full sm:flex-1 min-w-0 order-first basis-full sm:basis-auto">
-      <span className="text-xs font-medium text-muted-foreground shrink-0">Label</span>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Label (optional)"
-        maxLength={32}
-        className="h-8 text-sm flex-1 min-w-0 border border-input bg-background"
-      />
-    </div>
-  );
+  return <CropEditorInner photo={photo} gapColor={gapColor} labelPosition={labelPosition} onClose={onClose} onSave={onSave} onDelete={onDelete} />;
 }
 
 /**
  * Inner CropEditor component with all hooks - only rendered when dimensions are valid.
  */
-function CropEditorInner({ photo, onClose, onSave, onDelete }: CropEditorProps) {
+function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 

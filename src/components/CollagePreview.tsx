@@ -361,6 +361,9 @@ export function CollagePreview({
           width: '100%',
           aspectRatio: `${layout.width} / ${layout.height}`,
           backgroundColor: gapColor,
+          containerType: 'size',
+          // Single label font size for the whole collage so all labels match.
+          ['--label-font-size' as any]: 'clamp(11px, 1.8cqmin, 28px)',
           // No padding needed - layout includes border in coordinates
         }}
       >

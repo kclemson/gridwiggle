@@ -541,6 +541,9 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
               style={{
                 ...labelAnchorStyle(labelPosition),
                 maxWidth: 'calc(100% - 12px)',
+                display: 'flex',
+                alignItems: 'stretch',
+                gap: 4,
               }}
               className="pointer-events-auto"
             >
@@ -577,14 +580,14 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                   onPointerDown={(e) => e.stopPropagation()}
                   style={{
                     backgroundColor: gapColor,
-                    color: label ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
+                    color: displayedLabel ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
                     padding: '2px 8px',
                     fontSize: 13,
                     lineHeight: 1.2,
                     fontWeight: 600,
                     border: 'none',
                     cursor: 'text',
-                    fontStyle: label ? 'normal' : 'italic',
+                    fontStyle: displayedLabel ? 'normal' : 'italic',
                     maxWidth: '100%',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -594,7 +597,29 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                   }}
                   title="Click to edit label"
                 >
-                  {label || 'Add label'}
+                  {displayedLabel || 'Add label'}
+                </button>
+              )}
+              {suggestedLabel && (editingLabel ? labelDraft : displayedLabel) !== suggestedLabel && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={revertLabelToSuggestion}
+                  style={{
+                    backgroundColor: gapColor,
+                    color: autoTextColor(gapColor),
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '0 6px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title={`Reset to "${suggestedLabel}"`}
+                  aria-label="Reset label to date from photo"
+                >
+                  <RotateCcw size={14} />
                 </button>
               )}
             </div>

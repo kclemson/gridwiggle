@@ -58,17 +58,23 @@ serve(async (req) => {
 Your task:
 1. Determine if there are any human faces or pets (cats/dogs) in the image. A bare arm, leg, torso, hand, or back-of-head without a visible face does NOT count — only count it if a face is visible.
 2. If YES: return a crop region that keeps all detected faces and pets visible with breathing room. Set skipCrop to false. Prioritize faces over pets if both are present.
-3. If NO faces or pets: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/100/100.
+3. If NO faces or pets: set skipCrop to true. The x/y/width/height values don't matter when skipCrop is true, but fill them with 0/0/1/1.
 
-You must respond with ONLY a JSON object in this exact format:
+COORDINATE FORMAT — CRITICAL:
+All of x, y, width, height MUST be normalized floats between 0.0 and 1.0, where 0.0 is the left/top edge and 1.0 is the right/bottom edge of the image. DO NOT use percentages (0–100). DO NOT use pixel values. DO NOT use the 0–1000 normalized box format.
+
+Example for a face in the upper-left quadrant:
+{"x":0.10,"y":0.20,"width":0.28,"height":0.28,"confidence":0.95,"subjects":"woman's face","skipCrop":false}
+
+Respond with ONLY a JSON object in this exact format:
 {
-  "x": <percentage from left edge>,
-  "y": <percentage from top edge>,
-  "width": <percentage of image width>,
-  "height": <percentage of image height>,
+  "x": <0.0-1.0 fraction from left edge>,
+  "y": <0.0-1.0 fraction from top edge>,
+  "width": <0.0-1.0 fraction of image width>,
+  "height": <0.0-1.0 fraction of image height>,
   "confidence": <0-1 confidence score>,
   "subjects": "<description of what you see>",
-  "skipCrop": <true if no people/faces/pets detected, false if people or pets found>
+  "skipCrop": <true if no faces/pets detected, false otherwise>
 }`
           },
           {
@@ -82,13 +88,34 @@ You must respond with ONLY a JSON object in this exact format:
               },
               {
                 type: "text",
-                text: `Analyze this ${width}x${height} image. Are there any human faces or pets (cats/dogs)? If yes, provide the optimal crop region focusing on the subjects (prioritize faces over pets). If no faces or pets are found, set skipCrop to true. Return ONLY the JSON object.`
+                text: `Analyze this ${width}x${height} image. Are there any human faces or pets (cats/dogs)? If yes, return the optimal crop region focusing on the subjects (prioritize faces over pets) using normalized 0.0–1.0 coordinates (NOT percentages, NOT pixels). If no faces or pets, set skipCrop to true. Return ONLY the JSON object.`
               }
             ],
           },
         ],
         temperature: 0.1,
         max_tokens: 500,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "smart_crop",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                x: { type: "number", minimum: 0, maximum: 1 },
+                y: { type: "number", minimum: 0, maximum: 1 },
+                width: { type: "number", minimum: 0, maximum: 1 },
+                height: { type: "number", minimum: 0, maximum: 1 },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                subjects: { type: "string" },
+                skipCrop: { type: "boolean" },
+              },
+              required: ["x", "y", "width", "height", "confidence", "subjects", "skipCrop"],
+            },
+          },
+        },
       }),
     });
 
@@ -143,12 +170,34 @@ You must respond with ONLY a JSON object in this exact format:
       };
     }
 
-    // Convert percentages to pixel coordinates
+    // Defensive normalization: detect which coordinate space the model returned.
+    // Expected: 0.0–1.0 floats. But Gemini sometimes returns 0–100 percentages or
+    // 0–1000 normalized box coords. Pick a divisor based on the largest value.
+    const maxVal = Math.max(
+      Number(cropData.x) || 0,
+      Number(cropData.y) || 0,
+      Number(cropData.width) || 0,
+      Number(cropData.height) || 0,
+    );
+    let divisor = 1;
+    let coordSpace = "normalized-0-1";
+    if (maxVal > 100) {
+      divisor = 1000;
+      coordSpace = "normalized-0-1000";
+    } else if (maxVal > 1.5) {
+      divisor = 100;
+      coordSpace = "percent-0-100";
+    }
+    console.log(
+      `Coord interpretation: ${coordSpace} (maxVal=${maxVal}, divisor=${divisor}). Raw cropData:`,
+      JSON.stringify(cropData),
+    );
+
     let cropRegion: CropRegion = {
-      x: Math.round((cropData.x / 100) * width),
-      y: Math.round((cropData.y / 100) * height),
-      width: Math.round((cropData.width / 100) * width),
-      height: Math.round((cropData.height / 100) * height),
+      x: Math.round((cropData.x / divisor) * width),
+      y: Math.round((cropData.y / divisor) * height),
+      width: Math.round((cropData.width / divisor) * width),
+      height: Math.round((cropData.height / divisor) * height),
     };
 
     // Ensure the crop is within bounds

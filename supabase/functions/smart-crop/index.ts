@@ -13,7 +13,7 @@ interface CropRegion {
 }
 
 interface SubjectBox {
-  kind: "face" | "pet";
+  kind: "person" | "pet";
   x: number;
   y: number;
   width: number;
@@ -96,15 +96,15 @@ serve(async (req) => {
 
 RULES:
 - Only count a human if a FACE is visible. A bare arm, leg, torso, hand, or back-of-head without a visible face does NOT count.
-- For each detected subject, return a TIGHT bounding box around just the face (or just the pet's body) — not the surrounding scene. Cropping/composition is handled by another system; your only job is to locate subjects.
+- For each detected human, return a bounding box around the ENTIRE VISIBLE BODY (head to feet, including any extended arms or legs) — NOT just the face. The visible face is only the gating rule for whether the person counts; the box itself must cover the whole body. For each pet, box the entire visible animal. Cropping/composition is handled by another system; your only job is to locate subjects.
 - Return one entry per subject. If two faces are visible, return two entries. If a face and a dog are visible, return both.
 - If no faces and no pets are visible, return an empty subjects array.
 
 COORDINATE FORMAT — CRITICAL:
 All of x, y, width, height MUST be normalized floats between 0.0 and 1.0 (fractions of image width/height). DO NOT use percentages (0–100). DO NOT use pixel values. DO NOT use the 0–1000 box format.
 
-Example output for an image with one face in the upper-left and a dog on the right:
-{"subjects":[{"kind":"face","x":0.10,"y":0.18,"width":0.14,"height":0.20,"confidence":0.97},{"kind":"pet","x":0.62,"y":0.40,"width":0.22,"height":0.35,"confidence":0.91}],"description":"woman and dog"}`
+Example output for an image with one standing person on the left and a dog on the right (both head-to-feet):
+{"subjects":[{"kind":"person","x":0.08,"y":0.12,"width":0.30,"height":0.82,"confidence":0.97},{"kind":"pet","x":0.60,"y":0.45,"width":0.28,"height":0.45,"confidence":0.91}],"description":"woman and dog"}`
           },
           {
             role: "user",
@@ -117,7 +117,7 @@ Example output for an image with one face in the upper-left and a dog on the rig
               },
               {
                 type: "text",
-                text: `Detect every visible human face and every pet (cat/dog) in this ${width}x${height} image. Return one tight bounding box per subject, in normalized 0.0–1.0 coordinates (NOT percentages, NOT pixels). Return ONLY the JSON object.`
+                text: `Detect every person (face must be visible to count) and every pet (cat/dog) in this ${width}x${height} image. For each person return a WHOLE-BODY box (head to feet); for each pet box the whole animal. Use normalized 0.0–1.0 coordinates (NOT percentages, NOT pixels). Return ONLY the JSON object.`
               }
             ],
           },
@@ -139,7 +139,7 @@ Example output for an image with one face in the upper-left and a dog on the rig
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      kind: { type: "string", enum: ["face", "pet"] },
+                      kind: { type: "string", enum: ["person", "pet"] },
                       x: { type: "number", minimum: 0, maximum: 1 },
                       y: { type: "number", minimum: 0, maximum: 1 },
                       width: { type: "number", minimum: 0, maximum: 1 },
@@ -211,10 +211,10 @@ Example output for an image with one face in the upper-left and a dog on the rig
 
     // Filter by confidence and bucket by kind (faces preferred, then pets).
     const kept = rawSubjects.filter((s) => Number(s.confidence) > 0.4);
-    const faces = kept.filter((s) => s.kind === "face");
+    const people = kept.filter((s) => s.kind === "person");
     const pets = kept.filter((s) => s.kind === "pet");
-    const chosen = faces.length > 0 ? faces : pets;
-    const chosenKind = faces.length > 0 ? "face" : pets.length > 0 ? "pet" : "none";
+    const chosen = people.length > 0 ? people : pets;
+    const chosenKind = people.length > 0 ? "person" : pets.length > 0 ? "pet" : "none";
 
     console.log(
       `Detections: ${rawSubjects.length} raw, ${kept.length} kept (conf>0.4). ` +
@@ -223,12 +223,12 @@ Example output for an image with one face in the upper-left and a dog on the rig
     );
 
     if (chosen.length === 0) {
-      console.log("No faces/pets detected → skipCrop=true");
+      console.log("No people/pets detected → skipCrop=true");
       return new Response(
         JSON.stringify({
           crop: { x: 0, y: 0, width, height },
           confidence: 0,
-          subjects: parsed.description ?? "No faces or pets detected",
+          subjects: parsed.description ?? "No people or pets detected",
           skipCrop: true,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

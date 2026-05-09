@@ -45,10 +45,10 @@ export function labelAnchorStyle(pos: LabelPosition): React.CSSProperties {
  * export so labels render at the same visual fraction of the canvas
  * regardless of output resolution.
  *
- * Pure proportional: 2.8% of the shorter dimension (matches CSS
- * `2.8cqmin` in CollagePreview). No floors/ceilings — keeps preview and
+ * Pure proportional: 3.5% of the shorter dimension (matches CSS
+ * `3.5cqmin` in CollagePreview). No floors/ceilings — keeps preview and
  * export visually identical at any resolution.
  */
 export function labelFontPx(canvasWidthPx: number, canvasHeightPx: number): number {
-  return Math.min(canvasWidthPx, canvasHeightPx) * 0.028;
+  return Math.min(canvasWidthPx, canvasHeightPx) * 0.035;
 }

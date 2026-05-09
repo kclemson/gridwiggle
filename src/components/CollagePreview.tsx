@@ -441,7 +441,9 @@ export function CollagePreview({
           backgroundColor: gapColor,
           containerType: 'size',
           // Single label font size for the whole collage so all labels match.
-          ['--label-font-size' as any]: 'clamp(11px, 1.8cqmin, 28px)',
+          // Mirrors `labelFontPx` in labelStyle.ts so preview and PNG export
+          // render labels at the same visual fraction of the canvas.
+          ['--label-font-size' as any]: 'clamp(1.1cqmax, 1.8cqmin, 2.8cqmax)',
           // No padding needed - layout includes border in coordinates
         }}
       >

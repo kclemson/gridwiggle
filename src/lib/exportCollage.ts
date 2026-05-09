@@ -2,7 +2,7 @@ import { PhotoItem, CollageLayout, LabelPosition } from '@/types/collage';
 import { loadImage } from '@/lib/imageUtils';
 import { getDisplayCrop } from '@/lib/cropUtils';
 import { isMobileDevice, isIOS } from '@/lib/platform';
-import { autoTextColor, getDisplayLabel } from '@/lib/labelStyle';
+import { autoTextColor, getDisplayLabel, labelFontPx } from '@/lib/labelStyle';
 
 export async function exportCollageAsPng(
   photos: PhotoItem[],
@@ -27,10 +27,9 @@ export async function exportCollageAsPng(
   ctx.fillStyle = gapColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // One uniform label font size for the whole collage, derived from canvas
-  // dimensions so labels render at a consistent size across cells.
-  const canvasMin = Math.min(layout.width, layout.height);
-  const labelFontSize = Math.max(11 * scale, Math.min(canvasMin * 0.018 * scale, 28 * scale));
+  // One uniform label font size for the whole collage. Shared with the
+  // on-screen preview via `labelFontPx` so the export is WYSIWYG.
+  const labelFontSize = labelFontPx(layout.width * scale, layout.height * scale);
 
   // Draw each cell
   for (const cell of layout.cells) {

@@ -57,7 +57,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
 
           <div
             className={cn(
-              "flex flex-col gap-1",
+              "flex flex-col gap-2",
               shapeDisabled && "opacity-40"
             )}
             title={

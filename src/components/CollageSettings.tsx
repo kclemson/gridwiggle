@@ -81,7 +81,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
               step={5}
               className="w-36 [&>span:first-child]:bg-muted-foreground/30"
             />
-            <div className="flex justify-between text-[11px] text-muted-foreground select-none">
+            <div className="flex justify-between text-xs text-muted-foreground select-none">
               <span>Tall <span aria-hidden="true">▯</span></span>
               <span><span aria-hidden="true">▭</span> Wide</span>
             </div>

@@ -29,10 +29,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
   return (
     <div className="space-y-3 py-2 px-1">
       {/* ─── Structure ─── */}
-      <section className="space-y-1">
-        <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">
-          Structure
-        </h3>
+      <section>
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col items-start gap-1.5">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
@@ -92,10 +89,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
       <div className="h-px bg-muted-foreground/15" />
 
       {/* ─── Style ─── */}
-      <section className="space-y-1">
-        <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">
-          Style
-        </h3>
+      <section>
         <div className="flex items-end justify-between gap-x-4 gap-y-2 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
             <input

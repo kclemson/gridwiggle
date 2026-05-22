@@ -3,7 +3,9 @@ import ReactCrop, { type PercentCrop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Loader2, Trash2, RotateCcw, Sparkles } from 'lucide-react';
 import {
   PhotoItem,
   CropRegion,
@@ -36,7 +38,7 @@ interface CropEditorV2Props {
  * state in subsequent phases.
  */
 export function CropEditorV2(props: CropEditorV2Props) {
-  const { photo, onClose, onSave } = props;
+  const { photo, onClose } = props;
 
   // 0-dimension loading guard (matches V1).
   if (photo.originalWidth === 0 || photo.originalHeight === 0) {
@@ -60,7 +62,7 @@ export function CropEditorV2(props: CropEditorV2Props) {
   return <CropEditorV2Inner {...props} />;
 }
 
-function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
+function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Props) {
   // Seed: prefer existing crop (smart or manual) unless it covers ≥99% of
   // both axes (fail-forward sentinel from getDisplayCrop), in which case
   // we show a full-image selection so Save is a no-op by default.
@@ -86,6 +88,9 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
   const [crop, setCrop] = useState<PercentCrop | undefined>(initialCrop);
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | undefined>();
 
+  const [isHero, setIsHero] = useState(photo.priority === 1);
+  const initialIsHero = useRef(photo.priority === 1);
+
   const imgMaxHeight = useMemo(
     () => (typeof window !== 'undefined' && window.innerHeight < 700 ? '40vh' : '60vh'),
     [],
@@ -100,10 +105,9 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
     Math.abs(a.width - b.width) < EPS &&
     Math.abs(a.height - b.height) < EPS;
 
-  const hasChanges = useMemo(
-    () => !samePercent(crop, initialCropRef.current),
-    [crop],
-  );
+  const cropChanged = !samePercent(crop, initialCropRef.current);
+  const heroChanged = isHero !== initialIsHero.current;
+  const hasChanges = cropChanged || heroChanged;
 
   const handleSave = () => {
     // Prefer the live percent crop (more accurate than the last completed
@@ -119,14 +123,34 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
       height: Math.round((pct.height / 100) * H),
     };
     const region = clampCropToImage(raw, W, H);
-    const priority: PhotoPriority = photo.priority === 1 ? 1 : 3;
+    const priority: PhotoPriority = isHero ? 1 : 3;
     onClose();
     onSave(photo.id, region, priority, photo.label);
   };
 
-  // Suppress unused warning until Phase 3 wires Smart Crop's pixel-based
-  // comparison off of `completedCrop`.
   void completedCrop;
+
+  // ── Reset / Smart Crop / Delete ────────────────────────────────────
+  const handleReset = () => setCrop(initialCropRef.current);
+
+  const smartCropPercent = useMemo<PercentCrop | null>(() => {
+    if (!photo.smartCrop) return null;
+    return {
+      unit: '%',
+      x: (photo.smartCrop.x / photo.originalWidth) * 100,
+      y: (photo.smartCrop.y / photo.originalHeight) * 100,
+      width: (photo.smartCrop.width / photo.originalWidth) * 100,
+      height: (photo.smartCrop.height / photo.originalHeight) * 100,
+    };
+  }, [photo.smartCrop, photo.originalWidth, photo.originalHeight]);
+
+  const handleApplySmartCrop = () => {
+    if (smartCropPercent) setCrop(smartCropPercent);
+  };
+
+  const isSmartCropActive = !!smartCropPercent && samePercent(crop, smartCropPercent);
+
+  const handleDelete = () => onDelete(photo.id);
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
@@ -169,7 +193,42 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
           </ReactCrop>
         </div>
 
-        <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2 justify-end">
+        <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleDelete}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 sm:w-auto sm:px-3"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1.5">Delete</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleReset}
+            className="sm:w-auto sm:px-3"
+            disabled={!cropChanged}
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1.5">Reset</span>
+          </Button>
+          {photo.smartCrop && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleApplySmartCrop}
+              disabled={isSmartCropActive}
+              className="sm:w-auto sm:px-3"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1.5">Smart Crop</span>
+            </Button>
+          )}
+          <div className="flex items-center gap-2 ml-auto">
+            <Switch id="hero-toggle" checked={isHero} onCheckedChange={setIsHero} />
+            <Label htmlFor="hero-toggle" className="text-sm">Hero</Label>
+          </div>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={handleSave} disabled={!hasChanges}>Save</Button>
         </div>

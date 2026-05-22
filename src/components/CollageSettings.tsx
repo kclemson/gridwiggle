@@ -57,7 +57,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
 
           <div
             className={cn(
-              "flex items-center gap-2",
+              "flex flex-col gap-1",
               shapeDisabled && "opacity-40"
             )}
             title={
@@ -68,9 +68,6 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
                   : undefined
             }
           >
-            <span className="text-xs text-muted-foreground select-none">
-              Tall <span aria-hidden="true">▯</span>
-            </span>
             <Slider
               value={[shapeValue]}
               onValueChange={([value]) => setDraggingValue(value)}
@@ -82,11 +79,12 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
               min={0}
               max={100}
               step={5}
-              className="w-32 [&>span:first-child]:bg-muted-foreground/30"
+              className="w-36 [&>span:first-child]:bg-muted-foreground/30"
             />
-            <span className="text-xs text-muted-foreground select-none">
-              <span aria-hidden="true">▭</span> Wide
-            </span>
+            <div className="flex justify-between text-[11px] text-muted-foreground select-none">
+              <span>Tall <span aria-hidden="true">▯</span></span>
+              <span><span aria-hidden="true">▭</span> Wide</span>
+            </div>
           </div>
         </div>
       </section>

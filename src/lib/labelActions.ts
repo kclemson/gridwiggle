@@ -52,11 +52,10 @@ export function detectLabelMode(
   layout: CollageLayout | null,
   showLabelPlaceholders: boolean,
 ): LabelMode {
-  if (showLabelPlaceholders) return 'custom';
   if (photos.length === 0) return 'none';
 
   const anyLabel = photos.some((p) => (p.label ?? '').length > 0);
-  if (!anyLabel) return 'none';
+  if (!anyLabel) return showLabelPlaceholders ? 'custom' : 'none';
 
   // Date: every photo with a suggestedLabel has label === suggestedLabel,
   // and photos without a suggestion have an empty label (date unavailable).

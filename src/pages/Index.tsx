@@ -296,8 +296,14 @@ export default function Index() {
     }
 
     if (action === 'custom') {
-      // Toggle placeholder visibility; do NOT touch existing labels.
-      updateSettings({ showLabelPlaceholders: !state.settings.showLabelPlaceholders });
+      // Macro: clear any existing labels and show the "Add label" affordance
+      // on every cell so the user can tap to enter custom text.
+      const updates: Record<string, Partial<PhotoItem>> = {};
+      for (const p of state.photos) updates[p.id] = { label: '' };
+      setPhotosBatch(updates);
+      if (!state.settings.showLabelPlaceholders) {
+        updateSettings({ showLabelPlaceholders: true });
+      }
       return;
     }
 

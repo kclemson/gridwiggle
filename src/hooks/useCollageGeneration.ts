@@ -30,6 +30,10 @@ export interface RegenerateOptions {
   randomize?: boolean;
   /** V3 tuning parameters (for immediate changes) */
   v3Tuning?: V3Tuning;
+  /** Fires once the new layout has been committed (or null on failure).
+   *  Used by callers that need to re-apply derived per-photo state
+   *  (e.g. numbered labels keyed to the new reading order). */
+  onComplete?: (layout: CollageLayout | null) => void;
 }
 
 // ============================================================================
@@ -82,6 +86,7 @@ export function useCollageGeneration(deps: {
       cropOverride,
       randomize = false,
       v3Tuning: tuningOverride = v3Tuning,
+      onComplete,
     } = options;
 
     // Apply crop override to get correct dimensions immediately (avoids stale state)
@@ -260,6 +265,7 @@ export function useCollageGeneration(deps: {
           usedWorker: result.usedWorker ?? false,
         } : null,
       });
+      onComplete?.(resultLayout);
       // Telemetry: log photo count + aspect ratios (privacy-safe, no image data)
       if (randomize) {
         remoteLogger.info('telemetry', 'shuffle', {

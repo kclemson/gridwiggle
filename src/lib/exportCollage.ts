@@ -9,7 +9,6 @@ export async function exportCollageAsPng(
   layout: CollageLayout,
   gapColor: string,
   scale: number = 1,
-  labelsEnabled: boolean = false,
   labelPosition: LabelPosition = 'bc',
 ): Promise<Blob> {
   const canvas = document.createElement('canvas');
@@ -74,8 +73,10 @@ export async function exportCollageAsPng(
       URL.revokeObjectURL(imgUrl);
     }
 
-    // Draw label overlay (matches CollagePreview rendering)
-    if (labelsEnabled && getDisplayLabel(photo)) {
+    // Draw label overlay whenever the photo has explicit label text.
+    // Placeholder hints from "Custom labels" mode are preview-only and
+    // never reach this path because they don't set `photo.label`.
+    if (getDisplayLabel(photo)) {
       drawLabel(ctx, photo, cell, gapColor, scale, labelPosition, labelFontSize);
     }
   }

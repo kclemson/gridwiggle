@@ -2,19 +2,22 @@ import { useState } from 'react';
 import { CollageSettings as CollageSettingsType, CollageLayout, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Switch } from '@/components/ui/switch';
 import { LabelPositionPicker } from '@/components/LabelPositionPicker';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
+import { Calendar, Hash, Pencil } from 'lucide-react';
+import type { LabelMode } from '@/lib/labelActions';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   layout: CollageLayout | null;
   photoCount: number;
+  labelMode: LabelMode;
+  onLabelAction: (action: 'date' | 'number' | 'custom') => void;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
-export function CollageSettings({ settings, layout, photoCount, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, layout, photoCount, labelMode, onLabelAction, onUpdate }: CollageSettingsProps) {
   const [draggingValue, setDraggingValue] = useState<number | null>(null);
 
   // Slider always reflects the current layout AR (truthful display)
@@ -118,22 +121,63 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
 
           <div className="flex flex-col items-center gap-0.5">
             <div className="h-6 flex items-center gap-2">
-              <Switch
-                checked={settings.labelsEnabled}
-                onCheckedChange={(checked) => onUpdate({ labelsEnabled: !!checked })}
-                aria-label="Labels"
-              />
-              {settings.labelsEnabled && (
+              <div className="flex items-center gap-0.5">
+                <LabelActionButton
+                  icon={<Calendar className="h-3.5 w-3.5" />}
+                  active={labelMode === 'date'}
+                  onClick={() => onLabelAction('date')}
+                  title="Use photo dates"
+                />
+                <LabelActionButton
+                  icon={<Hash className="h-3.5 w-3.5" />}
+                  active={labelMode === 'number'}
+                  onClick={() => onLabelAction('number')}
+                  title="Number photos"
+                />
+                <LabelActionButton
+                  icon={<Pencil className="h-3.5 w-3.5" />}
+                  active={labelMode === 'custom'}
+                  onClick={() => onLabelAction('custom')}
+                  title="Custom labels — tap any photo to edit"
+                />
+              </div>
+              {labelMode !== 'none' && (
                 <LabelPositionPicker
                   value={settings.labelPosition}
                   onChange={(labelPosition) => onUpdate({ labelPosition })}
                 />
               )}
             </div>
-            <span className="text-[10px] text-muted-foreground">Labels</span>
+            <span className="text-[10px] text-muted-foreground">Add labels</span>
           </div>
         </div>
       </section>
     </div>
+  );
+}
+
+interface LabelActionButtonProps {
+  icon: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  title: string;
+}
+
+function LabelActionButton({ icon, active, onClick, title }: LabelActionButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      className={cn(
+        "h-6 w-6 flex items-center justify-center transition-colors",
+        "border border-transparent text-muted-foreground hover:text-foreground",
+        active && "border-primary/60 text-primary bg-primary/10",
+      )}
+    >
+      {icon}
+    </button>
   );
 }

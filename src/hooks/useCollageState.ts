@@ -34,7 +34,7 @@ const defaultSettings: CollageSettings = {
   exportScale: 2,
   singleColumn: false,
   singleRow: false,
-  labelsEnabled: false,
+  showLabelPlaceholders: false,
   labelPosition: 'bc',
 };
 
@@ -64,6 +64,11 @@ function loadMetadataFromStorage(): PersistedCollageState {
         };
         parsed.settings.shapeSlider = shapeMap[parsed.settings.shape] ?? null;
         delete parsed.settings.shape;
+      }
+      // Migrate `labelsEnabled` → `showLabelPlaceholders` (always start off;
+      // existing label text on photos is still preserved and rendered).
+      if ('labelsEnabled' in parsed.settings) {
+        delete parsed.settings.labelsEnabled;
       }
       return {
         photos: parsed.photos || [],
@@ -400,6 +405,24 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
     });
   }, [debouncedSaveMetadata]);
 
+  /**
+   * Apply a batch of per-photo updates in a single render pass.
+   * Used by the label actions (Date / Number / Custom) which need to
+   * overwrite every photo's label atomically.
+   */
+  const setPhotosBatch = useCallback((updates: Record<string, Partial<PhotoItem>>) => {
+    setState((prev) => {
+      const next = {
+        ...prev,
+        photos: prev.photos.map((p) =>
+          updates[p.id] ? { ...p, ...updates[p.id] } : p,
+        ),
+      };
+      debouncedSaveMetadata(next);
+      return next;
+    });
+  }, [debouncedSaveMetadata]);
+
   const clearAll = useCallback(async () => {
     // Revoke all Object URLs (original, preview, thumbnail)
     state.photos.forEach((p) => {
@@ -431,6 +454,7 @@ export function useCollageState(options: UseCollageStateOptions = {}) {
     addPhotos,
     removePhoto,
     updatePhoto,
+    setPhotosBatch,
     updateSettings,
     setLayout,
     clearAll,

@@ -77,8 +77,12 @@ export interface CollageSettings {
   singleColumn: boolean;
   /** Force layout to a single row. Mutually exclusive with singleColumn. */
   singleRow: boolean;
-  /** Global toggle: render per-photo labels on the collage. */
-  labelsEnabled: boolean;
+  /**
+   * When true, the preview shows a dashed "Tap to add label" placeholder
+   * on every cell whose `label` is empty. Set by the Custom labels action.
+   * Placeholders are preview-only — never exported.
+   */
+  showLabelPlaceholders: boolean;
   /** Global label anchor position used for every photo's label. */
   labelPosition: LabelPosition;
 }

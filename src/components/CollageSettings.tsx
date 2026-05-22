@@ -4,7 +4,6 @@ import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { LabelPositionPicker } from '@/components/LabelPositionPicker';
-import { ShapeIndicator } from '@/components/ShapeIndicator';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
 
@@ -70,7 +69,9 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
             }
           >
             <div className="flex items-center gap-1.5">
-              <ShapeIndicator position={shapeValue} />
+              <span className="text-[10px] text-muted-foreground/80 select-none tabular-nums">
+                Tall <span aria-hidden="true">▯</span>
+              </span>
               <Slider
                 value={[shapeValue]}
                 onValueChange={([value]) => setDraggingValue(value)}
@@ -84,6 +85,9 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
                 step={5}
                 className="w-16 [&>span:first-child]:bg-muted-foreground/30"
               />
+              <span className="text-[10px] text-muted-foreground/80 select-none tabular-nums">
+                <span aria-hidden="true">▭</span> Wide
+              </span>
             </div>
             <span className="text-[10px] text-muted-foreground">Shape</span>
           </div>

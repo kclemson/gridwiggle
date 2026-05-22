@@ -306,12 +306,18 @@ export default function Index() {
     const updates: Record<string, Partial<PhotoItem>> = {};
     for (const [id, label] of Object.entries(map)) updates[id] = { label };
     setPhotosBatch(updates);
-    if (state.settings.showLabelPlaceholders) {
+    if (action === 'date') {
+      // Show "Add label" affordance on photos without EXIF dates.
+      if (!state.settings.showLabelPlaceholders) {
+        updateSettings({ showLabelPlaceholders: true });
+      }
+    } else if (state.settings.showLabelPlaceholders) {
       updateSettings({ showLabelPlaceholders: false });
     }
   }, [state.photos, state.layout, state.settings.showLabelPlaceholders, setPhotosBatch, updateSettings]);
 
   const hasAnyLabel = state.photos.some((p) => (p.label ?? '').length > 0);
+  const hasAnyExifDate = state.photos.some((p) => !!p.suggestedLabel);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (!state.layout) return;
@@ -475,6 +481,7 @@ export default function Index() {
                       layout={state.layout}
                       photoCount={state.photos.length}
                       hasAnyLabel={hasAnyLabel}
+                      hasAnyExifDate={hasAnyExifDate}
                       onLabelAction={handleLabelAction}
                       onUpdate={handleUpdateSettings}
                     />

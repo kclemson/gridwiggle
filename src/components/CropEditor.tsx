@@ -209,7 +209,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
-          <DialogTitle>Adjust Crop</DialogTitle>
+          <DialogTitle className="sr-only">Edit photo</DialogTitle>
           <DialogDescription className="sr-only">
             Drag the crop area to reposition, or drag corners to resize
           </DialogDescription>

@@ -18,6 +18,7 @@ import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
 import { extractCaptureDate } from '@/lib/exif';
 import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LabelPosition, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
+import { computeLabels, detectLabelMode } from '@/lib/labelActions';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { 
@@ -36,6 +37,7 @@ export default function Index() {
     addPhotos,
     removePhoto,
     updatePhoto,
+    setPhotosBatch,
     updateSettings,
     setLayout,
     clearAll,
@@ -163,16 +165,32 @@ export default function Index() {
 
   const handleCreateCollage = useCallback(() => {
     const isReshuffle = state.layout !== null;
+    // Snapshot the label mode BEFORE shuffling so we can re-apply numbered
+    // labels to the new layout order once the worker returns.
+    const priorMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
     if (isReshuffle) {
       // Shuffle resets shape constraint
       updateSettings({ shapeSlider: null });
-      regenerateCollage({ randomize: true, settings: { ...state.settings, shapeSlider: null } });
+      regenerateCollage({
+        randomize: true,
+        settings: { ...state.settings, shapeSlider: null },
+        onComplete: (newLayout) => {
+          if (priorMode === 'number' && newLayout) {
+            const map = computeLabels('number', state.photos, newLayout);
+            const updates: Record<string, Partial<PhotoItem>> = {};
+            for (const [id, label] of Object.entries(map)) updates[id] = { label };
+            setPhotosBatch(updates);
+          }
+        },
+      });
     } else {
       regenerateCollage();
     }
-  }, [state.layout, state.settings, updateSettings, regenerateCollage]);
+  }, [state.layout, state.photos, state.settings, updateSettings, regenerateCollage, setPhotosBatch]);
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
+    // Snapshot the existing mode so we can extend it to incoming photos.
+    const priorMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
     const { succeeded } = await addPhotos(newPhotos);
     if (succeeded.length === 0) return;
 
@@ -199,8 +217,27 @@ export default function Index() {
       return dims ? { ...p, originalWidth: dims.width, originalHeight: dims.height } : p;
     });
 
-    regenerateCollage({ photos: patchedPhotos, randomize: !wasLayoutEmpty });
-  }, [addPhotos, processSmartCrops, state.layout, regenerateCollage, updatePhoto]);
+    regenerateCollage({
+      photos: patchedPhotos,
+      randomize: !wasLayoutEmpty,
+      onComplete: (newLayout) => {
+        if (priorMode === 'date') {
+          const updates: Record<string, Partial<PhotoItem>> = {};
+          for (const p of patchedPhotos) {
+            if ((p.label ?? '') === '' && p.suggestedLabel) {
+              updates[p.id] = { label: p.suggestedLabel };
+            }
+          }
+          if (Object.keys(updates).length) setPhotosBatch(updates);
+        } else if (priorMode === 'number' && newLayout) {
+          const map = computeLabels('number', patchedPhotos, newLayout);
+          const updates: Record<string, Partial<PhotoItem>> = {};
+          for (const [id, label] of Object.entries(map)) updates[id] = { label };
+          setPhotosBatch(updates);
+        }
+      },
+    });
+  }, [addPhotos, processSmartCrops, state.photos, state.layout, state.settings.showLabelPlaceholders, regenerateCollage, updatePhoto, setPhotosBatch]);
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -244,6 +281,43 @@ export default function Index() {
       regenerateCollage({ settings: newSettings });
     }
   }, [updateSettings, state.layout, state.settings, regenerateCollage, setLayoutError]);
+
+  // Handler for the Date / Number / Custom action buttons in CollageSettings.
+  // Re-tapping the currently active action clears all labels (toggle-to-undo).
+  const handleLabelAction = useCallback((action: 'date' | 'number' | 'custom') => {
+    const currentMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
+    const isToggleOff = currentMode === action;
+
+    if (isToggleOff) {
+      // Clear every label, turn placeholders off.
+      const updates: Record<string, Partial<PhotoItem>> = {};
+      for (const p of state.photos) updates[p.id] = { label: '' };
+      setPhotosBatch(updates);
+      if (state.settings.showLabelPlaceholders) {
+        updateSettings({ showLabelPlaceholders: false });
+      }
+      return;
+    }
+
+    if (action === 'custom') {
+      const updates: Record<string, Partial<PhotoItem>> = {};
+      for (const p of state.photos) updates[p.id] = { label: '' };
+      setPhotosBatch(updates);
+      updateSettings({ showLabelPlaceholders: true });
+      return;
+    }
+
+    // Date or Number: compute labels and apply atomically.
+    const map = computeLabels(action, state.photos, state.layout);
+    const updates: Record<string, Partial<PhotoItem>> = {};
+    for (const [id, label] of Object.entries(map)) updates[id] = { label };
+    setPhotosBatch(updates);
+    if (state.settings.showLabelPlaceholders) {
+      updateSettings({ showLabelPlaceholders: false });
+    }
+  }, [state.photos, state.layout, state.settings.showLabelPlaceholders, setPhotosBatch, updateSettings]);
+
+  const labelMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (!state.layout) return;
@@ -383,7 +457,7 @@ export default function Index() {
                         photos={state.photos}
                         layout={state.layout}
                         gapColor={state.settings.gapColor}
-                        labelsEnabled={state.settings.labelsEnabled}
+                        showLabelPlaceholders={state.settings.showLabelPlaceholders}
                         labelPosition={state.settings.labelPosition}
                         onSwapPhotos={handleSwapPhotos}
                         onCellClick={setEditingPhotoId}
@@ -406,6 +480,8 @@ export default function Index() {
                       settings={state.settings}
                       layout={state.layout}
                       photoCount={state.photos.length}
+                      labelMode={labelMode}
+                      onLabelAction={handleLabelAction}
                       onUpdate={handleUpdateSettings}
                     />
 

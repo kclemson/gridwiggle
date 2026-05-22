@@ -33,8 +33,8 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
         <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">
           Structure
         </h3>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col items-start gap-1.5">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
               <Checkbox
                 checked={settings.singleColumn}
@@ -57,7 +57,7 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
 
           <div
             className={cn(
-              "flex flex-col items-center gap-0.5",
+              "flex items-center gap-2",
               shapeDisabled && "opacity-40"
             )}
             title={
@@ -68,28 +68,25 @@ export function CollageSettings({ settings, layout, photoCount, onUpdate }: Coll
                   : undefined
             }
           >
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground/80 select-none tabular-nums">
-                Tall <span aria-hidden="true">▯</span>
-              </span>
-              <Slider
-                value={[shapeValue]}
-                onValueChange={([value]) => setDraggingValue(value)}
-                onValueCommit={([value]) => {
-                  setDraggingValue(null);
-                  onUpdate({ shapeSlider: value });
-                }}
-                disabled={shapeDisabled}
-                min={0}
-                max={100}
-                step={5}
-                className="w-16 [&>span:first-child]:bg-muted-foreground/30"
-              />
-              <span className="text-[10px] text-muted-foreground/80 select-none tabular-nums">
-                <span aria-hidden="true">▭</span> Wide
-              </span>
-            </div>
-            <span className="text-[10px] text-muted-foreground">Shape</span>
+            <span className="text-xs text-muted-foreground select-none">
+              Tall <span aria-hidden="true">▯</span>
+            </span>
+            <Slider
+              value={[shapeValue]}
+              onValueChange={([value]) => setDraggingValue(value)}
+              onValueCommit={([value]) => {
+                setDraggingValue(null);
+                onUpdate({ shapeSlider: value });
+              }}
+              disabled={shapeDisabled}
+              min={0}
+              max={100}
+              step={5}
+              className="w-32 [&>span:first-child]:bg-muted-foreground/30"
+            />
+            <span className="text-xs text-muted-foreground select-none">
+              <span aria-hidden="true">▭</span> Wide
+            </span>
           </div>
         </div>
       </section>

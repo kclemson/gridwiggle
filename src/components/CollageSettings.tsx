@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { LabelPositionPicker } from '@/components/LabelPositionPicker';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
-import { Calendar, Hash, Pencil } from 'lucide-react';
+import { Calendar, Hash, Pencil, X } from 'lucide-react';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
@@ -19,7 +19,6 @@ interface CollageSettingsProps {
 
 export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, hasAnyExifDate, onLabelAction, onUpdate }: CollageSettingsProps) {
   const labelsVisible = hasAnyLabel || settings.showLabelPlaceholders;
-  const canClear = labelsVisible;
   const [draggingValue, setDraggingValue] = useState<number | null>(null);
 
   // Slider always reflects the current layout AR (truthful display)
@@ -136,27 +135,25 @@ export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, has
                   onClick={() => onLabelAction('number')}
                   title="Number photos"
                 />
-                <LabelActionButton
-                  icon={<Pencil className="h-3.5 w-3.5" />}
-                  onClick={() => onLabelAction('custom')}
-                  title="Custom labels — tap any photo to edit"
-                />
+                {labelsVisible ? (
+                  <LabelActionButton
+                    icon={<X className="h-3.5 w-3.5" />}
+                    onClick={() => onLabelAction('clear')}
+                    title="Clear all labels"
+                  />
+                ) : (
+                  <LabelActionButton
+                    icon={<Pencil className="h-3.5 w-3.5" />}
+                    onClick={() => onLabelAction('custom')}
+                    title="Custom labels — tap any photo to edit"
+                  />
+                )}
               </div>
               {labelsVisible && (
                 <LabelPositionPicker
                   value={settings.labelPosition}
                   onChange={(labelPosition) => onUpdate({ labelPosition })}
                 />
-              )}
-              {canClear && (
-                <button
-                  type="button"
-                  onClick={() => onLabelAction('clear')}
-                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                  title="Clear all labels"
-                >
-                  Clear
-                </button>
               )}
             </div>
             <span className="text-[10px] text-muted-foreground">Add labels</span>

@@ -4,7 +4,7 @@ import { getDisplayCrop } from '@/lib/cropUtils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Star, Crop, Undo2, Loader2, Sparkles, Maximize2 } from 'lucide-react';
+import { X, Star, Crop, Undo2, Loader2, Sparkles, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ThumbnailNavigatorProps {
@@ -226,7 +226,7 @@ export function ThumbnailNavigator({
                           handleSelect(photo.id);
                         }}
                       >
-                        <Maximize2 className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" />
                       </Button>
                     </div>
                   )}

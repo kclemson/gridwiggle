@@ -114,7 +114,10 @@ export function useCollageGeneration(deps: {
     // In single-stripe mode, order photos chronologically by EXIF date when
     // available. Dated photos come first (oldest → newest); undated photos
     // keep their original relative order at the end.
-    if (singleStripe) {
+    // When the user explicitly shuffles, randomize order instead.
+    if (singleStripe && randomize) {
+      photosToUse = shuffleArray(photosToUse);
+    } else if (singleStripe) {
       const parseDate = (label?: string): number | null => {
         if (!label) return null;
         const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(label);

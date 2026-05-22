@@ -30,7 +30,7 @@ export function CollageHeader({
   return (
     <div className="flex items-center justify-between">
       <Button
-        variant="default"
+        variant="outline"
         className="h-8 px-3 text-sm"
         onClick={onShuffle}
         disabled={isShuffling}

@@ -29,16 +29,6 @@ export function CollageHeader({
 }: CollageHeaderProps) {
   return (
     <div className="flex items-center justify-between">
-      <Button
-        variant="outline"
-        className="h-8 px-3 text-sm"
-        onClick={onShuffle}
-        disabled={isShuffling}
-        title="Shuffle layout"
-      >
-        <RefreshCw className={cn("h-4 w-4 mr-2", isShuffling && "animate-spin")} />
-        Shuffle
-      </Button>
       <div className="flex items-center gap-2">
         {showDownload && exportScale !== undefined && onExportScaleChange && (
           <div
@@ -80,6 +70,16 @@ export function CollageHeader({
           )}
         </Button>
       </div>
+      <Button
+        variant="outline"
+        className="h-8 px-3 text-sm"
+        onClick={onShuffle}
+        disabled={isShuffling}
+        title="Shuffle layout"
+      >
+        <RefreshCw className={cn("h-4 w-4 mr-2", isShuffling && "animate-spin")} />
+        Shuffle
+      </Button>
     </div>
   );
 }

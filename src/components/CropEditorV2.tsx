@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import ReactCrop, { type PercentCrop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -10,7 +10,7 @@ import {
   PhotoPriority,
   LabelPosition,
 } from '@/types/collage';
-import { clampCropToImage } from '@/lib/cropUtils';
+import { clampCropToImage, getDisplayCrop } from '@/lib/cropUtils';
 
 interface CropEditorV2Props {
   photo: PhotoItem;
@@ -61,15 +61,29 @@ export function CropEditorV2(props: CropEditorV2Props) {
 }
 
 function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
-  // Seed: full-image crop in percent units.
-  const [crop, setCrop] = useState<PercentCrop | undefined>({
-    unit: '%',
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 100,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Seed: prefer existing crop (smart or manual) unless it covers ≥99% of
+  // both axes (fail-forward sentinel from getDisplayCrop), in which case
+  // we show a full-image selection so Save is a no-op by default.
+  const initialCrop = useMemo<PercentCrop>(() => {
+    const existing = getDisplayCrop(photo);
+    const coversAll =
+      !!existing &&
+      existing.width >= photo.originalWidth * 0.99 &&
+      existing.height >= photo.originalHeight * 0.99;
+    if (existing && !coversAll) {
+      return {
+        unit: '%',
+        x: (existing.x / photo.originalWidth) * 100,
+        y: (existing.y / photo.originalHeight) * 100,
+        width: (existing.width / photo.originalWidth) * 100,
+        height: (existing.height / photo.originalHeight) * 100,
+      };
+    }
+    return { unit: '%', x: 0, y: 0, width: 100, height: 100 };
+  }, [photo]);
+
+  const initialCropRef = useRef<PercentCrop>(initialCrop);
+  const [crop, setCrop] = useState<PercentCrop | undefined>(initialCrop);
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | undefined>();
 
   const imgMaxHeight = useMemo(
@@ -77,18 +91,42 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
     [],
   );
 
+  // Float-tolerant percent comparison.
+  const EPS = 0.01;
+  const samePercent = (a: PercentCrop | undefined, b: PercentCrop) =>
+    !!a &&
+    Math.abs(a.x - b.x) < EPS &&
+    Math.abs(a.y - b.y) < EPS &&
+    Math.abs(a.width - b.width) < EPS &&
+    Math.abs(a.height - b.height) < EPS;
+
+  const hasChanges = useMemo(
+    () => !samePercent(crop, initialCropRef.current),
+    [crop],
+  );
+
   const handleSave = () => {
-    // Phase 1: ship a full-image crop regardless of UI state, so the
-    // round-trip works without the real save logic wired yet.
-    const region: CropRegion = clampCropToImage(
-      { x: 0, y: 0, width: photo.originalWidth, height: photo.originalHeight },
-      photo.originalWidth,
-      photo.originalHeight,
-    );
+    // Prefer the live percent crop (more accurate than the last completed
+    // pixel crop in edge cases like Reset/Apply Smart Crop, which set
+    // percent but don't trigger onComplete).
+    const W = photo.originalWidth;
+    const H = photo.originalHeight;
+    const pct = crop ?? initialCropRef.current;
+    const raw: CropRegion = {
+      x: Math.round((pct.x / 100) * W),
+      y: Math.round((pct.y / 100) * H),
+      width: Math.round((pct.width / 100) * W),
+      height: Math.round((pct.height / 100) * H),
+    };
+    const region = clampCropToImage(raw, W, H);
     const priority: PhotoPriority = photo.priority === 1 ? 1 : 3;
     onClose();
     onSave(photo.id, region, priority, photo.label);
   };
+
+  // Suppress unused warning until Phase 3 wires Smart Crop's pixel-based
+  // comparison off of `completedCrop`.
+  void completedCrop;
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
@@ -133,7 +171,7 @@ function CropEditorV2Inner({ photo, onClose, onSave }: CropEditorV2Props) {
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleSave}>Save</Button>
+          <Button size="sm" onClick={handleSave} disabled={!hasChanges}>Save</Button>
         </div>
       </DialogContent>
     </Dialog>

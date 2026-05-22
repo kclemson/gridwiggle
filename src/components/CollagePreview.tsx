@@ -167,13 +167,13 @@ const CollageCellComponent = memo(function CollageCellComponent({
             )}
             style={{
               ...labelAnchorStyle(labelPosition),
-              backgroundColor: showLabel ? gapColor : 'transparent',
+              backgroundColor: gapColor,
               color: autoTextColor(gapColor),
               fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
               maxWidth: '100%',
-              padding: showLabel ? '2px 8px' : '1px 7px',
+              padding: '2px 8px',
               lineHeight: 1.2,
-              border: showLabel ? 'none' : `1px dashed ${autoTextColor(gapColor)}`,
+              border: 'none',
               cursor: onUpdateLabel ? 'text' : 'default',
               pointerEvents: onUpdateLabel ? 'auto' : 'none',
               display: 'block',

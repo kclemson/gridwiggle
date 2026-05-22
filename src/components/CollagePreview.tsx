@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Star } from 'lucide-react';
 import { isMobileDevice } from '@/lib/platform';
 import { autoTextColor, labelAnchorStyle, getDisplayLabel } from '@/lib/labelStyle';
+import { PLACEHOLDER_LABEL_TEXT } from '@/lib/labelStyle';
 
 interface CollageCellProps {
   cell: CollageCell;
@@ -13,7 +14,7 @@ interface CollageCellProps {
   layoutWidth: number;
   layoutHeight: number;
   gapColor: string;
-  labelsEnabled: boolean;
+  showLabelPlaceholders: boolean;
   labelPosition: LabelPosition;
   isBeingDragged: boolean;
   isDragTarget: boolean;
@@ -37,7 +38,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
   layoutWidth,
   layoutHeight,
   gapColor,
-  labelsEnabled,
+  showLabelPlaceholders,
   labelPosition,
   isBeingDragged,
   isDragTarget,
@@ -53,6 +54,8 @@ const CollageCellComponent = memo(function CollageCellComponent({
   const crop = getDisplayCrop(photo);
   const mobile = isMobileDevice();
   const labelText = getDisplayLabel(photo);
+  const showLabel = labelText.length > 0;
+  const showPlaceholder = !showLabel && showLabelPlaceholders;
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(labelText);
   const labelInputRef = useRef<HTMLInputElement>(null);
@@ -119,7 +122,7 @@ const CollageCellComponent = memo(function CollageCellComponent({
         fit="cover"
       />
 
-      {labelsEnabled && labelText && (
+      {(showLabel || showPlaceholder) && (
         editingLabel ? (
           <input
             ref={labelInputRef}
@@ -158,23 +161,26 @@ const CollageCellComponent = memo(function CollageCellComponent({
             onClick={onUpdateLabel ? beginEditLabel : undefined}
             onPointerDown={(e) => { if (onUpdateLabel) e.stopPropagation(); }}
             disabled={!onUpdateLabel}
-            className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
+            className={cn(
+              "font-semibold whitespace-nowrap overflow-hidden text-ellipsis",
+              showPlaceholder && "italic opacity-70"
+            )}
             style={{
               ...labelAnchorStyle(labelPosition),
-              backgroundColor: gapColor,
+              backgroundColor: showLabel ? gapColor : 'transparent',
               color: autoTextColor(gapColor),
               fontSize: 'var(--label-font-size, max(11px, 1.6cqmin))',
               maxWidth: '100%',
-              padding: '2px 8px',
+              padding: showLabel ? '2px 8px' : '1px 7px',
               lineHeight: 1.2,
-              border: 'none',
+              border: showLabel ? 'none' : `1px dashed ${autoTextColor(gapColor)}`,
               cursor: onUpdateLabel ? 'text' : 'default',
               pointerEvents: onUpdateLabel ? 'auto' : 'none',
               display: 'block',
             }}
             title={onUpdateLabel ? 'Click to edit label' : undefined}
           >
-            {labelText}
+            {showLabel ? labelText : PLACEHOLDER_LABEL_TEXT}
           </button>
         )
       )}
@@ -217,7 +223,7 @@ interface CollagePreviewProps {
   photos: PhotoItem[];
   layout: CollageLayout;
   gapColor: string;
-  labelsEnabled: boolean;
+  showLabelPlaceholders: boolean;
   labelPosition: LabelPosition;
   onSwapPhotos: (photoId1: string, photoId2: string) => void;
   onCellClick?: (photoId: string) => void;
@@ -234,7 +240,7 @@ export function CollagePreview({
   photos, 
   layout, 
   gapColor, 
-  labelsEnabled,
+  showLabelPlaceholders,
   labelPosition,
   onSwapPhotos,
   onCellClick,
@@ -462,7 +468,7 @@ export function CollagePreview({
               layoutWidth={layout.width}
               layoutHeight={layout.height}
               gapColor={gapColor}
-              labelsEnabled={labelsEnabled}
+              showLabelPlaceholders={showLabelPlaceholders}
               labelPosition={labelPosition}
               isBeingDragged={isBeingDragged}
               isDragTarget={isDragTarget}

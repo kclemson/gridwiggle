@@ -4,6 +4,7 @@ import { getDisplayCrop } from '@/lib/cropUtils';
 import { devLogger, LogEntry } from '@/lib/devLogger';
 import { sliderToARBounds } from '@/lib/shapeSlider';
 import { remoteLogger } from '@/lib/remoteLogger';
+import { shuffleArray } from '@/lib/v3/utils';
 import { 
   saveCapture, 
   extractReasonFrequencies,

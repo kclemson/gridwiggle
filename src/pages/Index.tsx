@@ -12,7 +12,7 @@ import { CropEditor as CropEditorV1 } from '@/components/CropEditor';
 import { CropEditorV2 } from '@/components/CropEditorV2';
 
 // Flip to true to test the new react-image-crop based editor.
-const USE_V2_CROP_EDITOR = false;
+const USE_V2_CROP_EDITOR = true;
 const CropEditor = USE_V2_CROP_EDITOR ? CropEditorV2 : CropEditorV1;
 import { CollagePreview } from '@/components/CollagePreview';
 import { DebugPanel } from '@/components/DebugPanel';

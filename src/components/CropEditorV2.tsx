@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import ReactCrop, { type PercentCrop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -13,6 +13,7 @@ import {
   LabelPosition,
 } from '@/types/collage';
 import { clampCropToImage, getDisplayCrop } from '@/lib/cropUtils';
+import { autoTextColor, labelAnchorStyle } from '@/lib/labelStyle';
 
 interface CropEditorV2Props {
   photo: PhotoItem;
@@ -62,7 +63,7 @@ export function CropEditorV2(props: CropEditorV2Props) {
   return <CropEditorV2Inner {...props} />;
 }
 
-function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Props) {
+function CropEditorV2Inner({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorV2Props) {
   // Seed: prefer existing crop (smart or manual) unless it covers ≥99% of
   // both axes (fail-forward sentinel from getDisplayCrop), in which case
   // we show a full-image selection so Save is a no-op by default.
@@ -91,6 +92,48 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
   const [isHero, setIsHero] = useState(photo.priority === 1);
   const initialIsHero = useRef(photo.priority === 1);
 
+  // Label state — three-valued (matches V1):
+  //   undefined → "use suggestion"
+  //   ''        → user explicitly cleared
+  //   string    → user-provided label
+  const suggestedLabel = photo.suggestedLabel ?? '';
+  const [label, setLabel] = useState<string | undefined>(photo.label);
+  const initialLabelRef = useRef<string | undefined>(photo.label);
+  const displayedLabel = label !== undefined ? label : suggestedLabel;
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(displayedLabel);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingLabel) {
+      requestAnimationFrame(() => {
+        labelInputRef.current?.focus();
+        labelInputRef.current?.select();
+      });
+    }
+  }, [editingLabel]);
+
+  const beginEditLabel = useCallback(() => {
+    setLabelDraft(displayedLabel);
+    setEditingLabel(true);
+  }, [displayedLabel]);
+
+  const commitLabel = useCallback(() => {
+    setLabel(labelDraft);
+    setEditingLabel(false);
+  }, [labelDraft]);
+
+  const cancelLabelEdit = useCallback(() => {
+    setLabelDraft(displayedLabel);
+    setEditingLabel(false);
+  }, [displayedLabel]);
+
+  const revertLabelToSuggestion = useCallback(() => {
+    setLabel(undefined);
+    setLabelDraft(suggestedLabel);
+    setEditingLabel(false);
+  }, [suggestedLabel]);
+
   const imgMaxHeight = useMemo(
     () => (typeof window !== 'undefined' && window.innerHeight < 700 ? '40vh' : '60vh'),
     [],
@@ -107,7 +150,8 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
 
   const cropChanged = !samePercent(crop, initialCropRef.current);
   const heroChanged = isHero !== initialIsHero.current;
-  const hasChanges = cropChanged || heroChanged;
+  const labelChanged = label !== initialLabelRef.current;
+  const hasChanges = cropChanged || heroChanged || labelChanged;
 
   const handleSave = () => {
     // Prefer the live percent crop (more accurate than the last completed
@@ -124,8 +168,12 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
     };
     const region = clampCropToImage(raw, W, H);
     const priority: PhotoPriority = isHero ? 1 : 3;
+    // If the user is mid-edit, commit the draft into the saved value.
+    const finalLabel: string | undefined = editingLabel
+      ? labelDraft.trim()
+      : label;
     onClose();
-    onSave(photo.id, region, priority, photo.label);
+    onSave(photo.id, region, priority, finalLabel);
   };
 
   void completedCrop;
@@ -168,31 +216,134 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
         </DialogHeader>
 
         <div className="flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4">
-          <ReactCrop
-            crop={crop}
-            onChange={(_pixel, percent) => setCrop(percent)}
-            onComplete={(pixel) => setCompletedCrop(pixel)}
-            minWidth={50}
-            minHeight={50}
-            ruleOfThirds
-            style={{ touchAction: 'none', maxHeight: '100%' }}
-          >
-            <img
-              src={photo.previewUrl ?? photo.objectUrl}
-              alt=""
-              draggable={false}
-              onDragStart={(e) => e.preventDefault()}
-              style={{
-                touchAction: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                WebkitUserDrag: 'none',
-                display: 'block',
-                maxWidth: `min(100%, ${photo.originalWidth}px)`,
-                maxHeight: imgMaxHeight,
-              } as React.CSSProperties}
-            />
-          </ReactCrop>
+          <div className="relative inline-block max-h-full">
+            <ReactCrop
+              crop={crop}
+              onChange={(_pixel, percent) => setCrop(percent)}
+              onComplete={(pixel) => setCompletedCrop(pixel)}
+              minWidth={50}
+              minHeight={50}
+              ruleOfThirds
+              style={{ touchAction: 'none', maxHeight: '100%' }}
+            >
+              <img
+                src={photo.previewUrl ?? photo.objectUrl}
+                alt=""
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                style={{
+                  touchAction: 'none',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                  WebkitUserDrag: 'none',
+                  display: 'block',
+                  maxWidth: `min(100%, ${photo.originalWidth}px)`,
+                  maxHeight: imgMaxHeight,
+                } as React.CSSProperties}
+              />
+            </ReactCrop>
+
+            {/* Label overlay — anchored inside the crop rect, previewing
+                how the label appears in the final collage. */}
+            {crop && (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${crop.x}%`,
+                  top: `${crop.y}%`,
+                  width: `${crop.width}%`,
+                  height: `${crop.height}%`,
+                }}
+              >
+                <div
+                  style={{
+                    ...labelAnchorStyle(labelPosition),
+                    maxWidth: 'calc(100% - 12px)',
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    gap: 4,
+                  }}
+                  className="pointer-events-auto"
+                >
+                  {editingLabel ? (
+                    <input
+                      ref={labelInputRef}
+                      value={labelDraft}
+                      maxLength={32}
+                      onChange={(e) => setLabelDraft(e.target.value)}
+                      onBlur={commitLabel}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+                        else if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{
+                        backgroundColor: gapColor,
+                        color: autoTextColor(gapColor),
+                        padding: '2px 8px',
+                        fontSize: 13,
+                        lineHeight: 1.2,
+                        fontWeight: 600,
+                        border: 'none',
+                        outline: 'none',
+                        minWidth: 80,
+                        maxWidth: '100%',
+                        textAlign: 'center',
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={beginEditLabel}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{
+                        backgroundColor: gapColor,
+                        color: displayedLabel ? autoTextColor(gapColor) : `${autoTextColor(gapColor)}99`,
+                        padding: '2px 8px',
+                        fontSize: 13,
+                        lineHeight: 1.2,
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'text',
+                        fontStyle: displayedLabel ? 'normal' : 'italic',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                        textAlign: 'center',
+                      }}
+                      title="Click to edit label"
+                    >
+                      {displayedLabel || 'Add label'}
+                    </button>
+                  )}
+                  {suggestedLabel && (editingLabel ? labelDraft : displayedLabel) !== suggestedLabel && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={revertLabelToSuggestion}
+                      style={{
+                        backgroundColor: gapColor,
+                        color: autoTextColor(gapColor),
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '0 6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title={`Reset to "${suggestedLabel}"`}
+                      aria-label="Reset label to suggested value"
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">

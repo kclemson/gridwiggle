@@ -282,14 +282,10 @@ export default function Index() {
     }
   }, [updateSettings, state.layout, state.settings, regenerateCollage, setLayoutError]);
 
-  // Handler for the Date / Number / Custom action buttons in CollageSettings.
-  // Re-tapping the currently active action clears all labels (toggle-to-undo).
-  const handleLabelAction = useCallback((action: 'date' | 'number' | 'custom') => {
-    const currentMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
-    const isToggleOff = currentMode === action;
-
-    if (isToggleOff) {
-      // Clear every label, turn placeholders off.
+  // Handler for the Date / Number / Custom / Clear action buttons.
+  // All actions are pure macros — no toggle-off, no "active" state.
+  const handleLabelAction = useCallback((action: 'date' | 'number' | 'custom' | 'clear') => {
+    if (action === 'clear') {
       const updates: Record<string, Partial<PhotoItem>> = {};
       for (const p of state.photos) updates[p.id] = { label: '' };
       setPhotosBatch(updates);
@@ -300,14 +296,12 @@ export default function Index() {
     }
 
     if (action === 'custom') {
-      const updates: Record<string, Partial<PhotoItem>> = {};
-      for (const p of state.photos) updates[p.id] = { label: '' };
-      setPhotosBatch(updates);
-      updateSettings({ showLabelPlaceholders: true });
+      // Toggle placeholder visibility; do NOT touch existing labels.
+      updateSettings({ showLabelPlaceholders: !state.settings.showLabelPlaceholders });
       return;
     }
 
-    // Date or Number: compute labels and apply atomically.
+    // Date or Number: compute labels and overwrite atomically.
     const map = computeLabels(action, state.photos, state.layout);
     const updates: Record<string, Partial<PhotoItem>> = {};
     for (const [id, label] of Object.entries(map)) updates[id] = { label };
@@ -317,7 +311,7 @@ export default function Index() {
     }
   }, [state.photos, state.layout, state.settings.showLabelPlaceholders, setPhotosBatch, updateSettings]);
 
-  const labelMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
+  const hasAnyLabel = state.photos.some((p) => (p.label ?? '').length > 0);
 
   const handleSwapPhotos = useCallback((photoId1: string, photoId2: string) => {
     if (!state.layout) return;
@@ -480,7 +474,7 @@ export default function Index() {
                       settings={state.settings}
                       layout={state.layout}
                       photoCount={state.photos.length}
-                      labelMode={labelMode}
+                      hasAnyLabel={hasAnyLabel}
                       onLabelAction={handleLabelAction}
                       onUpdate={handleUpdateSettings}
                     />

@@ -6,18 +6,19 @@ import { LabelPositionPicker } from '@/components/LabelPositionPicker';
 import { arToSliderPosition } from '@/lib/shapeSlider';
 import { cn } from '@/lib/utils';
 import { Calendar, Hash, Pencil } from 'lucide-react';
-import type { LabelMode } from '@/lib/labelActions';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
   layout: CollageLayout | null;
   photoCount: number;
-  labelMode: LabelMode;
-  onLabelAction: (action: 'date' | 'number' | 'custom') => void;
+  hasAnyLabel: boolean;
+  onLabelAction: (action: 'date' | 'number' | 'custom' | 'clear') => void;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
-export function CollageSettings({ settings, layout, photoCount, labelMode, onLabelAction, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, onLabelAction, onUpdate }: CollageSettingsProps) {
+  const labelsVisible = hasAnyLabel || settings.showLabelPlaceholders;
+  const canClear = labelsVisible;
   const [draggingValue, setDraggingValue] = useState<number | null>(null);
 
   // Slider always reflects the current layout AR (truthful display)
@@ -124,28 +125,35 @@ export function CollageSettings({ settings, layout, photoCount, labelMode, onLab
               <div className="flex items-center gap-0.5">
                 <LabelActionButton
                   icon={<Calendar className="h-3.5 w-3.5" />}
-                  active={labelMode === 'date'}
                   onClick={() => onLabelAction('date')}
                   title="Use photo dates"
                 />
                 <LabelActionButton
                   icon={<Hash className="h-3.5 w-3.5" />}
-                  active={labelMode === 'number'}
                   onClick={() => onLabelAction('number')}
                   title="Number photos"
                 />
                 <LabelActionButton
                   icon={<Pencil className="h-3.5 w-3.5" />}
-                  active={labelMode === 'custom'}
                   onClick={() => onLabelAction('custom')}
                   title="Custom labels — tap any photo to edit"
                 />
               </div>
-              {labelMode !== 'none' && (
+              {labelsVisible && (
                 <LabelPositionPicker
                   value={settings.labelPosition}
                   onChange={(labelPosition) => onUpdate({ labelPosition })}
                 />
+              )}
+              {canClear && (
+                <button
+                  type="button"
+                  onClick={() => onLabelAction('clear')}
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  title="Clear all labels"
+                >
+                  Clear
+                </button>
               )}
             </div>
             <span className="text-[10px] text-muted-foreground">Add labels</span>
@@ -158,23 +166,20 @@ export function CollageSettings({ settings, layout, photoCount, labelMode, onLab
 
 interface LabelActionButtonProps {
   icon: React.ReactNode;
-  active: boolean;
   onClick: () => void;
   title: string;
 }
 
-function LabelActionButton({ icon, active, onClick, title }: LabelActionButtonProps) {
+function LabelActionButton({ icon, onClick, title }: LabelActionButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       aria-label={title}
-      aria-pressed={active}
       className={cn(
         "h-6 w-6 flex items-center justify-center transition-colors",
         "border border-transparent text-muted-foreground hover:text-foreground",
-        active && "border-primary/60 text-primary bg-primary/10",
       )}
     >
       {icon}

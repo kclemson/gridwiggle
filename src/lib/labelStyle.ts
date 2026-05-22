@@ -1,7 +1,8 @@
 import { LabelPosition } from '@/types/collage';
 
-/** Text shown in the preview when "Custom labels" is active but a cell has no label. */
-export const PLACEHOLDER_LABEL_TEXT = 'Tap to add label';
+/** Text shown in the preview when "Custom labels" is active but a cell has no label.
+ *  Matches the crop editor's empty-label pill copy so the two affordances feel identical. */
+export const PLACEHOLDER_LABEL_TEXT = 'Add label';
 
 /**
  * Resolve the label string to actually display for a photo.

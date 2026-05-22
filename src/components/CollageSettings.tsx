@@ -12,11 +12,12 @@ interface CollageSettingsProps {
   layout: CollageLayout | null;
   photoCount: number;
   hasAnyLabel: boolean;
+  hasAnyExifDate: boolean;
   onLabelAction: (action: 'date' | 'number' | 'custom' | 'clear') => void;
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
-export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, onLabelAction, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, hasAnyExifDate, onLabelAction, onUpdate }: CollageSettingsProps) {
   const labelsVisible = hasAnyLabel || settings.showLabelPlaceholders;
   const canClear = labelsVisible;
   const [draggingValue, setDraggingValue] = useState<number | null>(null);
@@ -123,11 +124,13 @@ export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, onL
           <div className="flex flex-col items-center gap-0.5">
             <div className="h-6 flex items-center gap-2">
               <div className="flex items-center gap-0.5">
-                <LabelActionButton
-                  icon={<Calendar className="h-3.5 w-3.5" />}
-                  onClick={() => onLabelAction('date')}
-                  title="Use photo dates"
-                />
+                {hasAnyExifDate && (
+                  <LabelActionButton
+                    icon={<Calendar className="h-3.5 w-3.5" />}
+                    onClick={() => onLabelAction('date')}
+                    title="Use photo dates"
+                  />
+                )}
                 <LabelActionButton
                   icon={<Hash className="h-3.5 w-3.5" />}
                   onClick={() => onLabelAction('number')}

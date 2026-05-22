@@ -131,7 +131,9 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
   void completedCrop;
 
   // ── Reset / Smart Crop / Delete ────────────────────────────────────
-  const handleReset = () => setCrop(initialCropRef.current);
+  const FULL_IMAGE_CROP: PercentCrop = { unit: '%', x: 0, y: 0, width: 100, height: 100 };
+  const handleReset = () => setCrop(FULL_IMAGE_CROP);
+  const isFullImage = samePercent(crop, FULL_IMAGE_CROP);
 
   const smartCropPercent = useMemo<PercentCrop | null>(() => {
     if (!photo.smartCrop) return null;
@@ -208,7 +210,7 @@ function CropEditorV2Inner({ photo, onClose, onSave, onDelete }: CropEditorV2Pro
             size="icon"
             onClick={handleReset}
             className="sm:w-auto sm:px-3"
-            disabled={!cropChanged}
+            disabled={isFullImage}
           >
             <RotateCcw className="h-4 w-4" />
             <span className="hidden sm:inline ml-1.5">Reset</span>

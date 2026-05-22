@@ -44,7 +44,7 @@ export function PhotoStrip({
       <button
         type="button"
         onClick={onViewAll}
-        className="h-14 w-full overflow-hidden rounded-lg bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+        className="h-14 w-full overflow-hidden bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
       >
         <div className="flex h-full gap-0.5">
           {photos.map((photo) => {

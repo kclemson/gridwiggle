@@ -152,7 +152,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
     exportScale: 1,
     singleColumn: false,
     singleRow: false,
-    labelsEnabled: false,
+    showLabelPlaceholders: false,
     labelPosition: 'bc',
   };
   

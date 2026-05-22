@@ -1,16 +1,19 @@
 import { LabelPosition } from '@/types/collage';
 
+/** Text shown in the preview when "Custom labels" is active but a cell has no label. */
+export const PLACEHOLDER_LABEL_TEXT = 'Tap to add label';
+
 /**
  * Resolve the label string to actually display for a photo.
  *
- * Semantics:
- * - `label === undefined` → user has never edited; fall back to suggestion.
- * - `label === ''`        → user explicitly cleared; show nothing.
- * - any other string      → user-provided label.
+ * Returns the photo's explicit label only — no suggestedLabel fallback.
+ * Labels are now opt-in via the Date/Number/Custom actions in the
+ * Add labels control, so an undefined label means "no label rendered."
+ * The crop editor still treats `suggestedLabel` as a default value when
+ * the user opens the field manually.
  */
 export function getDisplayLabel(photo: { label?: string; suggestedLabel?: string }): string {
-  if (photo.label !== undefined) return photo.label;
-  return photo.suggestedLabel ?? '';
+  return photo.label ?? '';
 }
 
 /** Pick black or white based on background luminance for legibility. */

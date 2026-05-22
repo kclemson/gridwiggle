@@ -30,19 +30,21 @@ export function generateSingleStripeLayout(
   const gap = Math.max(0, normalizedGap) * VIRTUAL_CANVAS_BASE;
 
   if (direction === 'column') {
-    const width = VIRTUAL_CANVAS_BASE;
-    const cellHeights = dimensions.map((d) => width / Math.max(0.01, d.aspectRatio));
-    const totalGap = gap * (dimensions.length - 1);
-    const totalHeight = cellHeights.reduce((s, h) => s + h, 0) + totalGap;
+    const cellWidth = VIRTUAL_CANVAS_BASE;
+    const cellHeights = dimensions.map((d) => cellWidth / Math.max(0.01, d.aspectRatio));
+    const interGap = gap * (dimensions.length - 1);
+    const contentHeight = cellHeights.reduce((s, h) => s + h, 0) + interGap;
+    const canvasWidth = cellWidth + 2 * gap;
+    const canvasHeight = contentHeight + 2 * gap;
 
-    let y = 0;
+    let y = gap;
     const cells = dimensions.map((d, i) => {
       const h = cellHeights[i];
       const cell = {
         photoId: d.id,
-        x: 0,
+        x: Math.round(gap),
         y: Math.round(y),
-        width: Math.round(width),
+        width: Math.round(cellWidth),
         height: Math.round(h),
       };
       y += h + gap;
@@ -50,35 +52,37 @@ export function generateSingleStripeLayout(
     });
 
     return {
-      width: Math.round(width),
-      height: Math.round(totalHeight),
+      width: Math.round(canvasWidth),
+      height: Math.round(canvasHeight),
       cells,
     };
   }
 
   // row
-  const height = VIRTUAL_CANVAS_BASE;
-  const cellWidths = dimensions.map((d) => height * d.aspectRatio);
-  const totalGap = gap * (dimensions.length - 1);
-  const totalWidth = cellWidths.reduce((s, w) => s + w, 0) + totalGap;
+  const cellHeight = VIRTUAL_CANVAS_BASE;
+  const cellWidths = dimensions.map((d) => cellHeight * d.aspectRatio);
+  const interGap = gap * (dimensions.length - 1);
+  const contentWidth = cellWidths.reduce((s, w) => s + w, 0) + interGap;
+  const canvasWidth = contentWidth + 2 * gap;
+  const canvasHeight = cellHeight + 2 * gap;
 
-  let x = 0;
+  let x = gap;
   const cells = dimensions.map((d, i) => {
     const w = cellWidths[i];
     const cell = {
       photoId: d.id,
       x: Math.round(x),
-      y: 0,
+      y: Math.round(gap),
       width: Math.round(w),
-      height: Math.round(height),
+      height: Math.round(cellHeight),
     };
     x += w + gap;
     return cell;
   });
 
   return {
-    width: Math.round(totalWidth),
-    height: Math.round(height),
+    width: Math.round(canvasWidth),
+    height: Math.round(canvasHeight),
     cells,
   };
 }

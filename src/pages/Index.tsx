@@ -145,6 +145,16 @@ export default function Index() {
     }
   }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
 
+  const handleNavigatePhoto = useCallback((direction: 'prev' | 'next') => {
+    if (!editingPhotoId || state.photos.length === 0) return;
+    const currentIndex = state.photos.findIndex(p => p.id === editingPhotoId);
+    if (currentIndex === -1) return;
+    const nextIndex = direction === 'next'
+      ? (currentIndex + 1) % state.photos.length
+      : (currentIndex - 1 + state.photos.length) % state.photos.length;
+    setEditingPhotoId(state.photos[nextIndex].id);
+  }, [editingPhotoId, state.photos]);
+
   const handleUpdateLabel = useCallback((photoId: string, label: string) => {
     updatePhoto(photoId, { label });
   }, [updatePhoto]);

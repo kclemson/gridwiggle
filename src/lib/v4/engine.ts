@@ -384,11 +384,27 @@ function generateCandidates(
           const contentUniformityPenalty = contentCV > CV_THRESHOLD
             ? Math.min(0.25, (contentCV - CV_THRESHOLD) * 0.5)
             : 0;
+
+          // Uncovered-canvas safety penalty: defends against topology/packer
+          // contract mismatches (e.g. content region packs to a different
+          // dimension than the topology assumed) that would leave visible voids.
+          const filledArea1 = heroArea + allContentAreas.reduce((s, a) => s + a, 0);
+          const uncoveredRatio1 = Math.max(0, 1 - filledArea1 / canvasArea);
+          const UNCOVERED_TOLERANCE = 0.06; // gap strips are legitimately unfilled
+          const uncoveredPenalty1 = uncoveredRatio1 > UNCOVERED_TOLERANCE
+            ? Math.min(0.4, (uncoveredRatio1 - UNCOVERED_TOLERANCE) * 2.0)
+            : 0;
+          if (uncoveredPenalty1 > 0) {
+            devLogger.warn('v4-penalty', 'Uncovered canvas penalty', {
+              template: template.id, uncoveredPct: +(uncoveredRatio1 * 100).toFixed(1),
+              penalty: +uncoveredPenalty1.toFixed(3),
+            });
+          }
           
           const allAreas = [heroArea, ...allContentAreas];
           const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
           const rawScore = balanceResult.score;
-          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty);
+          const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty - uncoveredPenalty1);
           
           const corner = randomize
             ? corners[Math.floor(Math.random() * 4)]
@@ -400,7 +416,7 @@ function generateCandidates(
             width: wHero, height: hHero,
           };
           
-          const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty };
+          const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty, uncovered: uncoveredPenalty1 };
           
           candidates.push({
             regions, heroCell,

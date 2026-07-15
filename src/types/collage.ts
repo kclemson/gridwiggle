@@ -1,6 +1,5 @@
 import type { LogEntry } from '@/lib/devLogger';
-
-export const MIN_PHOTOS_FOR_SHAPE_SLIDER = 10;
+import type { ShapePreference } from '@/lib/shapePreference';
 
 export interface CropRegion {
   x: number;
@@ -69,7 +68,8 @@ export interface PhotoMetadata {
 }
 
 export interface CollageSettings {
-  shapeSlider: number | null;  // null = auto (no constraint), 0-100 = AR constraint
+  /** User's canvas-shape intent. 'auto' = no constraint. Sticky across shuffles. */
+  shapePreference: ShapePreference;
   gapColor: string;
   gapSize: number;
   exportScale: 1 | 1.5 | 2;

@@ -17,7 +17,7 @@ import { LayoutInfoPanel } from '@/components/debug';
 import { CollageHeader } from '@/components/collage/CollageHeader';
 import { SampleGallery } from '@/components/SampleGallery';
 import { extractCaptureDate } from '@/lib/exif';
-import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LabelPosition, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
+import { PhotoItem, CropRegion, CollageSettings as CollageSettingsType, PhotoPriority, LabelPosition } from '@/types/collage';
 import { computeLabels, detectLabelMode } from '@/lib/labelActions';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -109,14 +109,10 @@ export default function Index() {
   const handleRemovePhoto = useCallback((photoId: string) => {
     removePhoto(photoId);
     const remainingPhotos = state.photos.filter(p => p.id !== photoId);
-    // Reset shape constraint if dropping below threshold
-    if (remainingPhotos.length < MIN_PHOTOS_FOR_SHAPE_SLIDER && state.settings.shapeSlider !== null) {
-      updateSettings({ shapeSlider: null });
-    }
     if (state.layout) {
       regenerateCollage({ photos: remainingPhotos });
     }
-  }, [removePhoto, state.layout, state.photos, state.settings.shapeSlider, updateSettings, regenerateCollage]);
+  }, [removePhoto, state.layout, state.photos, regenerateCollage]);
 
   const handleSaveCrop = useCallback((
     photoId: string,
@@ -169,11 +165,10 @@ export default function Index() {
     // labels to the new layout order once the worker returns.
     const priorMode = detectLabelMode(state.photos, state.layout, state.settings.showLabelPlaceholders);
     if (isReshuffle) {
-      // Shuffle resets shape constraint
-      updateSettings({ shapeSlider: null });
+      // Shape preference is sticky — shuffle keeps the user's intent.
       regenerateCollage({
         randomize: true,
-        settings: { ...state.settings, shapeSlider: null },
+        settings: state.settings,
         onComplete: (newLayout) => {
           if (priorMode === 'number' && newLayout) {
             const map = computeLabels('number', state.photos, newLayout);
@@ -186,7 +181,7 @@ export default function Index() {
     } else {
       regenerateCollage();
     }
-  }, [state.layout, state.photos, state.settings, updateSettings, regenerateCollage, setPhotosBatch]);
+  }, [state.layout, state.photos, state.settings, regenerateCollage, setPhotosBatch]);
 
   const handlePhotosAdded = useCallback(async (newPhotos: PhotoItem[]) => {
     // Snapshot the existing mode so we can extend it to incoming photos.
@@ -273,7 +268,7 @@ export default function Index() {
     if (
       state.layout &&
       ('gapSize' in updates ||
-        'shapeSlider' in updates ||
+        'shapePreference' in updates ||
         'singleColumn' in updates ||
         'singleRow' in updates)
     ) {

@@ -116,23 +116,6 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     }
   }, [editingLabel]);
 
-  // Keyboard navigation: left/right arrows move between photos, but not while
-  // typing in the label input.
-  useEffect(() => {
-    if (!canNavigate) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (editingLabel) return;
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        handleNavigate('prev');
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        handleNavigate('next');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canNavigate, editingLabel, photo.id, crop, isHero, label, labelDraft, editingLabel]);
 
   const beginEditLabel = useCallback(() => {
     setLabelDraft(displayedLabel);

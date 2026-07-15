@@ -49,6 +49,17 @@ export interface HeroTemplate {
   heroAR: HeroARRange;
   /** Valid hero positions within this template */
   positions: string[];
+  /**
+   * How dominant the hero is in this template's canvas.
+   * - 'extreme': hero spans a full canvas axis (height or width). Only usable
+   *   when the user explicitly designated a hero — otherwise the arbitrary
+   *   auto-picked hero produces a visually wrong result.
+   * - 'moderate': hero is emphasized but proportionate. Degrades gracefully
+   *   to a lightly-emphasized layout for auto-picked heroes.
+   *
+   * New templates MUST declare this at their definition site.
+   */
+  heroDominance: 'extreme' | 'moderate';
   /** Human-readable description for debugging */
   description: string;
 }
@@ -66,6 +77,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.15, max: 0.40 },
     heroAR: { min: 0.4, max: 3.0 },
     positions: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+    heroDominance: 'moderate',
     description: 'Universal corner placement; tighter area ceiling on square canvases',
   },
   {
@@ -75,6 +87,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.15, max: 0.35 },
     heroAR: { min: 0.4, max: 0.85 },
     positions: ['left', 'right'],
+    heroDominance: 'extreme',
     description: 'Full-height hero column; portrait hero on landscape canvas',
   },
   {
@@ -84,6 +97,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.15, max: 0.35 },
     heroAR: { min: 1.8, max: 3.0 },
     positions: ['top', 'bottom'],
+    heroDominance: 'extreme',
     description: 'Full-width hero row; landscape hero on portrait canvas',
   },
   {
@@ -93,6 +107,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.20, max: 0.35 },
     heroAR: { min: 0.8, max: 3.0 },
     positions: ['top'],
+    heroDominance: 'moderate',
     description: 'Full-width band at top; square canvases only; landscape-ish heroes',
   },
   {
@@ -102,6 +117,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.20, max: 0.35 },
     heroAR: { min: 0.8, max: 3.0 },
     positions: ['bottom'],
+    heroDominance: 'moderate',
     description: 'Full-width band at bottom; square canvases only; landscape-ish heroes',
   },
   {
@@ -111,6 +127,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.20, max: 0.35 },
     heroAR: { min: 0.3, max: 1.2 },
     positions: ['left'],
+    heroDominance: 'moderate',
     description: 'Full-height band at left; square canvases only; portrait-ish heroes',
   },
   {
@@ -120,6 +137,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.20, max: 0.35 },
     heroAR: { min: 0.3, max: 1.2 },
     positions: ['right'],
+    heroDominance: 'moderate',
     description: 'Full-height band at right; square canvases only; portrait-ish heroes',
   },
   // --- Dual hero ---
@@ -130,6 +148,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.22, max: 0.42 },
     heroAR: { min: 0.4, max: 3.0 },
     positions: ['top-left+bottom-right', 'top-right+bottom-left'],
+    heroDominance: 'moderate',
     description: 'Universal dual hero in opposite corners',
   },
   {
@@ -139,6 +158,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.22, max: 0.42 },
     heroAR: { min: 0.3, max: 1.5 },
     positions: ['left+right'],
+    heroDominance: 'extreme',
     description: 'Two heroes side by side; landscape canvases only',
   },
   {
@@ -148,6 +168,7 @@ export const HERO_TEMPLATES: readonly HeroTemplate[] = Object.freeze([
     heroAreaFraction: { min: 0.22, max: 0.42 },
     heroAR: { min: 0.8, max: 3.0 },
     positions: ['top+bottom'],
+    heroDominance: 'extreme',
     description: 'Two heroes stacked; portrait canvases only',
   },
 ]) as readonly HeroTemplate[];

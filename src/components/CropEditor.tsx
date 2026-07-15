@@ -197,6 +197,8 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     persistCurrentEdits({ skipRegeneration: true });
     onNavigate(direction);
   };
+  const handleNavigateRef = useRef(handleNavigate);
+  handleNavigateRef.current = handleNavigate;
 
   // Keyboard navigation: left/right arrows move between photos, but not while
   // typing in the label input.
@@ -206,15 +208,15 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
       if (editingLabel) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        handleNavigate('prev');
+        handleNavigateRef.current('prev');
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        handleNavigate('next');
+        handleNavigateRef.current('next');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canNavigate, editingLabel, handleNavigate]);
+  }, [canNavigate, editingLabel]);
 
   void completedCrop;
 

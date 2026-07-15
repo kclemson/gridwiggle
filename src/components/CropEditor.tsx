@@ -257,7 +257,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4">
+        <div className="relative flex-1 min-h-0 bg-black/50 flex items-center justify-center p-4">
           <div className="relative inline-block max-h-full">
             <ReactCrop
               crop={crop}
@@ -284,30 +284,6 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                 } as React.CSSProperties}
               />
             </ReactCrop>
-
-            {/* Previous / Next photo arrows */}
-            {canNavigate && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('prev')}
-                  aria-label="Previous photo"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-10"
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <ChevronLeft className="h-6 w-6" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('next')}
-                  aria-label="Next photo"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-10"
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <ChevronRight className="h-6 w-6" />
-                </button>
-              </>
-            )}
 
             {/* Label overlay — anchored inside the crop rect, previewing
                 how the label appears in the final collage. */}
@@ -410,6 +386,31 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
               </div>
             )}
           </div>
+
+          {/* Previous / Next photo arrows — rendered in the dialog gutter,
+              outside ReactCrop's stacking context so they're always visible. */}
+          {canNavigate && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleNavigate('prev')}
+                aria-label="Previous photo"
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/50 text-white/90 hover:bg-black/70 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-20"
+                style={{ touchAction: 'manipulation' }}
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate('next')}
+                aria-label="Next photo"
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/50 text-white/90 hover:bg-black/70 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-20"
+                style={{ touchAction: 'manipulation' }}
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            </>
+          )}
         </div>
 
         <div className="px-4 py-3 border-t border-border shrink-0 flex flex-wrap items-center gap-2">

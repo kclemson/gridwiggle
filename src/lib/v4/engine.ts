@@ -528,12 +528,26 @@ function generateCandidates(
         const contentUniformityPenalty = contentCV > CV_THRESHOLD
           ? Math.min(0.25, (contentCV - CV_THRESHOLD) * 0.5)
           : 0;
+
+        // Uncovered-canvas safety penalty (see single-region block).
+        const filledArea2 = heroAreaVal + allContentAreas.reduce((s, a) => s + a, 0);
+        const uncoveredRatio2 = Math.max(0, 1 - filledArea2 / canvasArea);
+        const UNCOVERED_TOLERANCE_2 = 0.06;
+        const uncoveredPenalty2 = uncoveredRatio2 > UNCOVERED_TOLERANCE_2
+          ? Math.min(0.4, (uncoveredRatio2 - UNCOVERED_TOLERANCE_2) * 2.0)
+          : 0;
+        if (uncoveredPenalty2 > 0) {
+          devLogger.warn('v4-penalty', 'Uncovered canvas penalty', {
+            template: template.id, uncoveredPct: +(uncoveredRatio2 * 100).toFixed(1),
+            penalty: +uncoveredPenalty2.toFixed(3),
+          });
+        }
         
         const allAreas = [heroAreaVal, ...allContentAreas];
         const balanceResult = scoreCellBalance(allAreas, allAreas.length, tuning);
         const presenceScore = besideCount > 0 ? 1.0 : 0.4;
         const rawScore = (balanceResult.score * 0.7) + (presenceScore * 0.3);
-        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty);
+        const score = Math.max(0.05, rawScore - arPenalty - coveragePenalty - prominencePenalty - contentUniformityPenalty - arBoundsPenalty - uncoveredPenalty2);
         
         const corner = randomize 
           ? corners[Math.floor(Math.random() * 4)]
@@ -547,7 +561,7 @@ function generateCandidates(
           height: hHero,
         };
         
-        const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty };
+        const penalties = { ar: arPenalty, coverage: coveragePenalty, prominence: prominencePenalty, uncovered: uncoveredPenalty2 };
         
         candidates.push({
           regions,

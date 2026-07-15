@@ -93,7 +93,7 @@ export function CollageSettings({ settings, hasAnyLabel, hasAnyExifDate, onLabel
                 );
               })}
             </div>
-            <span className="text-[10px] text-muted-foreground select-none">Shape</span>
+            <span className="text-[10px] text-muted-foreground select-none">Preferred shape</span>
           </div>
         </div>
       </section>

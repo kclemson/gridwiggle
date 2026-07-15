@@ -222,7 +222,8 @@ function generateCandidates(
   contentPhotos: PhotoDimension[],
   normalizedGap: number,
   tuning: V3Tuning,
-  randomize: boolean
+  randomize: boolean,
+  hasExplicitHero: boolean
 ): LayoutCandidate[] {
   const heroAR = heroPhoto.aspectRatio;
   const candidates: LayoutCandidate[] = [];
@@ -235,9 +236,15 @@ function generateCandidates(
     ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   
   const templates = findCandidateTemplates(1, [heroAR]);
+  // Extreme-hero templates (hero-column / hero-row) give the hero a full canvas
+  // axis. That's overwhelming when the "hero" is just an arbitrary auto-pick.
+  // Only allow them when the user explicitly designated a hero.
+  const gatedTemplates = hasExplicitHero
+    ? templates
+    : templates.filter(t => t.heroDominance !== 'extreme');
   const triedConfigs = new Set<string>();
   
-  for (const template of templates) {
+  for (const template of gatedTemplates) {
     const minAR = Math.max(template.canvasAR.min, tuning.canvas_minAR);
     const maxAR = Math.min(template.canvasAR.max, tuning.canvas_maxAR);
     if (minAR > maxAR) continue;

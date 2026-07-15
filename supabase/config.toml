@@ -1,7 +1,4 @@
 project_id = "rkdpxjzocxeozuvhgxpx"
 
-[functions.smart-crop]
-verify_jwt = false
-
 [functions.client-logs]
 verify_jwt = false

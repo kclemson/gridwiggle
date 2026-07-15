@@ -119,6 +119,7 @@ export default function Index() {
     crop: CropRegion,
     priority: PhotoPriority,
     label: string | undefined,
+    options?: { skipRegeneration?: boolean; closeAfterSave?: boolean },
   ) => {
     const photo = state.photos.find(p => p.id === photoId);
     const cropChanged =
@@ -133,14 +134,26 @@ export default function Index() {
       priority,
       label,
     });
-    setEditingPhotoId(null);
-    if (state.layout && (cropChanged || priorityChanged)) {
+    if (options?.closeAfterSave !== false) {
+      setEditingPhotoId(null);
+    }
+    if (state.layout && (cropChanged || priorityChanged) && !options?.skipRegeneration) {
       regenerateCollage({
         priorityOverride: { photoId, priority },
         cropOverride: { photoId, crop },
       });
     }
   }, [updatePhoto, state.layout, state.photos, regenerateCollage]);
+
+  const handleNavigatePhoto = useCallback((direction: 'prev' | 'next') => {
+    if (!editingPhotoId || state.photos.length === 0) return;
+    const currentIndex = state.photos.findIndex(p => p.id === editingPhotoId);
+    if (currentIndex === -1) return;
+    const nextIndex = direction === 'next'
+      ? (currentIndex + 1) % state.photos.length
+      : (currentIndex - 1 + state.photos.length) % state.photos.length;
+    setEditingPhotoId(state.photos[nextIndex].id);
+  }, [editingPhotoId, state.photos]);
 
   const handleUpdateLabel = useCallback((photoId: string, label: string) => {
     updatePhoto(photoId, { label });
@@ -535,11 +548,14 @@ export default function Index() {
       {/* Crop Editor - Conditional rendering so component unmounts on close */}
       {editingPhotoId && editingPhoto && (
         <CropEditor
+          key={editingPhotoId}
           photo={editingPhoto}
           gapColor={state.settings.gapColor}
           labelPosition={state.settings.labelPosition}
           onClose={() => setEditingPhotoId(null)}
           onSave={handleSaveCrop}
+          onNavigate={handleNavigatePhoto}
+          canNavigate={state.photos.length > 1}
           onDelete={(photoId) => {
             handleRemovePhoto(photoId);
             setEditingPhotoId(null);

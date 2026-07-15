@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Loader2, Trash2, RotateCcw, Sparkles } from 'lucide-react';
+import { Loader2, Trash2, RotateCcw, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   PhotoItem,
   CropRegion,
@@ -25,8 +25,11 @@ interface CropEditorProps {
     crop: CropRegion,
     priority: PhotoPriority,
     label: string | undefined,
+    options?: { skipRegeneration?: boolean },
   ) => void;
   onDelete: (photoId: string) => void;
+  onNavigate: (direction: 'prev' | 'next') => void;
+  canNavigate?: boolean;
 }
 
 /**
@@ -63,7 +66,7 @@ export function CropEditor(props: CropEditorProps) {
   return <CropEditorInner {...props} />;
 }
 
-function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
+function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete, onNavigate, canNavigate = true }: CropEditorProps) {
   // Seed: prefer existing crop (smart or manual) unless it covers ≥99% of
   // both axes (fail-forward sentinel from getDisplayCrop), in which case
   // we show a full-image selection so Save is a no-op by default.
@@ -113,6 +116,7 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     }
   }, [editingLabel]);
 
+
   const beginEditLabel = useCallback(() => {
     setLabelDraft(displayedLabel);
     setEditingLabel(true);
@@ -153,7 +157,11 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   const labelChanged = label !== initialLabelRef.current;
   const hasChanges = cropChanged || heroChanged || labelChanged;
 
-  const handleSave = () => {
+  const buildSavePayload = (): {
+    region: CropRegion;
+    priority: PhotoPriority;
+    finalLabel: string | undefined;
+  } => {
     // Prefer the live percent crop (more accurate than the last completed
     // pixel crop in edge cases like Reset/Apply Smart Crop, which set
     // percent but don't trigger onComplete).
@@ -172,9 +180,43 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     const finalLabel: string | undefined = editingLabel
       ? labelDraft.trim()
       : label;
-    onClose();
-    onSave(photo.id, region, priority, finalLabel);
+    return { region, priority, finalLabel };
   };
+
+  const persistCurrentEdits = (options?: { skipRegeneration?: boolean }) => {
+    const { region, priority, finalLabel } = buildSavePayload();
+    onSave(photo.id, region, priority, finalLabel, options);
+  };
+
+  const handleSave = () => {
+    persistCurrentEdits();
+    onClose();
+  };
+
+  const handleNavigate = (direction: 'prev' | 'next') => {
+    persistCurrentEdits({ skipRegeneration: true });
+    onNavigate(direction);
+  };
+  const handleNavigateRef = useRef(handleNavigate);
+  handleNavigateRef.current = handleNavigate;
+
+  // Keyboard navigation: left/right arrows move between photos, but not while
+  // typing in the label input.
+  useEffect(() => {
+    if (!canNavigate) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (editingLabel) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleNavigateRef.current('prev');
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleNavigateRef.current('next');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canNavigate, editingLabel]);
 
   void completedCrop;
 
@@ -242,6 +284,30 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
                 } as React.CSSProperties}
               />
             </ReactCrop>
+
+            {/* Previous / Next photo arrows */}
+            {canNavigate && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('prev')}
+                  aria-label="Previous photo"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-10"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('next')}
+                  aria-label="Next photo"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-10"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </>
+            )}
 
             {/* Label overlay — anchored inside the crop rect, previewing
                 how the label appears in the final collage. */}

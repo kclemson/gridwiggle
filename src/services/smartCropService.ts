@@ -1,7 +1,6 @@
 import { CropRegion } from '@/types/collage';
 import { remoteLogger } from '@/lib/remoteLogger';
 import { isMobileDevice } from '@/lib/platform';
-import { getServerSmartCrop } from '@/services/serverSmartCropService';
 
 // ============================================================================
 // Types
@@ -79,10 +78,17 @@ export async function getSmartCrop(
   height: number,
   onStatus?: WorkerStatusCallback
 ): Promise<SmartCropResult> {
-  // Mobile devices route to server-side inference to avoid Safari WASM crashes
-  // Mobile devices route to server-side inference to avoid Safari WASM crashes
+  // Mobile skips auto smart-crop entirely — the server (Gemini) path was
+  // unreliable (overly aggressive crops). Users adjust manually via the
+  // crop editor. Desktop continues to use on-device DETR.
   if (isMobileDevice()) {
-    return getServerSmartCrop(objectUrl, blob, width, height, onStatus);
+    onStatus?.('Skipping auto-crop on mobile');
+    return {
+      crop: { x: 0, y: 0, width, height },
+      confidence: 0,
+      subjects: 'Skipped on mobile',
+      skipCrop: true,
+    };
   }
 
   // Check worker availability first - fail fast with fallback
@@ -172,11 +178,9 @@ export async function getSmartCrop(
 // Batch processing with concurrency control (mobile server path)
 // ============================================================================
 
-const MOBILE_CONCURRENCY = 3;
-
 /**
  * Process multiple photos through smart crop with concurrency control.
- * - Mobile (server path): runs up to MOBILE_CONCURRENCY calls in parallel
+ * - Mobile: skipped entirely — emits a full-image fallback per photo
  * - Desktop (worker path): sequential (single ONNX worker constraint)
  *
  * Calls `onResult` as each photo completes, enabling progressive UI updates.
@@ -188,62 +192,25 @@ export async function getSmartCropBatch(
 ): Promise<void> {
   if (inputs.length === 0) return;
 
-  // Desktop: sequential through the shared worker (can't parallelize ONNX)
-  if (!isMobileDevice()) {
+  // Mobile: emit fallback results and return without inference.
+  if (isMobileDevice()) {
     for (const input of inputs) {
-      const result = await getSmartCrop(
-        input.objectUrl, input.blob, input.width, input.height, onStatus,
-      );
-      onResult({ id: input.id, ...result });
+      onResult({
+        id: input.id,
+        crop: { x: 0, y: 0, width: input.width, height: input.height },
+        confidence: 0,
+        subjects: 'Skipped on mobile',
+        skipCrop: true,
+      });
     }
     return;
   }
 
-  // Mobile: concurrent server calls with semaphore
-  let active = 0;
-  let nextIdx = 0;
-  const total = inputs.length;
-
-  await new Promise<void>((resolve, reject) => {
-    function launch() {
-      while (active < MOBILE_CONCURRENCY && nextIdx < total) {
-        const input = inputs[nextIdx++];
-        active++;
-
-        getServerSmartCrop(input.objectUrl, input.blob, input.width, input.height, onStatus)
-          .then(result => {
-            onResult({ id: input.id, ...result });
-          })
-          .catch(error => {
-            remoteLogger.error('batch-crop', 'Single photo failed', {
-              id: input.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            // Fail-forward: return full-image fallback
-            onResult({
-              id: input.id,
-              crop: { x: 0, y: 0, width: input.width, height: input.height },
-              confidence: 0,
-              subjects: 'Server error',
-              skipCrop: true,
-            });
-          })
-          .finally(() => {
-            active--;
-            if (nextIdx >= total && active === 0) {
-              resolve();
-            } else {
-              launch();
-            }
-          });
-      }
-    }
-
-    try {
-      launch();
-    } catch (e) {
-      reject(e);
-    }
-  });
-
+  // Desktop: sequential through the shared worker (can't parallelize ONNX)
+  for (const input of inputs) {
+    const result = await getSmartCrop(
+      input.objectUrl, input.blob, input.width, input.height, onStatus,
+    );
+    onResult({ id: input.id, ...result });
+  }
 }

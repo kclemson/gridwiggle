@@ -66,7 +66,7 @@ export function CropEditor(props: CropEditorProps) {
   return <CropEditorInner {...props} />;
 }
 
-function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete }: CropEditorProps) {
+function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDelete, onNavigate, canNavigate = true }: CropEditorProps) {
   // Seed: prefer existing crop (smart or manual) unless it covers ≥99% of
   // both axes (fail-forward sentinel from getDisplayCrop), in which case
   // we show a full-image selection so Save is a no-op by default.

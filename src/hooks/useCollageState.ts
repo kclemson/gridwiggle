@@ -28,7 +28,7 @@ const STORAGE_KEY = 'smart-collage-state';
 const SAVE_DEBOUNCE_MS = 300;
 
 const defaultSettings: CollageSettings = {
-  shapeSlider: null,
+  shapePreference: 'auto',
   gapColor: '#000000',
   gapSize: 30,
   exportScale: 2,
@@ -52,18 +52,24 @@ function loadMetadataFromStorage(): PersistedCollageState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // One-time migration from orientation to shape, then shape to shapeSlider
+      // One-time migration: orientation → shape → shapeSlider → shapePreference
       if ('orientation' in parsed.settings && !('shape' in parsed.settings)) {
         parsed.settings.shape = parsed.settings.orientation;
         delete parsed.settings.orientation;
       }
-      // Migrate shape enum to shapeSlider
       if ('shape' in parsed.settings) {
-        const shapeMap: Record<string, number | null> = {
-          auto: null, portrait: 15, square: 50, landscape: 85,
+        const shapeMap: Record<string, string> = {
+          auto: 'auto', portrait: 'portrait', square: 'square', landscape: 'landscape',
         };
-        parsed.settings.shapeSlider = shapeMap[parsed.settings.shape] ?? null;
+        parsed.settings.shapePreference = shapeMap[parsed.settings.shape] ?? 'auto';
         delete parsed.settings.shape;
+      }
+      // Migrate shapeSlider (0-100 | null) → shapePreference
+      if ('shapeSlider' in parsed.settings) {
+        const s = parsed.settings.shapeSlider;
+        parsed.settings.shapePreference =
+          s == null ? 'auto' : s < 35 ? 'portrait' : s > 65 ? 'landscape' : 'square';
+        delete parsed.settings.shapeSlider;
       }
       // Migrate `labelsEnabled` → `showLabelPlaceholders` (always start off;
       // existing label text on photos is still preserved and rendered).

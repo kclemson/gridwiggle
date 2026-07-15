@@ -979,6 +979,7 @@ export function generateLayoutFromDimensions(
   // Detect heroes (weight > 1), sorted by weight descending
   const heroes = dimensions.filter(d => d.weight > 1).sort((a, b) => b.weight - a.weight);
   const heroPhoto = heroes.length > 0 ? heroes[0] : dimensions.reduce((h, d) => d.weight > h.weight ? d : h);
+  const hasExplicitHero = heroes.length > 0;
   
   const isDualHero = heroes.length >= 2 && dimensions.length >= 8;
   const hero2Photo = isDualHero ? heroes[1] : null;
@@ -1006,7 +1007,7 @@ export function generateLayoutFromDimensions(
       : 0;
     if (bestDualScore <= 0.10) {
       const allContent = dimensions.filter(d => d.id !== heroPhoto.id);
-      const singleCandidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize);
+      const singleCandidates = generateCandidates(heroPhoto, allContent, normalizedGap, tuning, randomize, hasExplicitHero);
       if (singleCandidates.length > 0) {
         const bestSingle = Math.max(...singleCandidates.map(c => c.score));
         if (bestSingle > bestDualScore) {
@@ -1020,7 +1021,7 @@ export function generateLayoutFromDimensions(
       }
     }
   } else {
-    candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize);
+    candidates = generateCandidates(heroPhoto, contentPhotos, normalizedGap, tuning, randomize, hasExplicitHero);
   }
   
   // No-null safety net: stacked-strip fallback

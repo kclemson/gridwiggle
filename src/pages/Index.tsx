@@ -119,6 +119,7 @@ export default function Index() {
     crop: CropRegion,
     priority: PhotoPriority,
     label: string | undefined,
+    options?: { skipRegeneration?: boolean; closeAfterSave?: boolean },
   ) => {
     const photo = state.photos.find(p => p.id === photoId);
     const cropChanged =
@@ -133,8 +134,10 @@ export default function Index() {
       priority,
       label,
     });
-    setEditingPhotoId(null);
-    if (state.layout && (cropChanged || priorityChanged)) {
+    if (options?.closeAfterSave !== false) {
+      setEditingPhotoId(null);
+    }
+    if (state.layout && (cropChanged || priorityChanged) && !options?.skipRegeneration) {
       regenerateCollage({
         priorityOverride: { photoId, priority },
         cropOverride: { photoId, crop },

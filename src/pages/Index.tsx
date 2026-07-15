@@ -548,11 +548,14 @@ export default function Index() {
       {/* Crop Editor - Conditional rendering so component unmounts on close */}
       {editingPhotoId && editingPhoto && (
         <CropEditor
+          key={editingPhotoId}
           photo={editingPhoto}
           gapColor={state.settings.gapColor}
           labelPosition={state.settings.labelPosition}
           onClose={() => setEditingPhotoId(null)}
           onSave={handleSaveCrop}
+          onNavigate={handleNavigatePhoto}
+          canNavigate={state.photos.length > 1}
           onDelete={(photoId) => {
             handleRemovePhoto(photoId);
             setEditingPhotoId(null);

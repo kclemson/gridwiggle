@@ -1,11 +1,10 @@
-import { useState } from 'react';
-import { CollageSettings as CollageSettingsType, CollageLayout, MIN_PHOTOS_FOR_SHAPE_SLIDER } from '@/types/collage';
+import { CollageSettings as CollageSettingsType, CollageLayout } from '@/types/collage';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LabelPositionPicker } from '@/components/LabelPositionPicker';
-import { arToSliderPosition } from '@/lib/shapeSlider';
+import type { ShapePreference } from '@/lib/shapePreference';
 import { cn } from '@/lib/utils';
-import { Calendar, Hash, Pencil, X } from 'lucide-react';
+import { Calendar, Hash, Pencil, X, Sparkles, RectangleVertical, Square, RectangleHorizontal } from 'lucide-react';
 
 interface CollageSettingsProps {
   settings: CollageSettingsType;
@@ -17,18 +16,18 @@ interface CollageSettingsProps {
   onUpdate: (updates: Partial<CollageSettingsType>) => void;
 }
 
-export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, hasAnyExifDate, onLabelAction, onUpdate }: CollageSettingsProps) {
+export function CollageSettings({ settings, hasAnyLabel, hasAnyExifDate, onLabelAction, onUpdate }: CollageSettingsProps) {
   const labelsVisible = hasAnyLabel || settings.showLabelPlaceholders;
-  const [draggingValue, setDraggingValue] = useState<number | null>(null);
-
-  // Slider always reflects the current layout AR (truthful display)
-  const displayPosition = layout
-    ? arToSliderPosition(layout.width / layout.height)
-    : 50; // Default to center when no layout
 
   const stripeActive = settings.singleColumn || settings.singleRow;
-  const shapeDisabled = stripeActive || photoCount < MIN_PHOTOS_FOR_SHAPE_SLIDER;
-  const shapeValue = draggingValue ?? displayPosition;
+  const shapeDisabled = stripeActive;
+
+  const shapeOptions: { value: ShapePreference; icon: React.ReactNode; title: string }[] = [
+    { value: 'auto', icon: <Sparkles className="h-3.5 w-3.5" />, title: 'Auto shape' },
+    { value: 'portrait', icon: <RectangleVertical className="h-3.5 w-3.5" />, title: 'Prefer portrait' },
+    { value: 'square', icon: <Square className="h-3.5 w-3.5" />, title: 'Prefer square' },
+    { value: 'landscape', icon: <RectangleHorizontal className="h-3.5 w-3.5" />, title: 'Prefer landscape' },
+  ];
 
   return (
     <div className="space-y-3 py-2 px-1">
@@ -58,34 +57,43 @@ export function CollageSettings({ settings, layout, photoCount, hasAnyLabel, has
 
           <div
             className={cn(
-              "flex flex-col gap-2",
+              "flex flex-col items-center gap-1",
               shapeDisabled && "opacity-40"
             )}
             title={
-              stripeActive
+              shapeDisabled
                 ? 'Shape is disabled while single column/row is on'
-                : shapeDisabled
-                  ? `Shape requires ${MIN_PHOTOS_FOR_SHAPE_SLIDER}+ photos`
-                  : undefined
+                : undefined
             }
           >
-            <Slider
-              value={[shapeValue]}
-              onValueChange={([value]) => setDraggingValue(value)}
-              onValueCommit={([value]) => {
-                setDraggingValue(null);
-                onUpdate({ shapeSlider: value });
-              }}
-              disabled={shapeDisabled}
-              min={0}
-              max={100}
-              step={5}
-              className="w-36 [&>span:first-child]:bg-muted-foreground/30"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground select-none">
-              <span>Tall <span aria-hidden="true">▯</span></span>
-              <span><span aria-hidden="true">▭</span> Wide</span>
+            <div role="radiogroup" aria-label="Canvas shape" className="flex items-center gap-0.5">
+              {shapeOptions.map((opt) => {
+                const selected = settings.shapePreference === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={shapeDisabled}
+                    onClick={() => onUpdate({ shapePreference: opt.value })}
+                    title={opt.title}
+                    aria-label={opt.title}
+                    className={cn(
+                      'h-6 w-7 flex items-center justify-center transition-colors',
+                      'border',
+                      selected
+                        ? 'border-primary text-primary bg-primary/10'
+                        : 'border-transparent text-muted-foreground hover:text-foreground',
+                      shapeDisabled && 'cursor-not-allowed',
+                    )}
+                  >
+                    {opt.icon}
+                  </button>
+                );
+              })}
             </div>
+            <span className="text-[10px] text-muted-foreground select-none">Shape</span>
           </div>
         </div>
       </section>

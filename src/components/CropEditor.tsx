@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Loader2, Trash2, RotateCcw, Sparkles } from 'lucide-react';
+import { Loader2, Trash2, RotateCcw, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   PhotoItem,
   CropRegion,

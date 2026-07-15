@@ -156,7 +156,11 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
   const labelChanged = label !== initialLabelRef.current;
   const hasChanges = cropChanged || heroChanged || labelChanged;
 
-  const handleSave = () => {
+  const buildSavePayload = (): {
+    region: CropRegion;
+    priority: PhotoPriority;
+    finalLabel: string | undefined;
+  } => {
     // Prefer the live percent crop (more accurate than the last completed
     // pixel crop in edge cases like Reset/Apply Smart Crop, which set
     // percent but don't trigger onComplete).
@@ -175,8 +179,22 @@ function CropEditorInner({ photo, gapColor, labelPosition, onClose, onSave, onDe
     const finalLabel: string | undefined = editingLabel
       ? labelDraft.trim()
       : label;
+    return { region, priority, finalLabel };
+  };
+
+  const persistCurrentEdits = (options?: { skipRegeneration?: boolean }) => {
+    const { region, priority, finalLabel } = buildSavePayload();
+    onSave(photo.id, region, priority, finalLabel, options);
+  };
+
+  const handleSave = () => {
+    persistCurrentEdits();
     onClose();
-    onSave(photo.id, region, priority, finalLabel);
+  };
+
+  const handleNavigate = (direction: 'prev' | 'next') => {
+    persistCurrentEdits({ skipRegeneration: true });
+    onNavigate(direction);
   };
 
   void completedCrop;

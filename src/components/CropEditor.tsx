@@ -25,8 +25,11 @@ interface CropEditorProps {
     crop: CropRegion,
     priority: PhotoPriority,
     label: string | undefined,
+    options?: { skipRegeneration?: boolean },
   ) => void;
   onDelete: (photoId: string) => void;
+  onNavigate: (direction: 'prev' | 'next') => void;
+  canNavigate?: boolean;
 }
 
 /**

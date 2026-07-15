@@ -146,7 +146,7 @@ function generateLayoutResult(photos: SyntheticPhoto[]): LayoutResult {
   
   const photoItems = photos.map(toPhotoItem);
   const settings: CollageSettings = {
-    shapeSlider: null,
+    shapePreference: 'auto',
     gapColor: '#ffffff',
     gapSize: GAP_SIZE,
     exportScale: 1,

@@ -137,7 +137,14 @@ export function runLayoutTest(testCase: LayoutTestCase): LayoutTestResult {
   const v3Tuning: Partial<V3Tuning> = {};
   
   const settings: CollageSettings = {
-    shapeSlider,
+    shapePreference:
+      shapeSlider == null
+        ? 'auto'
+        : shapeSlider < 35
+          ? 'portrait'
+          : shapeSlider > 65
+            ? 'landscape'
+            : 'square',
     gapColor: '#000000',
     gapSize: 4,
     exportScale: 1,
